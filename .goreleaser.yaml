@@ -1,0 +1,73 @@
+# GoReleaser configuration — builds the cross-platform binary matrix that the
+# curl|sh installer served at memcode.ai/install.sh downloads from GitHub Releases.
+# Docs: https://goreleaser.com
+version: 2
+
+project_name: memcode
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: memcode
+    main: .
+    binary: memcode
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X github.com/memcode-ai/memcode/internal/buildinfo.Version={{ .Version }}
+      - -X github.com/memcode-ai/memcode/internal/buildinfo.Commit={{ .ShortCommit }}
+      - -X github.com/memcode-ai/memcode/internal/buildinfo.Date={{ .Date }}
+    goos:
+      - darwin
+      - linux
+      - windows
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - id: memcode
+    # Produces e.g. memcode_Darwin_arm64.tar.gz — the names install.sh expects.
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- title .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else }}{{ .Arch }}{{ end }}
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files:
+      - LICENSE*
+      - README*
+
+checksum:
+  name_template: "checksums.txt"
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-snapshot-{{ .ShortCommit }}"
+
+changelog:
+  sort: asc
+  use: github
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+
+release:
+  github:
+    owner: memcode-ai
+    name: memcode
+  draft: false
+  prerelease: auto
+  # replace: a re-run of a tag overwrites its assets instead of 422ing on
+  # already_exists — the v0.2.0 release run died exactly that way after a
+  # partial first publish.
+  mode: replace

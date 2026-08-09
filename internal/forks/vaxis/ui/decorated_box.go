@@ -1,0 +1,176 @@
+package ui
+
+// Decoration describes the fill, style, and border painted behind a child.
+type Decoration struct {
+	// Style is used for the background fill.
+	Style Style
+	// Fill is the character used to fill the box; a space is used when zero.
+	Fill Character
+	// Border describes the optional border drawn over the fill.
+	Border Border
+}
+
+// Border describes which edges of a box should be drawn.
+type Border struct {
+	// Style is used to draw border cells.
+	Style Style
+	// Top, Right, Bottom, and Left enable individual border edges.
+	Top, Right, Bottom, Left bool
+	// Chars customizes the border drawing characters.
+	Chars BorderChars
+}
+
+// BorderAll creates a border on every edge using style.
+func BorderAll(style Style) Border {
+	return Border{Style: style, Top: true, Right: true, Bottom: true, Left: true}
+}
+
+// BorderLine creates a one-cell border using color as the foreground.
+func BorderLine(color Color) Border {
+	return BorderAll(Style{Foreground: color})
+}
+
+// BorderChars customizes the characters used to draw a border.
+type BorderChars struct {
+	// Horizontal and Vertical draw straight border edges.
+	Horizontal, Vertical Character
+	// TopLeft and TopRight draw the top corners.
+	TopLeft, TopRight Character
+	// BottomLeft and BottomRight draw the bottom corners.
+	BottomLeft, BottomRight Character
+}
+
+// decoratedBoxWidget paints a decoration behind its child.
+type decoratedBoxWidget struct {
+	// Decoration is painted before the child.
+	Decoration Decoration
+	// Child is painted over the decoration.
+	Child Widget
+}
+
+// DecoratedBox returns a widget that paints decoration behind child.
+func DecoratedBox(decoration Decoration, child Widget) Widget {
+	return decoratedBoxWidget{Decoration: decoration, Child: child}
+}
+
+func (w decoratedBoxWidget) WidgetChild() Widget {
+	return w.Child
+}
+
+func (w decoratedBoxWidget) CreateRenderObject(ctx BuildContext) RenderObject {
+	return &renderDecoratedBox{Decoration: w.Decoration}
+}
+
+func (w decoratedBoxWidget) UpdateRenderObject(ctx BuildContext, ro RenderObject) {
+	r := ro.(*renderDecoratedBox)
+	if r.Decoration != w.Decoration {
+		r.Decoration = w.Decoration
+		r.MarkNeedsPaint()
+	}
+}
+
+// renderDecoratedBox paints a decoration and then its child.
+type renderDecoratedBox struct {
+	SingleChildRenderObject
+	Decoration Decoration
+}
+
+func (r *renderDecoratedBox) Layout(ctx LayoutContext, c Constraints) {
+	r.SetSize(r.layout(ctx, c, false))
+}
+
+func (r *renderDecoratedBox) DryLayout(ctx LayoutContext, c Constraints) Size {
+	return r.layout(ctx, c, true)
+}
+
+func (r *renderDecoratedBox) layout(ctx LayoutContext, c Constraints, dry bool) Size {
+	if child := r.Child(); child != nil {
+		if dry {
+			return c.Constrain(DryLayout(ctx, child, c))
+		}
+		child.Layout(ctx, c)
+		return c.Constrain(child.Base().Size())
+	}
+	return c.Constrain(Size{})
+}
+
+func (r *renderDecoratedBox) Paint(p *Painter, off Offset) {
+	size := r.Size()
+	fill := r.Decoration.Fill
+	if fill == (Character{}) {
+		fill = Character{Grapheme: " ", Width: 1}
+	}
+	p.Fill(Rect{X: off.X, Y: off.Y, Width: size.Width, Height: size.Height}, Cell{Character: fill, Style: r.Decoration.Style})
+	r.paintBorder(p, off, size)
+	if child := r.Child(); child != nil {
+		child.Paint(p, off)
+	}
+}
+
+func (r *renderDecoratedBox) paintBorder(p *Painter, off Offset, size Size) {
+	border := r.Decoration.Border
+	if size.Width <= 0 || size.Height <= 0 || (!border.Top && !border.Right && !border.Bottom && !border.Left) {
+		return
+	}
+	chars := border.Chars.withDefaults()
+	horizontal := Cell{Character: chars.Horizontal, Style: border.Style}
+	vertical := Cell{Character: chars.Vertical, Style: border.Style}
+	if border.Top {
+		for x := 0; x < size.Width; x++ {
+			p.DrawCell(Point{X: off.X + x, Y: off.Y}, horizontal)
+		}
+	}
+	if border.Bottom {
+		for x := 0; x < size.Width; x++ {
+			p.DrawCell(Point{X: off.X + x, Y: off.Y + size.Height - 1}, horizontal)
+		}
+	}
+	if border.Left {
+		for y := 0; y < size.Height; y++ {
+			p.DrawCell(Point{X: off.X, Y: off.Y + y}, vertical)
+		}
+	}
+	if border.Right {
+		for y := 0; y < size.Height; y++ {
+			p.DrawCell(Point{X: off.X + size.Width - 1, Y: off.Y + y}, vertical)
+		}
+	}
+	if border.Top && border.Left {
+		p.DrawCell(Point(off), Cell{Character: chars.TopLeft, Style: border.Style})
+	}
+	if border.Top && border.Right {
+		p.DrawCell(Point{X: off.X + size.Width - 1, Y: off.Y}, Cell{Character: chars.TopRight, Style: border.Style})
+	}
+	if border.Bottom && border.Left {
+		p.DrawCell(Point{X: off.X, Y: off.Y + size.Height - 1}, Cell{Character: chars.BottomLeft, Style: border.Style})
+	}
+	if border.Bottom && border.Right {
+		p.DrawCell(Point{X: off.X + size.Width - 1, Y: off.Y + size.Height - 1}, Cell{Character: chars.BottomRight, Style: border.Style})
+	}
+}
+
+func (c BorderChars) withDefaults() BorderChars {
+	if c.Horizontal == (Character{}) {
+		c.Horizontal = Character{Grapheme: "─", Width: 1}
+	}
+	if c.Vertical == (Character{}) {
+		c.Vertical = Character{Grapheme: "│", Width: 1}
+	}
+	if c.TopLeft == (Character{}) {
+		c.TopLeft = Character{Grapheme: "┌", Width: 1}
+	}
+	if c.TopRight == (Character{}) {
+		c.TopRight = Character{Grapheme: "┐", Width: 1}
+	}
+	if c.BottomLeft == (Character{}) {
+		c.BottomLeft = Character{Grapheme: "└", Width: 1}
+	}
+	if c.BottomRight == (Character{}) {
+		c.BottomRight = Character{Grapheme: "┘", Width: 1}
+	}
+	return c
+}
+
+func (r *renderDecoratedBox) HitTest(*HitTestResult, Point) bool {
+	return false
+}

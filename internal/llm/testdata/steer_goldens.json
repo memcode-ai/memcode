@@ -1,0 +1,5042 @@
+[
+ {
+  "model": "sol",
+  "label": "sol"
+ },
+ {
+  "model": "terra",
+  "label": "terra"
+ },
+ {
+  "model": "luna",
+  "label": "luna"
+ },
+ {
+  "model": "opus",
+  "label": "opus"
+ },
+ {
+  "model": "sonnet",
+  "label": "sonnet"
+ },
+ {
+  "model": "haiku",
+  "label": "haiku"
+ },
+ {
+  "model": "gemini-pro",
+  "label": "gemini-pro"
+ },
+ {
+  "model": "gemini-flash",
+  "label": "gemini-flash"
+ },
+ {
+  "model": "gemini-flash-lite",
+  "label": "gemini-flash-lite"
+ },
+ {
+  "model": "grok-4.5",
+  "label": "grok-4.5"
+ },
+ {
+  "model": "glm-5p2",
+  "label": "glm-5p2"
+ },
+ {
+  "model": "gpt-oss-120b",
+  "label": "gpt-oss-120b"
+ },
+ {
+  "model": "kimi-k3",
+  "label": "kimi-k3"
+ },
+ {
+  "model": "kimi-k2p7-code",
+  "label": "kimi-k2p7-code"
+ },
+ {
+  "explicit_vendor": "anthropic",
+  "model": "sol",
+  "label": "sol"
+ },
+ {
+  "explicit_vendor": "anthropic",
+  "model": "terra",
+  "label": "terra"
+ },
+ {
+  "explicit_vendor": "anthropic",
+  "model": "luna",
+  "label": "luna"
+ },
+ {
+  "explicit_vendor": "anthropic",
+  "model": "opus",
+  "label": "opus"
+ },
+ {
+  "explicit_vendor": "anthropic",
+  "model": "sonnet",
+  "label": "sonnet"
+ },
+ {
+  "explicit_vendor": "anthropic",
+  "model": "haiku",
+  "label": "haiku"
+ },
+ {
+  "explicit_vendor": "anthropic",
+  "model": "gemini-pro",
+  "label": "gemini-pro"
+ },
+ {
+  "explicit_vendor": "anthropic",
+  "model": "gemini-flash",
+  "label": "gemini-flash"
+ },
+ {
+  "explicit_vendor": "anthropic",
+  "model": "gemini-flash-lite",
+  "label": "gemini-flash-lite"
+ },
+ {
+  "explicit_vendor": "anthropic",
+  "model": "grok-4.5",
+  "label": "grok-4.5"
+ },
+ {
+  "explicit_vendor": "anthropic",
+  "model": "glm-5p2",
+  "label": "glm-5p2"
+ },
+ {
+  "explicit_vendor": "anthropic",
+  "model": "gpt-oss-120b",
+  "label": "gpt-oss-120b"
+ },
+ {
+  "explicit_vendor": "anthropic",
+  "model": "kimi-k3",
+  "label": "kimi-k3"
+ },
+ {
+  "explicit_vendor": "anthropic",
+  "model": "kimi-k2p7-code",
+  "label": "kimi-k2p7-code"
+ },
+ {
+  "credits_exhausted": true,
+  "model": "sol",
+  "label": "sol"
+ },
+ {
+  "credits_exhausted": true,
+  "model": "terra",
+  "label": "terra"
+ },
+ {
+  "credits_exhausted": true,
+  "model": "luna",
+  "label": "luna"
+ },
+ {
+  "credits_exhausted": true,
+  "model": "opus",
+  "label": "opus"
+ },
+ {
+  "credits_exhausted": true,
+  "model": "sonnet",
+  "label": "sonnet"
+ },
+ {
+  "credits_exhausted": true,
+  "model": "haiku",
+  "label": "haiku"
+ },
+ {
+  "credits_exhausted": true,
+  "model": "gemini-pro",
+  "label": "gemini-pro"
+ },
+ {
+  "credits_exhausted": true,
+  "model": "gemini-flash",
+  "label": "gemini-flash"
+ },
+ {
+  "credits_exhausted": true,
+  "model": "gemini-flash-lite",
+  "label": "gemini-flash-lite"
+ },
+ {
+  "credits_exhausted": true,
+  "model": "grok-4.5",
+  "label": "grok-4.5"
+ },
+ {
+  "credits_exhausted": true,
+  "model": "glm-5p2",
+  "label": "glm-5p2"
+ },
+ {
+  "credits_exhausted": true,
+  "model": "gpt-oss-120b",
+  "label": "gpt-oss-120b"
+ },
+ {
+  "credits_exhausted": true,
+  "model": "kimi-k3",
+  "label": "kimi-k3"
+ },
+ {
+  "credits_exhausted": true,
+  "model": "kimi-k2p7-code",
+  "label": "kimi-k2p7-code"
+ },
+ {
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "sol",
+  "label": "sol"
+ },
+ {
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "terra",
+  "label": "terra"
+ },
+ {
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "luna",
+  "label": "luna"
+ },
+ {
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "opus",
+  "label": "opus"
+ },
+ {
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "sonnet",
+  "label": "sonnet"
+ },
+ {
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "haiku",
+  "label": "haiku"
+ },
+ {
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "gemini-pro",
+  "label": "gemini-pro"
+ },
+ {
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "gemini-flash",
+  "label": "gemini-flash"
+ },
+ {
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "gemini-flash-lite",
+  "label": "gemini-flash-lite"
+ },
+ {
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "grok-4.5",
+  "label": "grok-4.5"
+ },
+ {
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "glm-5p2",
+  "label": "glm-5p2"
+ },
+ {
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "gpt-oss-120b",
+  "label": "gpt-oss-120b"
+ },
+ {
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "kimi-k3",
+  "label": "kimi-k3"
+ },
+ {
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "kimi-k2p7-code",
+  "label": "kimi-k2p7-code"
+ },
+ {
+  "byok": [
+   "anthropic"
+  ],
+  "model": "sol",
+  "label": "opus"
+ },
+ {
+  "byok": [
+   "anthropic"
+  ],
+  "model": "terra",
+  "label": "sonnet"
+ },
+ {
+  "byok": [
+   "anthropic"
+  ],
+  "model": "luna",
+  "label": "haiku"
+ },
+ {
+  "byok": [
+   "anthropic"
+  ],
+  "model": "opus",
+  "label": "opus"
+ },
+ {
+  "byok": [
+   "anthropic"
+  ],
+  "model": "sonnet",
+  "label": "sonnet"
+ },
+ {
+  "byok": [
+   "anthropic"
+  ],
+  "model": "haiku",
+  "label": "haiku"
+ },
+ {
+  "byok": [
+   "anthropic"
+  ],
+  "model": "gemini-pro",
+  "label": "opus"
+ },
+ {
+  "byok": [
+   "anthropic"
+  ],
+  "model": "gemini-flash",
+  "label": "sonnet"
+ },
+ {
+  "byok": [
+   "anthropic"
+  ],
+  "model": "gemini-flash-lite",
+  "label": "haiku"
+ },
+ {
+  "byok": [
+   "anthropic"
+  ],
+  "model": "grok-4.5",
+  "label": "opus"
+ },
+ {
+  "byok": [
+   "anthropic"
+  ],
+  "model": "glm-5p2",
+  "label": "glm-5p2"
+ },
+ {
+  "byok": [
+   "anthropic"
+  ],
+  "model": "gpt-oss-120b",
+  "label": "gpt-oss-120b"
+ },
+ {
+  "byok": [
+   "anthropic"
+  ],
+  "model": "kimi-k3",
+  "label": "kimi-k3"
+ },
+ {
+  "byok": [
+   "anthropic"
+  ],
+  "model": "kimi-k2p7-code",
+  "label": "kimi-k2p7-code"
+ },
+ {
+  "byok": [
+   "anthropic"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "sol",
+  "label": "sol"
+ },
+ {
+  "byok": [
+   "anthropic"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "terra",
+  "label": "terra"
+ },
+ {
+  "byok": [
+   "anthropic"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "luna",
+  "label": "luna"
+ },
+ {
+  "byok": [
+   "anthropic"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "opus",
+  "label": "opus"
+ },
+ {
+  "byok": [
+   "anthropic"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "sonnet",
+  "label": "sonnet"
+ },
+ {
+  "byok": [
+   "anthropic"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "haiku",
+  "label": "haiku"
+ },
+ {
+  "byok": [
+   "anthropic"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "gemini-pro",
+  "label": "gemini-pro"
+ },
+ {
+  "byok": [
+   "anthropic"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "gemini-flash",
+  "label": "gemini-flash"
+ },
+ {
+  "byok": [
+   "anthropic"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "gemini-flash-lite",
+  "label": "gemini-flash-lite"
+ },
+ {
+  "byok": [
+   "anthropic"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "grok-4.5",
+  "label": "grok-4.5"
+ },
+ {
+  "byok": [
+   "anthropic"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "glm-5p2",
+  "label": "glm-5p2"
+ },
+ {
+  "byok": [
+   "anthropic"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "gpt-oss-120b",
+  "label": "gpt-oss-120b"
+ },
+ {
+  "byok": [
+   "anthropic"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "kimi-k3",
+  "label": "kimi-k3"
+ },
+ {
+  "byok": [
+   "anthropic"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "kimi-k2p7-code",
+  "label": "kimi-k2p7-code"
+ },
+ {
+  "byok": [
+   "anthropic"
+  ],
+  "credits_exhausted": true,
+  "model": "sol",
+  "label": "opus"
+ },
+ {
+  "byok": [
+   "anthropic"
+  ],
+  "credits_exhausted": true,
+  "model": "terra",
+  "label": "sonnet"
+ },
+ {
+  "byok": [
+   "anthropic"
+  ],
+  "credits_exhausted": true,
+  "model": "luna",
+  "label": "haiku"
+ },
+ {
+  "byok": [
+   "anthropic"
+  ],
+  "credits_exhausted": true,
+  "model": "opus",
+  "label": "opus"
+ },
+ {
+  "byok": [
+   "anthropic"
+  ],
+  "credits_exhausted": true,
+  "model": "sonnet",
+  "label": "sonnet"
+ },
+ {
+  "byok": [
+   "anthropic"
+  ],
+  "credits_exhausted": true,
+  "model": "haiku",
+  "label": "haiku"
+ },
+ {
+  "byok": [
+   "anthropic"
+  ],
+  "credits_exhausted": true,
+  "model": "gemini-pro",
+  "label": "opus"
+ },
+ {
+  "byok": [
+   "anthropic"
+  ],
+  "credits_exhausted": true,
+  "model": "gemini-flash",
+  "label": "sonnet"
+ },
+ {
+  "byok": [
+   "anthropic"
+  ],
+  "credits_exhausted": true,
+  "model": "gemini-flash-lite",
+  "label": "haiku"
+ },
+ {
+  "byok": [
+   "anthropic"
+  ],
+  "credits_exhausted": true,
+  "model": "grok-4.5",
+  "label": "opus"
+ },
+ {
+  "byok": [
+   "anthropic"
+  ],
+  "credits_exhausted": true,
+  "model": "glm-5p2",
+  "label": "glm-5p2"
+ },
+ {
+  "byok": [
+   "anthropic"
+  ],
+  "credits_exhausted": true,
+  "model": "gpt-oss-120b",
+  "label": "gpt-oss-120b"
+ },
+ {
+  "byok": [
+   "anthropic"
+  ],
+  "credits_exhausted": true,
+  "model": "kimi-k3",
+  "label": "kimi-k3"
+ },
+ {
+  "byok": [
+   "anthropic"
+  ],
+  "credits_exhausted": true,
+  "model": "kimi-k2p7-code",
+  "label": "kimi-k2p7-code"
+ },
+ {
+  "byok": [
+   "anthropic"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "sol",
+  "label": "sol"
+ },
+ {
+  "byok": [
+   "anthropic"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "terra",
+  "label": "terra"
+ },
+ {
+  "byok": [
+   "anthropic"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "luna",
+  "label": "luna"
+ },
+ {
+  "byok": [
+   "anthropic"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "opus",
+  "label": "opus"
+ },
+ {
+  "byok": [
+   "anthropic"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "sonnet",
+  "label": "sonnet"
+ },
+ {
+  "byok": [
+   "anthropic"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "haiku",
+  "label": "haiku"
+ },
+ {
+  "byok": [
+   "anthropic"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "gemini-pro",
+  "label": "gemini-pro"
+ },
+ {
+  "byok": [
+   "anthropic"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "gemini-flash",
+  "label": "gemini-flash"
+ },
+ {
+  "byok": [
+   "anthropic"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "gemini-flash-lite",
+  "label": "gemini-flash-lite"
+ },
+ {
+  "byok": [
+   "anthropic"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "grok-4.5",
+  "label": "grok-4.5"
+ },
+ {
+  "byok": [
+   "anthropic"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "glm-5p2",
+  "label": "glm-5p2"
+ },
+ {
+  "byok": [
+   "anthropic"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "gpt-oss-120b",
+  "label": "gpt-oss-120b"
+ },
+ {
+  "byok": [
+   "anthropic"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "kimi-k3",
+  "label": "kimi-k3"
+ },
+ {
+  "byok": [
+   "anthropic"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "kimi-k2p7-code",
+  "label": "kimi-k2p7-code"
+ },
+ {
+  "byok": [
+   "openai"
+  ],
+  "model": "sol",
+  "label": "sol"
+ },
+ {
+  "byok": [
+   "openai"
+  ],
+  "model": "terra",
+  "label": "terra"
+ },
+ {
+  "byok": [
+   "openai"
+  ],
+  "model": "luna",
+  "label": "luna"
+ },
+ {
+  "byok": [
+   "openai"
+  ],
+  "model": "opus",
+  "label": "sol"
+ },
+ {
+  "byok": [
+   "openai"
+  ],
+  "model": "sonnet",
+  "label": "terra"
+ },
+ {
+  "byok": [
+   "openai"
+  ],
+  "model": "haiku",
+  "label": "luna"
+ },
+ {
+  "byok": [
+   "openai"
+  ],
+  "model": "gemini-pro",
+  "label": "sol"
+ },
+ {
+  "byok": [
+   "openai"
+  ],
+  "model": "gemini-flash",
+  "label": "terra"
+ },
+ {
+  "byok": [
+   "openai"
+  ],
+  "model": "gemini-flash-lite",
+  "label": "luna"
+ },
+ {
+  "byok": [
+   "openai"
+  ],
+  "model": "grok-4.5",
+  "label": "sol"
+ },
+ {
+  "byok": [
+   "openai"
+  ],
+  "model": "glm-5p2",
+  "label": "glm-5p2"
+ },
+ {
+  "byok": [
+   "openai"
+  ],
+  "model": "gpt-oss-120b",
+  "label": "gpt-oss-120b"
+ },
+ {
+  "byok": [
+   "openai"
+  ],
+  "model": "kimi-k3",
+  "label": "kimi-k3"
+ },
+ {
+  "byok": [
+   "openai"
+  ],
+  "model": "kimi-k2p7-code",
+  "label": "kimi-k2p7-code"
+ },
+ {
+  "byok": [
+   "openai"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "sol",
+  "label": "sol"
+ },
+ {
+  "byok": [
+   "openai"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "terra",
+  "label": "terra"
+ },
+ {
+  "byok": [
+   "openai"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "luna",
+  "label": "luna"
+ },
+ {
+  "byok": [
+   "openai"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "opus",
+  "label": "opus"
+ },
+ {
+  "byok": [
+   "openai"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "sonnet",
+  "label": "sonnet"
+ },
+ {
+  "byok": [
+   "openai"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "haiku",
+  "label": "haiku"
+ },
+ {
+  "byok": [
+   "openai"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "gemini-pro",
+  "label": "gemini-pro"
+ },
+ {
+  "byok": [
+   "openai"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "gemini-flash",
+  "label": "gemini-flash"
+ },
+ {
+  "byok": [
+   "openai"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "gemini-flash-lite",
+  "label": "gemini-flash-lite"
+ },
+ {
+  "byok": [
+   "openai"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "grok-4.5",
+  "label": "grok-4.5"
+ },
+ {
+  "byok": [
+   "openai"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "glm-5p2",
+  "label": "glm-5p2"
+ },
+ {
+  "byok": [
+   "openai"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "gpt-oss-120b",
+  "label": "gpt-oss-120b"
+ },
+ {
+  "byok": [
+   "openai"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "kimi-k3",
+  "label": "kimi-k3"
+ },
+ {
+  "byok": [
+   "openai"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "kimi-k2p7-code",
+  "label": "kimi-k2p7-code"
+ },
+ {
+  "byok": [
+   "openai"
+  ],
+  "credits_exhausted": true,
+  "model": "sol",
+  "label": "sol"
+ },
+ {
+  "byok": [
+   "openai"
+  ],
+  "credits_exhausted": true,
+  "model": "terra",
+  "label": "terra"
+ },
+ {
+  "byok": [
+   "openai"
+  ],
+  "credits_exhausted": true,
+  "model": "luna",
+  "label": "luna"
+ },
+ {
+  "byok": [
+   "openai"
+  ],
+  "credits_exhausted": true,
+  "model": "opus",
+  "label": "sol"
+ },
+ {
+  "byok": [
+   "openai"
+  ],
+  "credits_exhausted": true,
+  "model": "sonnet",
+  "label": "terra"
+ },
+ {
+  "byok": [
+   "openai"
+  ],
+  "credits_exhausted": true,
+  "model": "haiku",
+  "label": "luna"
+ },
+ {
+  "byok": [
+   "openai"
+  ],
+  "credits_exhausted": true,
+  "model": "gemini-pro",
+  "label": "sol"
+ },
+ {
+  "byok": [
+   "openai"
+  ],
+  "credits_exhausted": true,
+  "model": "gemini-flash",
+  "label": "terra"
+ },
+ {
+  "byok": [
+   "openai"
+  ],
+  "credits_exhausted": true,
+  "model": "gemini-flash-lite",
+  "label": "luna"
+ },
+ {
+  "byok": [
+   "openai"
+  ],
+  "credits_exhausted": true,
+  "model": "grok-4.5",
+  "label": "sol"
+ },
+ {
+  "byok": [
+   "openai"
+  ],
+  "credits_exhausted": true,
+  "model": "glm-5p2",
+  "label": "glm-5p2"
+ },
+ {
+  "byok": [
+   "openai"
+  ],
+  "credits_exhausted": true,
+  "model": "gpt-oss-120b",
+  "label": "gpt-oss-120b"
+ },
+ {
+  "byok": [
+   "openai"
+  ],
+  "credits_exhausted": true,
+  "model": "kimi-k3",
+  "label": "kimi-k3"
+ },
+ {
+  "byok": [
+   "openai"
+  ],
+  "credits_exhausted": true,
+  "model": "kimi-k2p7-code",
+  "label": "kimi-k2p7-code"
+ },
+ {
+  "byok": [
+   "openai"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "sol",
+  "label": "sol"
+ },
+ {
+  "byok": [
+   "openai"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "terra",
+  "label": "terra"
+ },
+ {
+  "byok": [
+   "openai"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "luna",
+  "label": "luna"
+ },
+ {
+  "byok": [
+   "openai"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "opus",
+  "label": "opus"
+ },
+ {
+  "byok": [
+   "openai"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "sonnet",
+  "label": "sonnet"
+ },
+ {
+  "byok": [
+   "openai"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "haiku",
+  "label": "haiku"
+ },
+ {
+  "byok": [
+   "openai"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "gemini-pro",
+  "label": "gemini-pro"
+ },
+ {
+  "byok": [
+   "openai"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "gemini-flash",
+  "label": "gemini-flash"
+ },
+ {
+  "byok": [
+   "openai"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "gemini-flash-lite",
+  "label": "gemini-flash-lite"
+ },
+ {
+  "byok": [
+   "openai"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "grok-4.5",
+  "label": "grok-4.5"
+ },
+ {
+  "byok": [
+   "openai"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "glm-5p2",
+  "label": "glm-5p2"
+ },
+ {
+  "byok": [
+   "openai"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "gpt-oss-120b",
+  "label": "gpt-oss-120b"
+ },
+ {
+  "byok": [
+   "openai"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "kimi-k3",
+  "label": "kimi-k3"
+ },
+ {
+  "byok": [
+   "openai"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "kimi-k2p7-code",
+  "label": "kimi-k2p7-code"
+ },
+ {
+  "byok": [
+   "gemini"
+  ],
+  "model": "sol",
+  "label": "gemini-pro"
+ },
+ {
+  "byok": [
+   "gemini"
+  ],
+  "model": "terra",
+  "label": "gemini-flash"
+ },
+ {
+  "byok": [
+   "gemini"
+  ],
+  "model": "luna",
+  "label": "gemini-flash-lite"
+ },
+ {
+  "byok": [
+   "gemini"
+  ],
+  "model": "opus",
+  "label": "gemini-pro"
+ },
+ {
+  "byok": [
+   "gemini"
+  ],
+  "model": "sonnet",
+  "label": "gemini-flash"
+ },
+ {
+  "byok": [
+   "gemini"
+  ],
+  "model": "haiku",
+  "label": "gemini-flash-lite"
+ },
+ {
+  "byok": [
+   "gemini"
+  ],
+  "model": "gemini-pro",
+  "label": "gemini-pro"
+ },
+ {
+  "byok": [
+   "gemini"
+  ],
+  "model": "gemini-flash",
+  "label": "gemini-flash"
+ },
+ {
+  "byok": [
+   "gemini"
+  ],
+  "model": "gemini-flash-lite",
+  "label": "gemini-flash-lite"
+ },
+ {
+  "byok": [
+   "gemini"
+  ],
+  "model": "grok-4.5",
+  "label": "gemini-pro"
+ },
+ {
+  "byok": [
+   "gemini"
+  ],
+  "model": "glm-5p2",
+  "label": "glm-5p2"
+ },
+ {
+  "byok": [
+   "gemini"
+  ],
+  "model": "gpt-oss-120b",
+  "label": "gpt-oss-120b"
+ },
+ {
+  "byok": [
+   "gemini"
+  ],
+  "model": "kimi-k3",
+  "label": "kimi-k3"
+ },
+ {
+  "byok": [
+   "gemini"
+  ],
+  "model": "kimi-k2p7-code",
+  "label": "kimi-k2p7-code"
+ },
+ {
+  "byok": [
+   "gemini"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "sol",
+  "label": "sol"
+ },
+ {
+  "byok": [
+   "gemini"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "terra",
+  "label": "terra"
+ },
+ {
+  "byok": [
+   "gemini"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "luna",
+  "label": "luna"
+ },
+ {
+  "byok": [
+   "gemini"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "opus",
+  "label": "opus"
+ },
+ {
+  "byok": [
+   "gemini"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "sonnet",
+  "label": "sonnet"
+ },
+ {
+  "byok": [
+   "gemini"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "haiku",
+  "label": "haiku"
+ },
+ {
+  "byok": [
+   "gemini"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "gemini-pro",
+  "label": "gemini-pro"
+ },
+ {
+  "byok": [
+   "gemini"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "gemini-flash",
+  "label": "gemini-flash"
+ },
+ {
+  "byok": [
+   "gemini"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "gemini-flash-lite",
+  "label": "gemini-flash-lite"
+ },
+ {
+  "byok": [
+   "gemini"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "grok-4.5",
+  "label": "grok-4.5"
+ },
+ {
+  "byok": [
+   "gemini"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "glm-5p2",
+  "label": "glm-5p2"
+ },
+ {
+  "byok": [
+   "gemini"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "gpt-oss-120b",
+  "label": "gpt-oss-120b"
+ },
+ {
+  "byok": [
+   "gemini"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "kimi-k3",
+  "label": "kimi-k3"
+ },
+ {
+  "byok": [
+   "gemini"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "kimi-k2p7-code",
+  "label": "kimi-k2p7-code"
+ },
+ {
+  "byok": [
+   "gemini"
+  ],
+  "credits_exhausted": true,
+  "model": "sol",
+  "label": "gemini-pro"
+ },
+ {
+  "byok": [
+   "gemini"
+  ],
+  "credits_exhausted": true,
+  "model": "terra",
+  "label": "gemini-flash"
+ },
+ {
+  "byok": [
+   "gemini"
+  ],
+  "credits_exhausted": true,
+  "model": "luna",
+  "label": "gemini-flash-lite"
+ },
+ {
+  "byok": [
+   "gemini"
+  ],
+  "credits_exhausted": true,
+  "model": "opus",
+  "label": "gemini-pro"
+ },
+ {
+  "byok": [
+   "gemini"
+  ],
+  "credits_exhausted": true,
+  "model": "sonnet",
+  "label": "gemini-flash"
+ },
+ {
+  "byok": [
+   "gemini"
+  ],
+  "credits_exhausted": true,
+  "model": "haiku",
+  "label": "gemini-flash-lite"
+ },
+ {
+  "byok": [
+   "gemini"
+  ],
+  "credits_exhausted": true,
+  "model": "gemini-pro",
+  "label": "gemini-pro"
+ },
+ {
+  "byok": [
+   "gemini"
+  ],
+  "credits_exhausted": true,
+  "model": "gemini-flash",
+  "label": "gemini-flash"
+ },
+ {
+  "byok": [
+   "gemini"
+  ],
+  "credits_exhausted": true,
+  "model": "gemini-flash-lite",
+  "label": "gemini-flash-lite"
+ },
+ {
+  "byok": [
+   "gemini"
+  ],
+  "credits_exhausted": true,
+  "model": "grok-4.5",
+  "label": "gemini-pro"
+ },
+ {
+  "byok": [
+   "gemini"
+  ],
+  "credits_exhausted": true,
+  "model": "glm-5p2",
+  "label": "glm-5p2"
+ },
+ {
+  "byok": [
+   "gemini"
+  ],
+  "credits_exhausted": true,
+  "model": "gpt-oss-120b",
+  "label": "gpt-oss-120b"
+ },
+ {
+  "byok": [
+   "gemini"
+  ],
+  "credits_exhausted": true,
+  "model": "kimi-k3",
+  "label": "kimi-k3"
+ },
+ {
+  "byok": [
+   "gemini"
+  ],
+  "credits_exhausted": true,
+  "model": "kimi-k2p7-code",
+  "label": "kimi-k2p7-code"
+ },
+ {
+  "byok": [
+   "gemini"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "sol",
+  "label": "sol"
+ },
+ {
+  "byok": [
+   "gemini"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "terra",
+  "label": "terra"
+ },
+ {
+  "byok": [
+   "gemini"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "luna",
+  "label": "luna"
+ },
+ {
+  "byok": [
+   "gemini"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "opus",
+  "label": "opus"
+ },
+ {
+  "byok": [
+   "gemini"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "sonnet",
+  "label": "sonnet"
+ },
+ {
+  "byok": [
+   "gemini"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "haiku",
+  "label": "haiku"
+ },
+ {
+  "byok": [
+   "gemini"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "gemini-pro",
+  "label": "gemini-pro"
+ },
+ {
+  "byok": [
+   "gemini"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "gemini-flash",
+  "label": "gemini-flash"
+ },
+ {
+  "byok": [
+   "gemini"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "gemini-flash-lite",
+  "label": "gemini-flash-lite"
+ },
+ {
+  "byok": [
+   "gemini"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "grok-4.5",
+  "label": "grok-4.5"
+ },
+ {
+  "byok": [
+   "gemini"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "glm-5p2",
+  "label": "glm-5p2"
+ },
+ {
+  "byok": [
+   "gemini"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "gpt-oss-120b",
+  "label": "gpt-oss-120b"
+ },
+ {
+  "byok": [
+   "gemini"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "kimi-k3",
+  "label": "kimi-k3"
+ },
+ {
+  "byok": [
+   "gemini"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "kimi-k2p7-code",
+  "label": "kimi-k2p7-code"
+ },
+ {
+  "byok": [
+   "grok"
+  ],
+  "model": "sol",
+  "label": "grok-4.5"
+ },
+ {
+  "byok": [
+   "grok"
+  ],
+  "model": "terra",
+  "label": "grok-4.5"
+ },
+ {
+  "byok": [
+   "grok"
+  ],
+  "model": "luna",
+  "label": "grok-4.5"
+ },
+ {
+  "byok": [
+   "grok"
+  ],
+  "model": "opus",
+  "label": "grok-4.5"
+ },
+ {
+  "byok": [
+   "grok"
+  ],
+  "model": "sonnet",
+  "label": "grok-4.5"
+ },
+ {
+  "byok": [
+   "grok"
+  ],
+  "model": "haiku",
+  "label": "grok-4.5"
+ },
+ {
+  "byok": [
+   "grok"
+  ],
+  "model": "gemini-pro",
+  "label": "grok-4.5"
+ },
+ {
+  "byok": [
+   "grok"
+  ],
+  "model": "gemini-flash",
+  "label": "grok-4.5"
+ },
+ {
+  "byok": [
+   "grok"
+  ],
+  "model": "gemini-flash-lite",
+  "label": "grok-4.5"
+ },
+ {
+  "byok": [
+   "grok"
+  ],
+  "model": "grok-4.5",
+  "label": "grok-4.5"
+ },
+ {
+  "byok": [
+   "grok"
+  ],
+  "model": "glm-5p2",
+  "label": "glm-5p2"
+ },
+ {
+  "byok": [
+   "grok"
+  ],
+  "model": "gpt-oss-120b",
+  "label": "gpt-oss-120b"
+ },
+ {
+  "byok": [
+   "grok"
+  ],
+  "model": "kimi-k3",
+  "label": "kimi-k3"
+ },
+ {
+  "byok": [
+   "grok"
+  ],
+  "model": "kimi-k2p7-code",
+  "label": "kimi-k2p7-code"
+ },
+ {
+  "byok": [
+   "grok"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "sol",
+  "label": "sol"
+ },
+ {
+  "byok": [
+   "grok"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "terra",
+  "label": "terra"
+ },
+ {
+  "byok": [
+   "grok"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "luna",
+  "label": "luna"
+ },
+ {
+  "byok": [
+   "grok"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "opus",
+  "label": "opus"
+ },
+ {
+  "byok": [
+   "grok"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "sonnet",
+  "label": "sonnet"
+ },
+ {
+  "byok": [
+   "grok"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "haiku",
+  "label": "haiku"
+ },
+ {
+  "byok": [
+   "grok"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "gemini-pro",
+  "label": "gemini-pro"
+ },
+ {
+  "byok": [
+   "grok"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "gemini-flash",
+  "label": "gemini-flash"
+ },
+ {
+  "byok": [
+   "grok"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "gemini-flash-lite",
+  "label": "gemini-flash-lite"
+ },
+ {
+  "byok": [
+   "grok"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "grok-4.5",
+  "label": "grok-4.5"
+ },
+ {
+  "byok": [
+   "grok"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "glm-5p2",
+  "label": "glm-5p2"
+ },
+ {
+  "byok": [
+   "grok"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "gpt-oss-120b",
+  "label": "gpt-oss-120b"
+ },
+ {
+  "byok": [
+   "grok"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "kimi-k3",
+  "label": "kimi-k3"
+ },
+ {
+  "byok": [
+   "grok"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "kimi-k2p7-code",
+  "label": "kimi-k2p7-code"
+ },
+ {
+  "byok": [
+   "grok"
+  ],
+  "credits_exhausted": true,
+  "model": "sol",
+  "label": "grok-4.5"
+ },
+ {
+  "byok": [
+   "grok"
+  ],
+  "credits_exhausted": true,
+  "model": "terra",
+  "label": "grok-4.5"
+ },
+ {
+  "byok": [
+   "grok"
+  ],
+  "credits_exhausted": true,
+  "model": "luna",
+  "label": "grok-4.5"
+ },
+ {
+  "byok": [
+   "grok"
+  ],
+  "credits_exhausted": true,
+  "model": "opus",
+  "label": "grok-4.5"
+ },
+ {
+  "byok": [
+   "grok"
+  ],
+  "credits_exhausted": true,
+  "model": "sonnet",
+  "label": "grok-4.5"
+ },
+ {
+  "byok": [
+   "grok"
+  ],
+  "credits_exhausted": true,
+  "model": "haiku",
+  "label": "grok-4.5"
+ },
+ {
+  "byok": [
+   "grok"
+  ],
+  "credits_exhausted": true,
+  "model": "gemini-pro",
+  "label": "grok-4.5"
+ },
+ {
+  "byok": [
+   "grok"
+  ],
+  "credits_exhausted": true,
+  "model": "gemini-flash",
+  "label": "grok-4.5"
+ },
+ {
+  "byok": [
+   "grok"
+  ],
+  "credits_exhausted": true,
+  "model": "gemini-flash-lite",
+  "label": "grok-4.5"
+ },
+ {
+  "byok": [
+   "grok"
+  ],
+  "credits_exhausted": true,
+  "model": "grok-4.5",
+  "label": "grok-4.5"
+ },
+ {
+  "byok": [
+   "grok"
+  ],
+  "credits_exhausted": true,
+  "model": "glm-5p2",
+  "label": "glm-5p2"
+ },
+ {
+  "byok": [
+   "grok"
+  ],
+  "credits_exhausted": true,
+  "model": "gpt-oss-120b",
+  "label": "gpt-oss-120b"
+ },
+ {
+  "byok": [
+   "grok"
+  ],
+  "credits_exhausted": true,
+  "model": "kimi-k3",
+  "label": "kimi-k3"
+ },
+ {
+  "byok": [
+   "grok"
+  ],
+  "credits_exhausted": true,
+  "model": "kimi-k2p7-code",
+  "label": "kimi-k2p7-code"
+ },
+ {
+  "byok": [
+   "grok"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "sol",
+  "label": "sol"
+ },
+ {
+  "byok": [
+   "grok"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "terra",
+  "label": "terra"
+ },
+ {
+  "byok": [
+   "grok"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "luna",
+  "label": "luna"
+ },
+ {
+  "byok": [
+   "grok"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "opus",
+  "label": "opus"
+ },
+ {
+  "byok": [
+   "grok"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "sonnet",
+  "label": "sonnet"
+ },
+ {
+  "byok": [
+   "grok"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "haiku",
+  "label": "haiku"
+ },
+ {
+  "byok": [
+   "grok"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "gemini-pro",
+  "label": "gemini-pro"
+ },
+ {
+  "byok": [
+   "grok"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "gemini-flash",
+  "label": "gemini-flash"
+ },
+ {
+  "byok": [
+   "grok"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "gemini-flash-lite",
+  "label": "gemini-flash-lite"
+ },
+ {
+  "byok": [
+   "grok"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "grok-4.5",
+  "label": "grok-4.5"
+ },
+ {
+  "byok": [
+   "grok"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "glm-5p2",
+  "label": "glm-5p2"
+ },
+ {
+  "byok": [
+   "grok"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "gpt-oss-120b",
+  "label": "gpt-oss-120b"
+ },
+ {
+  "byok": [
+   "grok"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "kimi-k3",
+  "label": "kimi-k3"
+ },
+ {
+  "byok": [
+   "grok"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "kimi-k2p7-code",
+  "label": "kimi-k2p7-code"
+ },
+ {
+  "byok": [
+   "fireworks"
+  ],
+  "model": "sol",
+  "label": "kimi-k3"
+ },
+ {
+  "byok": [
+   "fireworks"
+  ],
+  "model": "terra",
+  "label": "kimi-k2p7-code"
+ },
+ {
+  "byok": [
+   "fireworks"
+  ],
+  "model": "luna",
+  "label": "glm-5p2"
+ },
+ {
+  "byok": [
+   "fireworks"
+  ],
+  "model": "opus",
+  "label": "kimi-k3"
+ },
+ {
+  "byok": [
+   "fireworks"
+  ],
+  "model": "sonnet",
+  "label": "kimi-k2p7-code"
+ },
+ {
+  "byok": [
+   "fireworks"
+  ],
+  "model": "haiku",
+  "label": "glm-5p2"
+ },
+ {
+  "byok": [
+   "fireworks"
+  ],
+  "model": "gemini-pro",
+  "label": "kimi-k3"
+ },
+ {
+  "byok": [
+   "fireworks"
+  ],
+  "model": "gemini-flash",
+  "label": "kimi-k2p7-code"
+ },
+ {
+  "byok": [
+   "fireworks"
+  ],
+  "model": "gemini-flash-lite",
+  "label": "glm-5p2"
+ },
+ {
+  "byok": [
+   "fireworks"
+  ],
+  "model": "grok-4.5",
+  "label": "kimi-k3"
+ },
+ {
+  "byok": [
+   "fireworks"
+  ],
+  "model": "glm-5p2",
+  "label": "glm-5p2"
+ },
+ {
+  "byok": [
+   "fireworks"
+  ],
+  "model": "gpt-oss-120b",
+  "label": "gpt-oss-120b"
+ },
+ {
+  "byok": [
+   "fireworks"
+  ],
+  "model": "kimi-k3",
+  "label": "kimi-k3"
+ },
+ {
+  "byok": [
+   "fireworks"
+  ],
+  "model": "kimi-k2p7-code",
+  "label": "kimi-k2p7-code"
+ },
+ {
+  "byok": [
+   "fireworks"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "sol",
+  "label": "sol"
+ },
+ {
+  "byok": [
+   "fireworks"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "terra",
+  "label": "terra"
+ },
+ {
+  "byok": [
+   "fireworks"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "luna",
+  "label": "luna"
+ },
+ {
+  "byok": [
+   "fireworks"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "opus",
+  "label": "opus"
+ },
+ {
+  "byok": [
+   "fireworks"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "sonnet",
+  "label": "sonnet"
+ },
+ {
+  "byok": [
+   "fireworks"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "haiku",
+  "label": "haiku"
+ },
+ {
+  "byok": [
+   "fireworks"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "gemini-pro",
+  "label": "gemini-pro"
+ },
+ {
+  "byok": [
+   "fireworks"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "gemini-flash",
+  "label": "gemini-flash"
+ },
+ {
+  "byok": [
+   "fireworks"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "gemini-flash-lite",
+  "label": "gemini-flash-lite"
+ },
+ {
+  "byok": [
+   "fireworks"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "grok-4.5",
+  "label": "grok-4.5"
+ },
+ {
+  "byok": [
+   "fireworks"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "glm-5p2",
+  "label": "glm-5p2"
+ },
+ {
+  "byok": [
+   "fireworks"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "gpt-oss-120b",
+  "label": "gpt-oss-120b"
+ },
+ {
+  "byok": [
+   "fireworks"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "kimi-k3",
+  "label": "kimi-k3"
+ },
+ {
+  "byok": [
+   "fireworks"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "kimi-k2p7-code",
+  "label": "kimi-k2p7-code"
+ },
+ {
+  "byok": [
+   "fireworks"
+  ],
+  "credits_exhausted": true,
+  "model": "sol",
+  "label": "kimi-k3"
+ },
+ {
+  "byok": [
+   "fireworks"
+  ],
+  "credits_exhausted": true,
+  "model": "terra",
+  "label": "kimi-k2p7-code"
+ },
+ {
+  "byok": [
+   "fireworks"
+  ],
+  "credits_exhausted": true,
+  "model": "luna",
+  "label": "glm-5p2"
+ },
+ {
+  "byok": [
+   "fireworks"
+  ],
+  "credits_exhausted": true,
+  "model": "opus",
+  "label": "kimi-k3"
+ },
+ {
+  "byok": [
+   "fireworks"
+  ],
+  "credits_exhausted": true,
+  "model": "sonnet",
+  "label": "kimi-k2p7-code"
+ },
+ {
+  "byok": [
+   "fireworks"
+  ],
+  "credits_exhausted": true,
+  "model": "haiku",
+  "label": "glm-5p2"
+ },
+ {
+  "byok": [
+   "fireworks"
+  ],
+  "credits_exhausted": true,
+  "model": "gemini-pro",
+  "label": "kimi-k3"
+ },
+ {
+  "byok": [
+   "fireworks"
+  ],
+  "credits_exhausted": true,
+  "model": "gemini-flash",
+  "label": "kimi-k2p7-code"
+ },
+ {
+  "byok": [
+   "fireworks"
+  ],
+  "credits_exhausted": true,
+  "model": "gemini-flash-lite",
+  "label": "glm-5p2"
+ },
+ {
+  "byok": [
+   "fireworks"
+  ],
+  "credits_exhausted": true,
+  "model": "grok-4.5",
+  "label": "kimi-k3"
+ },
+ {
+  "byok": [
+   "fireworks"
+  ],
+  "credits_exhausted": true,
+  "model": "glm-5p2",
+  "label": "glm-5p2"
+ },
+ {
+  "byok": [
+   "fireworks"
+  ],
+  "credits_exhausted": true,
+  "model": "gpt-oss-120b",
+  "label": "gpt-oss-120b"
+ },
+ {
+  "byok": [
+   "fireworks"
+  ],
+  "credits_exhausted": true,
+  "model": "kimi-k3",
+  "label": "kimi-k3"
+ },
+ {
+  "byok": [
+   "fireworks"
+  ],
+  "credits_exhausted": true,
+  "model": "kimi-k2p7-code",
+  "label": "kimi-k2p7-code"
+ },
+ {
+  "byok": [
+   "fireworks"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "sol",
+  "label": "sol"
+ },
+ {
+  "byok": [
+   "fireworks"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "terra",
+  "label": "terra"
+ },
+ {
+  "byok": [
+   "fireworks"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "luna",
+  "label": "luna"
+ },
+ {
+  "byok": [
+   "fireworks"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "opus",
+  "label": "opus"
+ },
+ {
+  "byok": [
+   "fireworks"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "sonnet",
+  "label": "sonnet"
+ },
+ {
+  "byok": [
+   "fireworks"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "haiku",
+  "label": "haiku"
+ },
+ {
+  "byok": [
+   "fireworks"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "gemini-pro",
+  "label": "gemini-pro"
+ },
+ {
+  "byok": [
+   "fireworks"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "gemini-flash",
+  "label": "gemini-flash"
+ },
+ {
+  "byok": [
+   "fireworks"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "gemini-flash-lite",
+  "label": "gemini-flash-lite"
+ },
+ {
+  "byok": [
+   "fireworks"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "grok-4.5",
+  "label": "grok-4.5"
+ },
+ {
+  "byok": [
+   "fireworks"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "glm-5p2",
+  "label": "glm-5p2"
+ },
+ {
+  "byok": [
+   "fireworks"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "gpt-oss-120b",
+  "label": "gpt-oss-120b"
+ },
+ {
+  "byok": [
+   "fireworks"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "kimi-k3",
+  "label": "kimi-k3"
+ },
+ {
+  "byok": [
+   "fireworks"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "kimi-k2p7-code",
+  "label": "kimi-k2p7-code"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "fireworks"
+  ],
+  "model": "sol",
+  "label": "opus"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "fireworks"
+  ],
+  "model": "terra",
+  "label": "sonnet"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "fireworks"
+  ],
+  "model": "luna",
+  "label": "haiku"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "fireworks"
+  ],
+  "model": "opus",
+  "label": "opus"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "fireworks"
+  ],
+  "model": "sonnet",
+  "label": "sonnet"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "fireworks"
+  ],
+  "model": "haiku",
+  "label": "haiku"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "fireworks"
+  ],
+  "model": "gemini-pro",
+  "label": "opus"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "fireworks"
+  ],
+  "model": "gemini-flash",
+  "label": "sonnet"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "fireworks"
+  ],
+  "model": "gemini-flash-lite",
+  "label": "haiku"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "fireworks"
+  ],
+  "model": "grok-4.5",
+  "label": "opus"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "fireworks"
+  ],
+  "model": "glm-5p2",
+  "label": "glm-5p2"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "fireworks"
+  ],
+  "model": "gpt-oss-120b",
+  "label": "gpt-oss-120b"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "fireworks"
+  ],
+  "model": "kimi-k3",
+  "label": "kimi-k3"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "fireworks"
+  ],
+  "model": "kimi-k2p7-code",
+  "label": "kimi-k2p7-code"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "fireworks"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "sol",
+  "label": "sol"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "fireworks"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "terra",
+  "label": "terra"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "fireworks"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "luna",
+  "label": "luna"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "fireworks"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "opus",
+  "label": "opus"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "fireworks"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "sonnet",
+  "label": "sonnet"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "fireworks"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "haiku",
+  "label": "haiku"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "fireworks"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "gemini-pro",
+  "label": "gemini-pro"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "fireworks"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "gemini-flash",
+  "label": "gemini-flash"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "fireworks"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "gemini-flash-lite",
+  "label": "gemini-flash-lite"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "fireworks"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "grok-4.5",
+  "label": "grok-4.5"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "fireworks"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "glm-5p2",
+  "label": "glm-5p2"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "fireworks"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "gpt-oss-120b",
+  "label": "gpt-oss-120b"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "fireworks"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "kimi-k3",
+  "label": "kimi-k3"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "fireworks"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "kimi-k2p7-code",
+  "label": "kimi-k2p7-code"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "fireworks"
+  ],
+  "credits_exhausted": true,
+  "model": "sol",
+  "label": "opus"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "fireworks"
+  ],
+  "credits_exhausted": true,
+  "model": "terra",
+  "label": "sonnet"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "fireworks"
+  ],
+  "credits_exhausted": true,
+  "model": "luna",
+  "label": "haiku"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "fireworks"
+  ],
+  "credits_exhausted": true,
+  "model": "opus",
+  "label": "opus"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "fireworks"
+  ],
+  "credits_exhausted": true,
+  "model": "sonnet",
+  "label": "sonnet"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "fireworks"
+  ],
+  "credits_exhausted": true,
+  "model": "haiku",
+  "label": "haiku"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "fireworks"
+  ],
+  "credits_exhausted": true,
+  "model": "gemini-pro",
+  "label": "opus"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "fireworks"
+  ],
+  "credits_exhausted": true,
+  "model": "gemini-flash",
+  "label": "sonnet"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "fireworks"
+  ],
+  "credits_exhausted": true,
+  "model": "gemini-flash-lite",
+  "label": "haiku"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "fireworks"
+  ],
+  "credits_exhausted": true,
+  "model": "grok-4.5",
+  "label": "opus"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "fireworks"
+  ],
+  "credits_exhausted": true,
+  "model": "glm-5p2",
+  "label": "glm-5p2"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "fireworks"
+  ],
+  "credits_exhausted": true,
+  "model": "gpt-oss-120b",
+  "label": "gpt-oss-120b"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "fireworks"
+  ],
+  "credits_exhausted": true,
+  "model": "kimi-k3",
+  "label": "kimi-k3"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "fireworks"
+  ],
+  "credits_exhausted": true,
+  "model": "kimi-k2p7-code",
+  "label": "kimi-k2p7-code"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "fireworks"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "sol",
+  "label": "sol"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "fireworks"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "terra",
+  "label": "terra"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "fireworks"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "luna",
+  "label": "luna"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "fireworks"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "opus",
+  "label": "opus"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "fireworks"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "sonnet",
+  "label": "sonnet"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "fireworks"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "haiku",
+  "label": "haiku"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "fireworks"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "gemini-pro",
+  "label": "gemini-pro"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "fireworks"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "gemini-flash",
+  "label": "gemini-flash"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "fireworks"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "gemini-flash-lite",
+  "label": "gemini-flash-lite"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "fireworks"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "grok-4.5",
+  "label": "grok-4.5"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "fireworks"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "glm-5p2",
+  "label": "glm-5p2"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "fireworks"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "gpt-oss-120b",
+  "label": "gpt-oss-120b"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "fireworks"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "kimi-k3",
+  "label": "kimi-k3"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "fireworks"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "kimi-k2p7-code",
+  "label": "kimi-k2p7-code"
+ },
+ {
+  "byok": [
+   "openai",
+   "anthropic"
+  ],
+  "model": "sol",
+  "label": "sol"
+ },
+ {
+  "byok": [
+   "openai",
+   "anthropic"
+  ],
+  "model": "terra",
+  "label": "terra"
+ },
+ {
+  "byok": [
+   "openai",
+   "anthropic"
+  ],
+  "model": "luna",
+  "label": "luna"
+ },
+ {
+  "byok": [
+   "openai",
+   "anthropic"
+  ],
+  "model": "opus",
+  "label": "opus"
+ },
+ {
+  "byok": [
+   "openai",
+   "anthropic"
+  ],
+  "model": "sonnet",
+  "label": "sonnet"
+ },
+ {
+  "byok": [
+   "openai",
+   "anthropic"
+  ],
+  "model": "haiku",
+  "label": "haiku"
+ },
+ {
+  "byok": [
+   "openai",
+   "anthropic"
+  ],
+  "model": "gemini-pro",
+  "label": "sol"
+ },
+ {
+  "byok": [
+   "openai",
+   "anthropic"
+  ],
+  "model": "gemini-flash",
+  "label": "terra"
+ },
+ {
+  "byok": [
+   "openai",
+   "anthropic"
+  ],
+  "model": "gemini-flash-lite",
+  "label": "luna"
+ },
+ {
+  "byok": [
+   "openai",
+   "anthropic"
+  ],
+  "model": "grok-4.5",
+  "label": "sol"
+ },
+ {
+  "byok": [
+   "openai",
+   "anthropic"
+  ],
+  "model": "glm-5p2",
+  "label": "glm-5p2"
+ },
+ {
+  "byok": [
+   "openai",
+   "anthropic"
+  ],
+  "model": "gpt-oss-120b",
+  "label": "gpt-oss-120b"
+ },
+ {
+  "byok": [
+   "openai",
+   "anthropic"
+  ],
+  "model": "kimi-k3",
+  "label": "kimi-k3"
+ },
+ {
+  "byok": [
+   "openai",
+   "anthropic"
+  ],
+  "model": "kimi-k2p7-code",
+  "label": "kimi-k2p7-code"
+ },
+ {
+  "byok": [
+   "openai",
+   "anthropic"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "sol",
+  "label": "sol"
+ },
+ {
+  "byok": [
+   "openai",
+   "anthropic"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "terra",
+  "label": "terra"
+ },
+ {
+  "byok": [
+   "openai",
+   "anthropic"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "luna",
+  "label": "luna"
+ },
+ {
+  "byok": [
+   "openai",
+   "anthropic"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "opus",
+  "label": "opus"
+ },
+ {
+  "byok": [
+   "openai",
+   "anthropic"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "sonnet",
+  "label": "sonnet"
+ },
+ {
+  "byok": [
+   "openai",
+   "anthropic"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "haiku",
+  "label": "haiku"
+ },
+ {
+  "byok": [
+   "openai",
+   "anthropic"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "gemini-pro",
+  "label": "gemini-pro"
+ },
+ {
+  "byok": [
+   "openai",
+   "anthropic"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "gemini-flash",
+  "label": "gemini-flash"
+ },
+ {
+  "byok": [
+   "openai",
+   "anthropic"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "gemini-flash-lite",
+  "label": "gemini-flash-lite"
+ },
+ {
+  "byok": [
+   "openai",
+   "anthropic"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "grok-4.5",
+  "label": "grok-4.5"
+ },
+ {
+  "byok": [
+   "openai",
+   "anthropic"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "glm-5p2",
+  "label": "glm-5p2"
+ },
+ {
+  "byok": [
+   "openai",
+   "anthropic"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "gpt-oss-120b",
+  "label": "gpt-oss-120b"
+ },
+ {
+  "byok": [
+   "openai",
+   "anthropic"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "kimi-k3",
+  "label": "kimi-k3"
+ },
+ {
+  "byok": [
+   "openai",
+   "anthropic"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "kimi-k2p7-code",
+  "label": "kimi-k2p7-code"
+ },
+ {
+  "byok": [
+   "openai",
+   "anthropic"
+  ],
+  "credits_exhausted": true,
+  "model": "sol",
+  "label": "sol"
+ },
+ {
+  "byok": [
+   "openai",
+   "anthropic"
+  ],
+  "credits_exhausted": true,
+  "model": "terra",
+  "label": "terra"
+ },
+ {
+  "byok": [
+   "openai",
+   "anthropic"
+  ],
+  "credits_exhausted": true,
+  "model": "luna",
+  "label": "luna"
+ },
+ {
+  "byok": [
+   "openai",
+   "anthropic"
+  ],
+  "credits_exhausted": true,
+  "model": "opus",
+  "label": "opus"
+ },
+ {
+  "byok": [
+   "openai",
+   "anthropic"
+  ],
+  "credits_exhausted": true,
+  "model": "sonnet",
+  "label": "sonnet"
+ },
+ {
+  "byok": [
+   "openai",
+   "anthropic"
+  ],
+  "credits_exhausted": true,
+  "model": "haiku",
+  "label": "haiku"
+ },
+ {
+  "byok": [
+   "openai",
+   "anthropic"
+  ],
+  "credits_exhausted": true,
+  "model": "gemini-pro",
+  "label": "sol"
+ },
+ {
+  "byok": [
+   "openai",
+   "anthropic"
+  ],
+  "credits_exhausted": true,
+  "model": "gemini-flash",
+  "label": "terra"
+ },
+ {
+  "byok": [
+   "openai",
+   "anthropic"
+  ],
+  "credits_exhausted": true,
+  "model": "gemini-flash-lite",
+  "label": "luna"
+ },
+ {
+  "byok": [
+   "openai",
+   "anthropic"
+  ],
+  "credits_exhausted": true,
+  "model": "grok-4.5",
+  "label": "sol"
+ },
+ {
+  "byok": [
+   "openai",
+   "anthropic"
+  ],
+  "credits_exhausted": true,
+  "model": "glm-5p2",
+  "label": "glm-5p2"
+ },
+ {
+  "byok": [
+   "openai",
+   "anthropic"
+  ],
+  "credits_exhausted": true,
+  "model": "gpt-oss-120b",
+  "label": "gpt-oss-120b"
+ },
+ {
+  "byok": [
+   "openai",
+   "anthropic"
+  ],
+  "credits_exhausted": true,
+  "model": "kimi-k3",
+  "label": "kimi-k3"
+ },
+ {
+  "byok": [
+   "openai",
+   "anthropic"
+  ],
+  "credits_exhausted": true,
+  "model": "kimi-k2p7-code",
+  "label": "kimi-k2p7-code"
+ },
+ {
+  "byok": [
+   "openai",
+   "anthropic"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "sol",
+  "label": "sol"
+ },
+ {
+  "byok": [
+   "openai",
+   "anthropic"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "terra",
+  "label": "terra"
+ },
+ {
+  "byok": [
+   "openai",
+   "anthropic"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "luna",
+  "label": "luna"
+ },
+ {
+  "byok": [
+   "openai",
+   "anthropic"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "opus",
+  "label": "opus"
+ },
+ {
+  "byok": [
+   "openai",
+   "anthropic"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "sonnet",
+  "label": "sonnet"
+ },
+ {
+  "byok": [
+   "openai",
+   "anthropic"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "haiku",
+  "label": "haiku"
+ },
+ {
+  "byok": [
+   "openai",
+   "anthropic"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "gemini-pro",
+  "label": "gemini-pro"
+ },
+ {
+  "byok": [
+   "openai",
+   "anthropic"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "gemini-flash",
+  "label": "gemini-flash"
+ },
+ {
+  "byok": [
+   "openai",
+   "anthropic"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "gemini-flash-lite",
+  "label": "gemini-flash-lite"
+ },
+ {
+  "byok": [
+   "openai",
+   "anthropic"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "grok-4.5",
+  "label": "grok-4.5"
+ },
+ {
+  "byok": [
+   "openai",
+   "anthropic"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "glm-5p2",
+  "label": "glm-5p2"
+ },
+ {
+  "byok": [
+   "openai",
+   "anthropic"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "gpt-oss-120b",
+  "label": "gpt-oss-120b"
+ },
+ {
+  "byok": [
+   "openai",
+   "anthropic"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "kimi-k3",
+  "label": "kimi-k3"
+ },
+ {
+  "byok": [
+   "openai",
+   "anthropic"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "kimi-k2p7-code",
+  "label": "kimi-k2p7-code"
+ },
+ {
+  "byok": [
+   "gemini",
+   "grok"
+  ],
+  "model": "sol",
+  "label": "grok-4.5"
+ },
+ {
+  "byok": [
+   "gemini",
+   "grok"
+  ],
+  "model": "terra",
+  "label": "grok-4.5"
+ },
+ {
+  "byok": [
+   "gemini",
+   "grok"
+  ],
+  "model": "luna",
+  "label": "grok-4.5"
+ },
+ {
+  "byok": [
+   "gemini",
+   "grok"
+  ],
+  "model": "opus",
+  "label": "grok-4.5"
+ },
+ {
+  "byok": [
+   "gemini",
+   "grok"
+  ],
+  "model": "sonnet",
+  "label": "grok-4.5"
+ },
+ {
+  "byok": [
+   "gemini",
+   "grok"
+  ],
+  "model": "haiku",
+  "label": "grok-4.5"
+ },
+ {
+  "byok": [
+   "gemini",
+   "grok"
+  ],
+  "model": "gemini-pro",
+  "label": "gemini-pro"
+ },
+ {
+  "byok": [
+   "gemini",
+   "grok"
+  ],
+  "model": "gemini-flash",
+  "label": "gemini-flash"
+ },
+ {
+  "byok": [
+   "gemini",
+   "grok"
+  ],
+  "model": "gemini-flash-lite",
+  "label": "gemini-flash-lite"
+ },
+ {
+  "byok": [
+   "gemini",
+   "grok"
+  ],
+  "model": "grok-4.5",
+  "label": "grok-4.5"
+ },
+ {
+  "byok": [
+   "gemini",
+   "grok"
+  ],
+  "model": "glm-5p2",
+  "label": "glm-5p2"
+ },
+ {
+  "byok": [
+   "gemini",
+   "grok"
+  ],
+  "model": "gpt-oss-120b",
+  "label": "gpt-oss-120b"
+ },
+ {
+  "byok": [
+   "gemini",
+   "grok"
+  ],
+  "model": "kimi-k3",
+  "label": "kimi-k3"
+ },
+ {
+  "byok": [
+   "gemini",
+   "grok"
+  ],
+  "model": "kimi-k2p7-code",
+  "label": "kimi-k2p7-code"
+ },
+ {
+  "byok": [
+   "gemini",
+   "grok"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "sol",
+  "label": "sol"
+ },
+ {
+  "byok": [
+   "gemini",
+   "grok"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "terra",
+  "label": "terra"
+ },
+ {
+  "byok": [
+   "gemini",
+   "grok"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "luna",
+  "label": "luna"
+ },
+ {
+  "byok": [
+   "gemini",
+   "grok"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "opus",
+  "label": "opus"
+ },
+ {
+  "byok": [
+   "gemini",
+   "grok"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "sonnet",
+  "label": "sonnet"
+ },
+ {
+  "byok": [
+   "gemini",
+   "grok"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "haiku",
+  "label": "haiku"
+ },
+ {
+  "byok": [
+   "gemini",
+   "grok"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "gemini-pro",
+  "label": "gemini-pro"
+ },
+ {
+  "byok": [
+   "gemini",
+   "grok"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "gemini-flash",
+  "label": "gemini-flash"
+ },
+ {
+  "byok": [
+   "gemini",
+   "grok"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "gemini-flash-lite",
+  "label": "gemini-flash-lite"
+ },
+ {
+  "byok": [
+   "gemini",
+   "grok"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "grok-4.5",
+  "label": "grok-4.5"
+ },
+ {
+  "byok": [
+   "gemini",
+   "grok"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "glm-5p2",
+  "label": "glm-5p2"
+ },
+ {
+  "byok": [
+   "gemini",
+   "grok"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "gpt-oss-120b",
+  "label": "gpt-oss-120b"
+ },
+ {
+  "byok": [
+   "gemini",
+   "grok"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "kimi-k3",
+  "label": "kimi-k3"
+ },
+ {
+  "byok": [
+   "gemini",
+   "grok"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "kimi-k2p7-code",
+  "label": "kimi-k2p7-code"
+ },
+ {
+  "byok": [
+   "gemini",
+   "grok"
+  ],
+  "credits_exhausted": true,
+  "model": "sol",
+  "label": "grok-4.5"
+ },
+ {
+  "byok": [
+   "gemini",
+   "grok"
+  ],
+  "credits_exhausted": true,
+  "model": "terra",
+  "label": "grok-4.5"
+ },
+ {
+  "byok": [
+   "gemini",
+   "grok"
+  ],
+  "credits_exhausted": true,
+  "model": "luna",
+  "label": "grok-4.5"
+ },
+ {
+  "byok": [
+   "gemini",
+   "grok"
+  ],
+  "credits_exhausted": true,
+  "model": "opus",
+  "label": "grok-4.5"
+ },
+ {
+  "byok": [
+   "gemini",
+   "grok"
+  ],
+  "credits_exhausted": true,
+  "model": "sonnet",
+  "label": "grok-4.5"
+ },
+ {
+  "byok": [
+   "gemini",
+   "grok"
+  ],
+  "credits_exhausted": true,
+  "model": "haiku",
+  "label": "grok-4.5"
+ },
+ {
+  "byok": [
+   "gemini",
+   "grok"
+  ],
+  "credits_exhausted": true,
+  "model": "gemini-pro",
+  "label": "gemini-pro"
+ },
+ {
+  "byok": [
+   "gemini",
+   "grok"
+  ],
+  "credits_exhausted": true,
+  "model": "gemini-flash",
+  "label": "gemini-flash"
+ },
+ {
+  "byok": [
+   "gemini",
+   "grok"
+  ],
+  "credits_exhausted": true,
+  "model": "gemini-flash-lite",
+  "label": "gemini-flash-lite"
+ },
+ {
+  "byok": [
+   "gemini",
+   "grok"
+  ],
+  "credits_exhausted": true,
+  "model": "grok-4.5",
+  "label": "grok-4.5"
+ },
+ {
+  "byok": [
+   "gemini",
+   "grok"
+  ],
+  "credits_exhausted": true,
+  "model": "glm-5p2",
+  "label": "glm-5p2"
+ },
+ {
+  "byok": [
+   "gemini",
+   "grok"
+  ],
+  "credits_exhausted": true,
+  "model": "gpt-oss-120b",
+  "label": "gpt-oss-120b"
+ },
+ {
+  "byok": [
+   "gemini",
+   "grok"
+  ],
+  "credits_exhausted": true,
+  "model": "kimi-k3",
+  "label": "kimi-k3"
+ },
+ {
+  "byok": [
+   "gemini",
+   "grok"
+  ],
+  "credits_exhausted": true,
+  "model": "kimi-k2p7-code",
+  "label": "kimi-k2p7-code"
+ },
+ {
+  "byok": [
+   "gemini",
+   "grok"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "sol",
+  "label": "sol"
+ },
+ {
+  "byok": [
+   "gemini",
+   "grok"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "terra",
+  "label": "terra"
+ },
+ {
+  "byok": [
+   "gemini",
+   "grok"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "luna",
+  "label": "luna"
+ },
+ {
+  "byok": [
+   "gemini",
+   "grok"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "opus",
+  "label": "opus"
+ },
+ {
+  "byok": [
+   "gemini",
+   "grok"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "sonnet",
+  "label": "sonnet"
+ },
+ {
+  "byok": [
+   "gemini",
+   "grok"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "haiku",
+  "label": "haiku"
+ },
+ {
+  "byok": [
+   "gemini",
+   "grok"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "gemini-pro",
+  "label": "gemini-pro"
+ },
+ {
+  "byok": [
+   "gemini",
+   "grok"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "gemini-flash",
+  "label": "gemini-flash"
+ },
+ {
+  "byok": [
+   "gemini",
+   "grok"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "gemini-flash-lite",
+  "label": "gemini-flash-lite"
+ },
+ {
+  "byok": [
+   "gemini",
+   "grok"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "grok-4.5",
+  "label": "grok-4.5"
+ },
+ {
+  "byok": [
+   "gemini",
+   "grok"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "glm-5p2",
+  "label": "glm-5p2"
+ },
+ {
+  "byok": [
+   "gemini",
+   "grok"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "gpt-oss-120b",
+  "label": "gpt-oss-120b"
+ },
+ {
+  "byok": [
+   "gemini",
+   "grok"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "kimi-k3",
+  "label": "kimi-k3"
+ },
+ {
+  "byok": [
+   "gemini",
+   "grok"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "kimi-k2p7-code",
+  "label": "kimi-k2p7-code"
+ },
+ {
+  "byok": [
+   "fireworks",
+   "openai"
+  ],
+  "model": "sol",
+  "label": "sol"
+ },
+ {
+  "byok": [
+   "fireworks",
+   "openai"
+  ],
+  "model": "terra",
+  "label": "terra"
+ },
+ {
+  "byok": [
+   "fireworks",
+   "openai"
+  ],
+  "model": "luna",
+  "label": "luna"
+ },
+ {
+  "byok": [
+   "fireworks",
+   "openai"
+  ],
+  "model": "opus",
+  "label": "sol"
+ },
+ {
+  "byok": [
+   "fireworks",
+   "openai"
+  ],
+  "model": "sonnet",
+  "label": "terra"
+ },
+ {
+  "byok": [
+   "fireworks",
+   "openai"
+  ],
+  "model": "haiku",
+  "label": "luna"
+ },
+ {
+  "byok": [
+   "fireworks",
+   "openai"
+  ],
+  "model": "gemini-pro",
+  "label": "sol"
+ },
+ {
+  "byok": [
+   "fireworks",
+   "openai"
+  ],
+  "model": "gemini-flash",
+  "label": "terra"
+ },
+ {
+  "byok": [
+   "fireworks",
+   "openai"
+  ],
+  "model": "gemini-flash-lite",
+  "label": "luna"
+ },
+ {
+  "byok": [
+   "fireworks",
+   "openai"
+  ],
+  "model": "grok-4.5",
+  "label": "sol"
+ },
+ {
+  "byok": [
+   "fireworks",
+   "openai"
+  ],
+  "model": "glm-5p2",
+  "label": "glm-5p2"
+ },
+ {
+  "byok": [
+   "fireworks",
+   "openai"
+  ],
+  "model": "gpt-oss-120b",
+  "label": "gpt-oss-120b"
+ },
+ {
+  "byok": [
+   "fireworks",
+   "openai"
+  ],
+  "model": "kimi-k3",
+  "label": "kimi-k3"
+ },
+ {
+  "byok": [
+   "fireworks",
+   "openai"
+  ],
+  "model": "kimi-k2p7-code",
+  "label": "kimi-k2p7-code"
+ },
+ {
+  "byok": [
+   "fireworks",
+   "openai"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "sol",
+  "label": "sol"
+ },
+ {
+  "byok": [
+   "fireworks",
+   "openai"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "terra",
+  "label": "terra"
+ },
+ {
+  "byok": [
+   "fireworks",
+   "openai"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "luna",
+  "label": "luna"
+ },
+ {
+  "byok": [
+   "fireworks",
+   "openai"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "opus",
+  "label": "opus"
+ },
+ {
+  "byok": [
+   "fireworks",
+   "openai"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "sonnet",
+  "label": "sonnet"
+ },
+ {
+  "byok": [
+   "fireworks",
+   "openai"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "haiku",
+  "label": "haiku"
+ },
+ {
+  "byok": [
+   "fireworks",
+   "openai"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "gemini-pro",
+  "label": "gemini-pro"
+ },
+ {
+  "byok": [
+   "fireworks",
+   "openai"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "gemini-flash",
+  "label": "gemini-flash"
+ },
+ {
+  "byok": [
+   "fireworks",
+   "openai"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "gemini-flash-lite",
+  "label": "gemini-flash-lite"
+ },
+ {
+  "byok": [
+   "fireworks",
+   "openai"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "grok-4.5",
+  "label": "grok-4.5"
+ },
+ {
+  "byok": [
+   "fireworks",
+   "openai"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "glm-5p2",
+  "label": "glm-5p2"
+ },
+ {
+  "byok": [
+   "fireworks",
+   "openai"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "gpt-oss-120b",
+  "label": "gpt-oss-120b"
+ },
+ {
+  "byok": [
+   "fireworks",
+   "openai"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "kimi-k3",
+  "label": "kimi-k3"
+ },
+ {
+  "byok": [
+   "fireworks",
+   "openai"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "kimi-k2p7-code",
+  "label": "kimi-k2p7-code"
+ },
+ {
+  "byok": [
+   "fireworks",
+   "openai"
+  ],
+  "credits_exhausted": true,
+  "model": "sol",
+  "label": "sol"
+ },
+ {
+  "byok": [
+   "fireworks",
+   "openai"
+  ],
+  "credits_exhausted": true,
+  "model": "terra",
+  "label": "terra"
+ },
+ {
+  "byok": [
+   "fireworks",
+   "openai"
+  ],
+  "credits_exhausted": true,
+  "model": "luna",
+  "label": "luna"
+ },
+ {
+  "byok": [
+   "fireworks",
+   "openai"
+  ],
+  "credits_exhausted": true,
+  "model": "opus",
+  "label": "sol"
+ },
+ {
+  "byok": [
+   "fireworks",
+   "openai"
+  ],
+  "credits_exhausted": true,
+  "model": "sonnet",
+  "label": "terra"
+ },
+ {
+  "byok": [
+   "fireworks",
+   "openai"
+  ],
+  "credits_exhausted": true,
+  "model": "haiku",
+  "label": "luna"
+ },
+ {
+  "byok": [
+   "fireworks",
+   "openai"
+  ],
+  "credits_exhausted": true,
+  "model": "gemini-pro",
+  "label": "sol"
+ },
+ {
+  "byok": [
+   "fireworks",
+   "openai"
+  ],
+  "credits_exhausted": true,
+  "model": "gemini-flash",
+  "label": "terra"
+ },
+ {
+  "byok": [
+   "fireworks",
+   "openai"
+  ],
+  "credits_exhausted": true,
+  "model": "gemini-flash-lite",
+  "label": "luna"
+ },
+ {
+  "byok": [
+   "fireworks",
+   "openai"
+  ],
+  "credits_exhausted": true,
+  "model": "grok-4.5",
+  "label": "sol"
+ },
+ {
+  "byok": [
+   "fireworks",
+   "openai"
+  ],
+  "credits_exhausted": true,
+  "model": "glm-5p2",
+  "label": "glm-5p2"
+ },
+ {
+  "byok": [
+   "fireworks",
+   "openai"
+  ],
+  "credits_exhausted": true,
+  "model": "gpt-oss-120b",
+  "label": "gpt-oss-120b"
+ },
+ {
+  "byok": [
+   "fireworks",
+   "openai"
+  ],
+  "credits_exhausted": true,
+  "model": "kimi-k3",
+  "label": "kimi-k3"
+ },
+ {
+  "byok": [
+   "fireworks",
+   "openai"
+  ],
+  "credits_exhausted": true,
+  "model": "kimi-k2p7-code",
+  "label": "kimi-k2p7-code"
+ },
+ {
+  "byok": [
+   "fireworks",
+   "openai"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "sol",
+  "label": "sol"
+ },
+ {
+  "byok": [
+   "fireworks",
+   "openai"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "terra",
+  "label": "terra"
+ },
+ {
+  "byok": [
+   "fireworks",
+   "openai"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "luna",
+  "label": "luna"
+ },
+ {
+  "byok": [
+   "fireworks",
+   "openai"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "opus",
+  "label": "opus"
+ },
+ {
+  "byok": [
+   "fireworks",
+   "openai"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "sonnet",
+  "label": "sonnet"
+ },
+ {
+  "byok": [
+   "fireworks",
+   "openai"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "haiku",
+  "label": "haiku"
+ },
+ {
+  "byok": [
+   "fireworks",
+   "openai"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "gemini-pro",
+  "label": "gemini-pro"
+ },
+ {
+  "byok": [
+   "fireworks",
+   "openai"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "gemini-flash",
+  "label": "gemini-flash"
+ },
+ {
+  "byok": [
+   "fireworks",
+   "openai"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "gemini-flash-lite",
+  "label": "gemini-flash-lite"
+ },
+ {
+  "byok": [
+   "fireworks",
+   "openai"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "grok-4.5",
+  "label": "grok-4.5"
+ },
+ {
+  "byok": [
+   "fireworks",
+   "openai"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "glm-5p2",
+  "label": "glm-5p2"
+ },
+ {
+  "byok": [
+   "fireworks",
+   "openai"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "gpt-oss-120b",
+  "label": "gpt-oss-120b"
+ },
+ {
+  "byok": [
+   "fireworks",
+   "openai"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "kimi-k3",
+  "label": "kimi-k3"
+ },
+ {
+  "byok": [
+   "fireworks",
+   "openai"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "kimi-k2p7-code",
+  "label": "kimi-k2p7-code"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "gemini"
+  ],
+  "model": "sol",
+  "label": "gemini-pro"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "gemini"
+  ],
+  "model": "terra",
+  "label": "gemini-flash"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "gemini"
+  ],
+  "model": "luna",
+  "label": "gemini-flash-lite"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "gemini"
+  ],
+  "model": "opus",
+  "label": "opus"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "gemini"
+  ],
+  "model": "sonnet",
+  "label": "sonnet"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "gemini"
+  ],
+  "model": "haiku",
+  "label": "haiku"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "gemini"
+  ],
+  "model": "gemini-pro",
+  "label": "gemini-pro"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "gemini"
+  ],
+  "model": "gemini-flash",
+  "label": "gemini-flash"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "gemini"
+  ],
+  "model": "gemini-flash-lite",
+  "label": "gemini-flash-lite"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "gemini"
+  ],
+  "model": "grok-4.5",
+  "label": "gemini-pro"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "gemini"
+  ],
+  "model": "glm-5p2",
+  "label": "glm-5p2"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "gemini"
+  ],
+  "model": "gpt-oss-120b",
+  "label": "gpt-oss-120b"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "gemini"
+  ],
+  "model": "kimi-k3",
+  "label": "kimi-k3"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "gemini"
+  ],
+  "model": "kimi-k2p7-code",
+  "label": "kimi-k2p7-code"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "gemini"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "sol",
+  "label": "sol"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "gemini"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "terra",
+  "label": "terra"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "gemini"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "luna",
+  "label": "luna"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "gemini"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "opus",
+  "label": "opus"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "gemini"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "sonnet",
+  "label": "sonnet"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "gemini"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "haiku",
+  "label": "haiku"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "gemini"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "gemini-pro",
+  "label": "gemini-pro"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "gemini"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "gemini-flash",
+  "label": "gemini-flash"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "gemini"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "gemini-flash-lite",
+  "label": "gemini-flash-lite"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "gemini"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "grok-4.5",
+  "label": "grok-4.5"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "gemini"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "glm-5p2",
+  "label": "glm-5p2"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "gemini"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "gpt-oss-120b",
+  "label": "gpt-oss-120b"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "gemini"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "kimi-k3",
+  "label": "kimi-k3"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "gemini"
+  ],
+  "explicit_vendor": "anthropic",
+  "model": "kimi-k2p7-code",
+  "label": "kimi-k2p7-code"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "gemini"
+  ],
+  "credits_exhausted": true,
+  "model": "sol",
+  "label": "gemini-pro"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "gemini"
+  ],
+  "credits_exhausted": true,
+  "model": "terra",
+  "label": "gemini-flash"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "gemini"
+  ],
+  "credits_exhausted": true,
+  "model": "luna",
+  "label": "gemini-flash-lite"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "gemini"
+  ],
+  "credits_exhausted": true,
+  "model": "opus",
+  "label": "opus"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "gemini"
+  ],
+  "credits_exhausted": true,
+  "model": "sonnet",
+  "label": "sonnet"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "gemini"
+  ],
+  "credits_exhausted": true,
+  "model": "haiku",
+  "label": "haiku"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "gemini"
+  ],
+  "credits_exhausted": true,
+  "model": "gemini-pro",
+  "label": "gemini-pro"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "gemini"
+  ],
+  "credits_exhausted": true,
+  "model": "gemini-flash",
+  "label": "gemini-flash"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "gemini"
+  ],
+  "credits_exhausted": true,
+  "model": "gemini-flash-lite",
+  "label": "gemini-flash-lite"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "gemini"
+  ],
+  "credits_exhausted": true,
+  "model": "grok-4.5",
+  "label": "gemini-pro"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "gemini"
+  ],
+  "credits_exhausted": true,
+  "model": "glm-5p2",
+  "label": "glm-5p2"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "gemini"
+  ],
+  "credits_exhausted": true,
+  "model": "gpt-oss-120b",
+  "label": "gpt-oss-120b"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "gemini"
+  ],
+  "credits_exhausted": true,
+  "model": "kimi-k3",
+  "label": "kimi-k3"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "gemini"
+  ],
+  "credits_exhausted": true,
+  "model": "kimi-k2p7-code",
+  "label": "kimi-k2p7-code"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "gemini"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "sol",
+  "label": "sol"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "gemini"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "terra",
+  "label": "terra"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "gemini"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "luna",
+  "label": "luna"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "gemini"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "opus",
+  "label": "opus"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "gemini"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "sonnet",
+  "label": "sonnet"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "gemini"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "haiku",
+  "label": "haiku"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "gemini"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "gemini-pro",
+  "label": "gemini-pro"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "gemini"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "gemini-flash",
+  "label": "gemini-flash"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "gemini"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "gemini-flash-lite",
+  "label": "gemini-flash-lite"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "gemini"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "grok-4.5",
+  "label": "grok-4.5"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "gemini"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "glm-5p2",
+  "label": "glm-5p2"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "gemini"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "gpt-oss-120b",
+  "label": "gpt-oss-120b"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "gemini"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "kimi-k3",
+  "label": "kimi-k3"
+ },
+ {
+  "byok": [
+   "anthropic",
+   "gemini"
+  ],
+  "credits_exhausted": true,
+  "explicit_vendor": "anthropic",
+  "model": "kimi-k2p7-code",
+  "label": "kimi-k2p7-code"
+ }
+]

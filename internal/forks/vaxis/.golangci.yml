@@ -1,0 +1,14 @@
+version: "2"
+
+linters:
+  enable:
+    - exhaustive
+    - nosinglelinefunc
+  settings:
+    exhaustive:
+      default-signifies-exhaustive: true
+    custom:
+      nosinglelinefunc:
+        type: module
+        description: checks that non-empty Go function bodies span multiple lines
+        original-url: go.rockorager.dev/go-no-singleline-funcs

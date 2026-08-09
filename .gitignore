@@ -1,0 +1,6 @@
+/memcode
+/memcode-gateway
+dist/
+.memcode/
+.env
+.claude/

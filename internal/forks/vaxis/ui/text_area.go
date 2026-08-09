@@ -1,0 +1,394 @@
+package ui
+
+// TextArea is a controlled multiline text input.
+type TextArea struct {
+	// Value is the current text. The widget does not mutate this field directly.
+	Value string
+	// Placeholder is shown when Value is empty and the area is not focused.
+	Placeholder string
+	// OnChanged is called with the next value after an edit.
+	OnChanged TextChangedCallback
+	// Padding overrides the default text field padding when non-zero.
+	Padding Insets
+	// MinWidth overrides the default text field minimum width when greater than zero.
+	MinWidth int
+	// MinHeight is the minimum content height, before padding.
+	MinHeight int
+	// MaxHeight is the maximum content height, before padding. When greater than zero,
+	// the text area grows until MaxHeight and then scrolls internally.
+	MaxHeight int
+	// SoftWrap wraps long logical lines to the available width.
+	SoftWrap bool
+	// CursorOffset moves the cursor to a grapheme offset and clears selection when non-nil.
+	CursorOffset *int
+	// Selection sets the active selection and cursor when non-nil.
+	Selection *TextSelection
+	// CursorShape overrides the cursor shape while focused. Zero uses CursorBeam.
+	CursorShape CursorStyle
+	// AutoFocus requests focus when the text area is mounted.
+	AutoFocus bool
+}
+
+func (w TextArea) CreateState() State {
+	return &textAreaState{}
+}
+
+type textAreaState struct {
+	StateBase
+	editor    textEditorState
+	layout    TextLayout
+	scrollRow int
+	scrollCol int
+}
+
+func (s *textAreaState) Build(ctx BuildContext) Widget {
+	w := s.Widget().(TextArea)
+	s.editor.SyncValue(w.Value)
+	if w.Selection != nil {
+		s.editor.SetSelection(*w.Selection)
+	} else if w.CursorOffset != nil {
+		s.editor.SetCursorOffset(*w.CursorOffset)
+	}
+	s.editor.SetFocusChange(s.MarkNeedsBuild)
+	theme := textFieldTheme(MustDepend[Theme](ctx))
+	padding := textAreaPadding(w, theme)
+	style := theme.Normal
+	if s.editor.HasFocus() {
+		style = theme.Focused
+	}
+	child := s.editor.Focus(DecoratedBox(
+		Decoration{Style: style},
+		Padding(padding, textAreaView{
+			State:            s,
+			Value:            s.editor.Text(),
+			Placeholder:      w.Placeholder,
+			CursorOffset:     textAreaCursorOffset(w, s.editor.CursorOffset()),
+			Selection:        s.editor.Selection(),
+			Focused:          s.editor.HasFocus(),
+			Style:            style,
+			PlaceholderStyle: mergeStyle(style, theme.Placeholder),
+			SelectionStyle:   mergeStyle(style, theme.Selection),
+			MinWidth:         textAreaMinWidth(w, theme) - padding.Left - padding.Right,
+			MinHeight:        textAreaMinHeight(w) - padding.Top - padding.Bottom,
+			MaxHeight:        textAreaMaxHeight(w, padding),
+			SoftWrap:         w.SoftWrap,
+			CursorShape:      textAreaCursorShape(w),
+		}),
+	))
+	if w.AutoFocus {
+		child = autoFocus{Child: child}
+	}
+	return s.editor.DefaultActions(s.handleOptions(w), child)
+}
+
+func (s *textAreaState) HandleEvent(ctx EventContext, ev Event) EventResult {
+	w := s.Widget().(TextArea)
+	return s.editor.HandleEvent(ctx, ev, s.handleOptions(w))
+}
+
+func (s *textAreaState) handleOptions(w TextArea) textEditorHandleOptions {
+	return textEditorHandleOptions{
+		insertMode:       textEditorMultiline,
+		markNeedsBuild:   s.MarkNeedsBuild,
+		onChanged:        w.OnChanged,
+		positionForMouse: s.positionForMouse,
+		moveUp:           s.moveUp,
+		moveDown:         s.moveDown,
+		extendUp:         s.extendUp,
+		extendDown:       s.extendDown,
+	}
+}
+
+func (s *textAreaState) MouseShape(EventContext, Mouse) MouseShape {
+	return MouseShapeTextInput
+}
+
+func (s *textAreaState) positionForMouse(mouse Mouse) (TextPosition, bool) {
+	w := s.Widget().(TextArea)
+	theme := textFieldTheme(MustDepend[Theme](s.Context()))
+	padding := textAreaPadding(w, theme)
+	if len(s.layout.Lines) == 0 {
+		return TextPosition{}, true
+	}
+	row := mouse.Row - padding.Top + s.scrollRow
+	col := mouse.Col - padding.Left + s.scrollCol
+	if row < 0 {
+		row = 0
+	}
+	if row >= len(s.layout.Lines) {
+		return s.layout.Lines[len(s.layout.Lines)-1].End, true
+	}
+	pos, ok := s.layout.PositionForCell(row, col)
+	if !ok {
+		return TextPosition{}, false
+	}
+	return pos, true
+}
+
+func (s *textAreaState) moveUp() bool {
+	return s.editor.MoveVisualUp(s.layout)
+}
+
+func (s *textAreaState) moveDown() bool {
+	return s.editor.MoveVisualDown(s.layout)
+}
+
+func (s *textAreaState) extendUp() bool {
+	return s.editor.ExtendVisualUp(s.layout)
+}
+
+func (s *textAreaState) extendDown() bool {
+	return s.editor.ExtendVisualDown(s.layout)
+}
+
+func textAreaPadding(w TextArea, theme TextFieldTheme) Insets {
+	if w.Padding != (Insets{}) {
+		return w.Padding
+	}
+	if theme.Padding == (Insets{}) {
+		return Symmetric(1, 0)
+	}
+	return theme.Padding
+}
+
+func textAreaMinWidth(w TextArea, theme TextFieldTheme) int {
+	if w.MinWidth > 0 {
+		return w.MinWidth
+	}
+	if theme.MinWidth <= 0 {
+		return defaultTextFieldMinWidth
+	}
+	return theme.MinWidth
+}
+
+func textAreaMinHeight(w TextArea) int {
+	if w.MinHeight > 0 {
+		return w.MinHeight
+	}
+	return 3
+}
+
+func textAreaMaxHeight(w TextArea, padding Insets) int {
+	if w.MaxHeight <= 0 {
+		return 0
+	}
+	return max(1, w.MaxHeight-padding.Top-padding.Bottom)
+}
+
+func textAreaCursorOffset(w TextArea, fallback int) int {
+	if w.CursorOffset != nil {
+		return *w.CursorOffset
+	}
+	return fallback
+}
+
+func textAreaCursorShape(w TextArea) CursorStyle {
+	if w.CursorShape != 0 {
+		return w.CursorShape
+	}
+	return CursorBeam
+}
+
+type textAreaView struct {
+	State            *textAreaState
+	Value            string
+	Placeholder      string
+	CursorOffset     int
+	Selection        TextSelection
+	Focused          bool
+	Style            Style
+	PlaceholderStyle Style
+	SelectionStyle   Style
+	MinWidth         int
+	MinHeight        int
+	MaxHeight        int
+	SoftWrap         bool
+	CursorShape      CursorStyle
+}
+
+func (w textAreaView) CreateRenderObject(BuildContext) RenderObject {
+	return &renderTextArea{
+		State:            w.State,
+		Value:            w.Value,
+		Placeholder:      w.Placeholder,
+		CursorOffset:     w.CursorOffset,
+		Selection:        w.Selection,
+		Focused:          w.Focused,
+		Style:            w.Style,
+		PlaceholderStyle: w.PlaceholderStyle,
+		SelectionStyle:   w.SelectionStyle,
+		MinWidth:         max(1, w.MinWidth),
+		MinHeight:        max(1, w.MinHeight),
+		MaxHeight:        max(0, w.MaxHeight),
+		SoftWrap:         w.SoftWrap,
+		CursorShape:      w.CursorShape,
+	}
+}
+
+func (w textAreaView) UpdateRenderObject(_ BuildContext, ro RenderObject) {
+	r := ro.(*renderTextArea)
+	if r.State != w.State || r.Value != w.Value || r.Placeholder != w.Placeholder || r.CursorOffset != w.CursorOffset ||
+		r.Selection != w.Selection || r.Focused != w.Focused || r.Style != w.Style || r.PlaceholderStyle != w.PlaceholderStyle ||
+		r.SelectionStyle != w.SelectionStyle ||
+		r.MinWidth != max(1, w.MinWidth) || r.MinHeight != max(1, w.MinHeight) || r.MaxHeight != max(0, w.MaxHeight) || r.SoftWrap != w.SoftWrap || r.CursorShape != w.CursorShape {
+		r.State = w.State
+		r.Value = w.Value
+		r.Placeholder = w.Placeholder
+		r.CursorOffset = w.CursorOffset
+		r.Selection = w.Selection
+		r.Focused = w.Focused
+		r.Style = w.Style
+		r.PlaceholderStyle = w.PlaceholderStyle
+		r.SelectionStyle = w.SelectionStyle
+		r.MinWidth = max(1, w.MinWidth)
+		r.MinHeight = max(1, w.MinHeight)
+		r.MaxHeight = max(0, w.MaxHeight)
+		r.SoftWrap = w.SoftWrap
+		r.CursorShape = w.CursorShape
+		r.MarkNeedsLayout()
+	}
+}
+
+type renderTextArea struct {
+	LeafRenderObject
+	State            *textAreaState
+	Value            string
+	Placeholder      string
+	CursorOffset     int
+	Selection        TextSelection
+	Focused          bool
+	Style            Style
+	PlaceholderStyle Style
+	SelectionStyle   Style
+	MinWidth         int
+	MinHeight        int
+	MaxHeight        int
+	SoftWrap         bool
+	CursorShape      CursorStyle
+	layout           TextLayout
+}
+
+func (r *renderTextArea) Layout(ctx LayoutContext, c Constraints) {
+	r.layout = r.textLayout(c)
+	size := r.sizeForLayout(c, r.layout)
+	r.SetSize(size)
+	r.keepCursorVisible(size)
+	if r.State != nil {
+		r.State.layout = r.layout
+	}
+}
+
+func (r *renderTextArea) DryLayout(_ LayoutContext, c Constraints) Size {
+	layout := r.textLayout(c)
+	return r.sizeForLayout(c, layout)
+}
+
+func (r *renderTextArea) Paint(p *Painter, off Offset) {
+	size := r.Size()
+	p.PushClip(Rect{X: off.X, Y: off.Y, Width: size.Width, Height: size.Height})
+	defer p.PopClip()
+	selection := TextSelection{}
+	selectionStyle := Style{}
+	if r.Focused {
+		selection = r.Selection
+		selectionStyle = r.SelectionStyle
+	}
+	paintVisibleTextLayout(p, off, r.layout, textLayoutPaintOptions{
+		Size:           size,
+		ScrollRow:      r.scrollRow(),
+		ScrollCol:      r.scrollCol(),
+		Selection:      selection,
+		SelectionStyle: selectionStyle,
+	})
+	if r.Focused && r.Value != "" {
+		if row, col, ok := r.layout.CursorCell(r.cursorPosition(), TextCursorCellOptions{SoftWrap: r.SoftWrap, WrapWidth: size.Width}); ok {
+			p.ShowCursor(off.X+col-r.scrollCol(), off.Y+row-r.scrollRow(), r.CursorShape)
+		}
+	} else if r.Focused && r.Value == "" {
+		p.ShowCursor(off.X, off.Y, r.CursorShape)
+	}
+}
+
+func (r *renderTextArea) HitTest(*HitTestResult, Point) bool {
+	return true
+}
+
+func (r *renderTextArea) textLayout(c Constraints) TextLayout {
+	text := r.Value
+	style := r.Style
+	if text == "" && !r.Focused && r.Placeholder != "" {
+		text = r.Placeholder
+		style = r.PlaceholderStyle
+	}
+	maxWidth := Unbounded
+	if r.SoftWrap && c.HasBoundedWidth() {
+		maxWidth = max(1, c.MaxWidth)
+	}
+	return LayoutText([]TextSpan{{Text: text, Style: style}}, Constraints{MaxWidth: maxWidth, MaxHeight: Unbounded}, TextLayoutOptions{SoftWrap: r.SoftWrap})
+}
+
+func (r *renderTextArea) sizeForLayout(c Constraints, layout TextLayout) Size {
+	width := max(r.MinWidth, layout.Size.Width)
+	if r.SoftWrap && c.HasBoundedWidth() {
+		width = max(r.MinWidth, c.MaxWidth)
+	}
+	height := max(r.MinHeight, layout.Size.Height)
+	if r.MaxHeight > 0 {
+		height = min(height, max(r.MinHeight, r.MaxHeight))
+	}
+	return c.Constrain(Size{Width: width, Height: height})
+}
+
+func (r *renderTextArea) keepCursorVisible(size Size) {
+	if r.State == nil || size.Width <= 0 || size.Height <= 0 {
+		return
+	}
+	r.State.scrollRow = min(r.State.scrollRow, max(0, len(r.layout.Lines)-1))
+	r.State.scrollCol = min(r.State.scrollCol, max(0, r.layout.Size.Width))
+	if r.layout.Size.Height <= size.Height {
+		r.State.scrollRow = 0
+	}
+	if r.layout.Size.Width <= size.Width {
+		r.State.scrollCol = 0
+	}
+	row, col, ok := r.layout.CursorCell(r.cursorPosition(), TextCursorCellOptions{SoftWrap: r.SoftWrap, WrapWidth: size.Width})
+	if !ok {
+		row, col = 0, 0
+	}
+	if row < r.State.scrollRow {
+		r.State.scrollRow = row
+	}
+	if row >= r.State.scrollRow+size.Height {
+		r.State.scrollRow = row - size.Height + 1
+	}
+	if r.SoftWrap {
+		r.State.scrollCol = 0
+		return
+	}
+	if col < r.State.scrollCol {
+		r.State.scrollCol = col
+	}
+	if col >= r.State.scrollCol+size.Width {
+		r.State.scrollCol = col - size.Width + 1
+	}
+}
+
+func (r *renderTextArea) cursorPosition() TextPosition {
+	buffer := NewTextBuffer(r.Value)
+	buffer.SetCursorOffset(r.CursorOffset)
+	return buffer.Position()
+}
+
+func (r *renderTextArea) scrollRow() int {
+	if r.State == nil {
+		return 0
+	}
+	return r.State.scrollRow
+}
+
+func (r *renderTextArea) scrollCol() int {
+	if r.State == nil {
+		return 0
+	}
+	return r.State.scrollCol
+}

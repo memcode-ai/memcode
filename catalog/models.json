@@ -1,0 +1,675 @@
+{
+  "_comment": "CANONICAL model catalog for the WHOLE monorepo (root /models.json): capabilities (window/vision/reasoning/max_output), CLI picker flags (pinnable/group), pricing ($/M tokens; entry price_in/out -> first-matching family rule -> defaults; cache read defaults to 0.1x input, cache write to 1.25x input), and the www chat surface (per-model `www` block: chat/order/description \u2014 Go ignores it). Consumers: Go embeds a BYTE-IDENTICAL copy at packages/sdk/go/common/models.json (sync with scripts/sync-models.sh; a guard test fails on drift; api/ re-vendors it), and apps/www derives its entire catalog + calculateCost from THIS file. Edit HERE, run the sync script, never edit the sdk copy directly.",
+  "models": [
+    {
+      "id": "grok-4.5",
+      "label": "grok-4.5",
+      "vendor": "grok",
+      "window": 500000,
+      "vision": true,
+      "reasoning": true,
+      "price_in": 2.0,
+      "price_out": 6.0,
+      "price_cache_read": 0.3,
+      "_note": "Grok 4.5 (xAI, via the OpenAI-compatible api.x.ai endpoint). Single model for all three strong-tier roles for the Grok vendor (no 'Grok Haiku' yet). 500K context, reasoning_effort knob, vision. Without this catalog row, catalog.spec returned window 0 / vision false, so every image turn was mis-stamped FallbackReason:vision and /v1/models reported the Grok roles as window 0. PRICING verified docs.x.ai 2026-07-27: $2/$6, cached $0.30 (<200k tier; the >=200k doubled tier is not modeled). LiteLLM had cached $0.50 \u2014 vendor doc wins.",
+      "pinnable": true,
+      "group": "Grok",
+      "desc": "Frontier reasoning",
+      "name": "Grok 4.5",
+      "www": {
+        "chat": true,
+        "order": 36,
+        "description": "xAI flagship model with large context window."
+      },
+      "max_output": 32000,
+      "fallback": [
+        "terra"
+      ]
+    },
+    {
+      "id": "gemini-3.1-pro-preview",
+      "label": "gemini-pro",
+      "vendor": "gemini",
+      "window": 1000000,
+      "vision": true,
+      "reasoning": true,
+      "price_in": 2.0,
+      "price_out": 12.0,
+      "_note": "Gemini 3.1 Pro (Google, GA Feb 2026). Frontier tier \u2014 escalation target for the Gemini vendor. Native genai SDK. 1M context, 64K max output, vision, thinking budget. gemini-3-pro-preview is now just an alias to this id.",
+      "pinnable": true,
+      "group": "Gemini",
+      "desc": "Deep reasoning",
+      "name": "Gemini 3.1 Pro",
+      "pdf": true,
+      "www": {
+        "chat": true,
+        "order": 30,
+        "description": "Latest Gemini model with significantly improved reasoning and 1M context window."
+      },
+      "max_output": 64000,
+      "fallback": [
+        "gemini-flash",
+        "terra"
+      ]
+    },
+    {
+      "id": "gemini-3.6-flash",
+      "label": "gemini-flash",
+      "vendor": "gemini",
+      "window": 1000000,
+      "vision": true,
+      "reasoning": true,
+      "price_in": 1.5,
+      "price_out": 7.5,
+      "_note": "Gemini 3.6 Flash (Google, GA July 21 2026). Balanced tier \u2014 everyday default + fallback absorb target for the Gemini vendor. Latest stable Flash; supersedes gemini-3.5-flash ($1.50/$9.00) at a lower output price. 1M context, 64K max output, vision, thinking budget, Google Search grounding.",
+      "pinnable": true,
+      "group": "Gemini",
+      "desc": "Fast agentic coding",
+      "name": "Gemini 3.6 Flash",
+      "pdf": true,
+      "www": {
+        "chat": true,
+        "order": 22,
+        "description": "Gemini 3.6 Flash, the latest frontier speed model. Combines frontier intelligence with superior search and grounding; outperforms Gemini 3.1 Pro on coding and agentic benchmarks at a fraction of the cost."
+      },
+      "max_output": 64000,
+      "fallback": [
+        "gemini-pro",
+        "luna"
+      ]
+    },
+    {
+      "id": "gemini-3.5-flash-lite",
+      "label": "gemini-flash-lite",
+      "vendor": "gemini",
+      "window": 1000000,
+      "vision": true,
+      "reasoning": true,
+      "price_in": 0.3,
+      "price_out": 2.5,
+      "_note": "Gemini 3.5 Flash-Lite (Google, GA July 21 2026). Fast/cheap classifier tier for the Gemini vendor. Latest stable Flash-Lite; supersedes gemini-3.1-flash-lite ($0.25/$1.50). 1M context, 64K max output. NOT in the pickers (pinnable:false, www.chat:false) as of 2026-07-28 (Tim) \u2014 it stays in the catalog ONLY as the Gemini AUTOMATIC cheap/classifier role (ModelGeminiFlashLite); pricing/window still resolve.",
+      "pinnable": false,
+      "group": "Gemini",
+      "desc": "Cheapest for quick work",
+      "name": "Gemini 3.5 Flash-Lite",
+      "pdf": true,
+      "www": {
+        "chat": false,
+        "order": 20,
+        "description": "Most cost-effective Gemini model. Fast, lightweight, ideal for bulk tasks and agent workflows."
+      },
+      "max_output": 64000,
+      "fallback": [
+        "gemini-flash"
+      ]
+    },
+    {
+      "id": "claude-opus-5",
+      "label": "opus",
+      "vendor": "anthropic",
+      "window": 1000000,
+      "max_output": 128000,
+      "vision": true,
+      "reasoning": true,
+      "pinnable": true,
+      "group": "Claude",
+      "desc": "Best for complex tasks",
+      "name": "Opus 5",
+      "pdf": true,
+      "www": {
+        "chat": true,
+        "order": 95,
+        "description": "Exceptional Claude model for advanced software engineering, with a 1M context window and adaptive thinking."
+      },
+      "fallback": [
+        "terra"
+      ]
+    },
+    {
+      "id": "claude-fable-5",
+      "label": "fable",
+      "vendor": "anthropic",
+      "window": 1000000,
+      "max_output": 128000,
+      "vision": true,
+      "reasoning": true,
+      "pinnable": true,
+      "group": "Claude",
+      "price_in": 10.0,
+      "price_out": 50.0,
+      "price_cache_read": 1.0,
+      "_note": "Claude Fable 5 (Anthropic, claude-fable-5). Anthropic's MOST capable widely-released model \u2014 state-of-the-art coding/knowledge/vision/computer-use, always-on adaptive thinking, 1M window, 128K out. PRICING verified anthropic.com/news/claude-fable-5-mythos-5 + platform.claude.com 2026-07-27: $10/$50 per 1M, cache read 0.1x ($1.00). Explicit entry price (there is no fable pricing family rule; the window family already lists fable). Uses the adaptive-thinking path like Opus (rejects manual budget_tokens).",
+      "desc": "Most capable Claude",
+      "name": "Fable 5",
+      "pdf": true,
+      "www": {
+        "chat": true,
+        "order": 100,
+        "description": "Anthropic's most capable model: state-of-the-art coding, vision, and computer use with a 1M context window and always-on adaptive thinking."
+      },
+      "fallback": [
+        "sol"
+      ]
+    },
+    {
+      "id": "claude-sonnet-5",
+      "label": "sonnet",
+      "vendor": "anthropic",
+      "window": 1000000,
+      "max_output": 128000,
+      "vision": true,
+      "reasoning": true,
+      "pinnable": true,
+      "group": "Claude",
+      "desc": "Efficient for routine tasks",
+      "name": "Sonnet 5",
+      "pdf": true,
+      "www": {
+        "chat": true,
+        "order": 35,
+        "description": "Latest Claude Sonnet with adaptive thinking, 1M context, and best speed-to-intelligence ratio."
+      },
+      "_note": "PRICING $2/$10 is INTRODUCTORY through 2026-08-31 (platform.claude.com/docs pricing, verified 2026-07-27); flip the sonnet family rule to $3/$15 on 2026-09-01.",
+      "fallback": [
+        "terra"
+      ]
+    },
+    {
+      "id": "claude-haiku-4-5-20251001",
+      "label": "haiku",
+      "vendor": "anthropic",
+      "window": 200000,
+      "max_output": 64000,
+      "vision": true,
+      "reasoning": false,
+      "pinnable": true,
+      "group": "Claude",
+      "desc": "Fastest for quick answers",
+      "name": "Haiku 4.5",
+      "pdf": true,
+      "www": {
+        "chat": true,
+        "order": 10,
+        "description": "Fastest and most compact Claude model, perfect for quick responses."
+      },
+      "fallback": [
+        "luna"
+      ]
+    },
+    {
+      "id": "gpt-5.6-sol",
+      "label": "sol",
+      "vendor": "openai",
+      "window": 1050000,
+      "vision": true,
+      "reasoning": true,
+      "price_in": 5.0,
+      "price_out": 30.0,
+      "_note": "GPT-5.6 Sol (OpenAI, GA 2026-07-09). Frontier tier \u2014 the court of appeal (was Opus in inference). Responses API. 1.05M context, 128K max output, vision, reasoning.",
+      "pinnable": true,
+      "group": "OpenAI",
+      "desc": "Strongest reasoning",
+      "name": "GPT-5.6 Sol",
+      "pdf": true,
+      "www": {
+        "chat": true,
+        "order": 110,
+        "description": "OpenAI frontier GPT-5.6 Sol. Top-tier intelligence for coding and professional work, with a 1.05M context window."
+      },
+      "max_output": 128000,
+      "fallback": [
+        "terra"
+      ]
+    },
+    {
+      "id": "gpt-5.6-terra",
+      "label": "terra",
+      "vendor": "openai",
+      "window": 1050000,
+      "vision": true,
+      "reasoning": true,
+      "price_in": 2.5,
+      "price_out": 15.0,
+      "_note": "GPT-5.6 Terra (OpenAI). Balanced tier \u2014 everyday default + fallback absorb target (was Sonnet in inference).",
+      "pinnable": true,
+      "group": "OpenAI",
+      "desc": "Balanced everyday coding",
+      "name": "GPT-5.6 Terra",
+      "pdf": true,
+      "www": {
+        "chat": true,
+        "order": 90,
+        "description": "Balanced GPT-5.6 model with strong reasoning at a fraction of the cost of Sol."
+      },
+      "max_output": 128000,
+      "fallback": [
+        "luna"
+      ]
+    },
+    {
+      "id": "gpt-5.6-luna",
+      "label": "luna",
+      "vendor": "openai",
+      "window": 1050000,
+      "vision": true,
+      "reasoning": true,
+      "price_in": 1.0,
+      "price_out": 6.0,
+      "_note": "GPT-5.6 Luna (OpenAI). Fast/cheap tier \u2014 classifier + reviewer (was Haiku in inference).",
+      "pinnable": true,
+      "group": "OpenAI",
+      "desc": "Fast and cheap",
+      "name": "GPT-5.6 Luna",
+      "pdf": true,
+      "www": {
+        "chat": true,
+        "order": 80,
+        "description": "Fast, cost-effective GPT-5.6 model for quick tasks and high-volume use cases."
+      },
+      "max_output": 128000,
+      "fallback": [
+        "terra"
+      ]
+    },
+    {
+      "id": "accounts/fireworks/models/glm-5p2",
+      "label": "glm-5p2",
+      "vendor": "fireworks",
+      "window": 1000000,
+      "vision": false,
+      "reasoning": true,
+      "_note": "GLM-5.2 (Z.ai, Fireworks 2026-06-17): successor to 5.1, built for agentic SWE + long-horizon tool use; 1M context, function-calling, no vision. Same price as 5.1 ($1.40/$4.40/$0.26). PLANNER + cheap lane. Beats 5.1 across coding benches (SWE-bench Pro 62.1 vs 58.4, Terminal-Bench 81 vs 63.5); still below Opus 5 on the hardest (fine \u2014 Opus is escalation-only). Verified id resolves on the account via a live completion probe (not in /models listing \u2014 normal for serverless). Rollback: point roles back at glm-5p1 + redeploy.",
+      "pinnable": true,
+      "group": "GLM",
+      "desc": "Open-weight coding flagship",
+      "name": "GLM-5.2",
+      "www": {
+        "chat": true,
+        "order": 30,
+        "description": "Open-weight coding flagship (Z.ai) with a 1M context window \u2014 the same cheap lane the memcode CLI runs on."
+      },
+      "max_output": 32000,
+      "fallback": [
+        "kimi-k2p7-code",
+        "terra"
+      ]
+    },
+    {
+      "id": "accounts/fireworks/models/kimi-k2p7-code",
+      "label": "kimi-k2p7-code",
+      "vendor": "fireworks",
+      "window": 262000,
+      "vision": true,
+      "reasoning": true,
+      "_note": "Kimi K2.7 Code (Moonshot, Fireworks Day-0 2026-06-12): vision, 262K. TRIED as planner 2026-06-13, RETIRED \u2014 failed to synthesize a usable plan (incomplete/reasoning-soup output, same class as K2.6). Kept for reference; no role.",
+      "pinnable": true,
+      "group": "Kimi",
+      "desc": "Coding specialist",
+      "name": "Kimi K2.7 Code",
+      "www": {
+        "chat": true,
+        "order": 19,
+        "description": "Moonshot coding specialist with native vision and a 262K context window."
+      },
+      "max_output": 32000,
+      "fallback": [
+        "glm-5p2",
+        "terra"
+      ]
+    },
+    {
+      "id": "accounts/fireworks/models/kimi-k2p6",
+      "label": "kimi-k2p6",
+      "vendor": "fireworks",
+      "window": 262000,
+      "vision": true,
+      "reasoning": true,
+      "pinnable": true,
+      "group": "Kimi",
+      "_note": "Kimi K2.6 (Moonshot, Fireworks). Added 2026-07-17 for the /model pin picker. Native vision (MoonViT), 262K. VERIFY the Fireworks id spelling + window against the account before relying on it in prod.",
+      "desc": "General open-weight",
+      "name": "Kimi K2.6",
+      "www": {
+        "chat": true,
+        "order": 20,
+        "description": "Moonshot general open-weight model with native vision and a 262K context window."
+      },
+      "max_output": 32000,
+      "fallback": [
+        "kimi-k2p7-code",
+        "terra"
+      ]
+    },
+    {
+      "id": "accounts/fireworks/models/kimi-k3",
+      "label": "kimi-k3",
+      "vendor": "fireworks",
+      "window": 1000000,
+      "vision": true,
+      "reasoning": true,
+      "pinnable": true,
+      "group": "Kimi",
+      "price_in": 3.0,
+      "price_out": 15.0,
+      "price_cache_read": 0.3,
+      "_note": "Kimi K3 (Moonshot flagship, 1M window, native vision). ACTIVATED 2026-07-27: id accounts/fireworks/models/kimi-k3 verified live on Fireworks via a completion probe (reasoning model). Pin-only, no role (Kimi-as-planner was retired for weak plan synthesis). Window 1M per Moonshot spec; serverless /models does not list it, so not independently confirmable. PRICING verified docs.fireworks.ai/serverless/pricing 2026-07-27: K3 is individually listed at $3/$15 per 1M (NOT the ~$0.95/$4 kimi family rule \u2014 it is a 1T model with headline pricing), cache read 0.1x input. Explicit entry price overrides the family rule. DEFAULTS to thinking; reasoning_effort:'none' suppresses it (www xai adapter + gateway send none unless thinking on).",
+      "desc": "Moonshot flagship",
+      "name": "Kimi K3",
+      "www": {
+        "chat": true,
+        "order": 18,
+        "description": "Moonshot flagship on the cheap Fireworks lane: 1M context and native vision."
+      },
+      "max_output": 32000,
+      "fallback": [
+        "kimi-k2p7-code",
+        "terra"
+      ]
+    },
+    {
+      "id": "accounts/fireworks/models/gpt-oss-120b",
+      "label": "gpt-oss-120b",
+      "vendor": "fireworks",
+      "window": 131072,
+      "vision": false,
+      "reasoning": true,
+      "price_in": 0.15,
+      "price_out": 0.6,
+      "_note": "OpenAI gpt-oss-120b (open-weight, Fireworks serverless). CLASSIFY role 2026-06-21: the cheap structured-output classifier for the followup-fold queue + plan-intent + risk/authorize judges. LIVE-PROBED against glm-5p2 on a followup-fold battery: gpt-oss-120b 10/10 @1.6-2.6s; glm-5p2 only 7/10 (biased to 'false' \u2192 under-folds) at ~10x the token cost. Forces tools cleanly (tool_choice). price ~$0.15/$0.60 per M (approx). The cheap CODING lane stays glm-5p2; this is classify-only. Rollback: drop config.json roles.classify (falls back to the cheap lane) + redeploy.",
+      "fallback": [
+        "glm-5p2"
+      ]
+    },
+    {
+      "id": "accounts/fireworks/models/glm-5p1",
+      "label": "glm-5p1",
+      "vendor": "fireworks",
+      "window": 202000,
+      "vision": false,
+      "reasoning": true,
+      "_note": "GLM-5.1 (Z.ai): prior planner + cheap lane, SUPERSEDED by glm-5p2 2026-06-17. Kept as the instant rollback target. Function-calling, 202K, no vision. Fallback id accounts/fireworks/models/glm-5.",
+      "fallback": [
+        "glm-5p2"
+      ]
+    },
+    {
+      "id": "accounts/fireworks/models/deepseek-v4-pro",
+      "label": "deepseek-v4-pro",
+      "vendor": "fireworks",
+      "window": 1000000,
+      "vision": false,
+      "reasoning": true,
+      "fallback": [
+        "glm-5p2"
+      ]
+    },
+    {
+      "id": "accounts/fireworks/models/minimax-m3",
+      "label": "minimax-m3",
+      "vendor": "fireworks",
+      "window": 500000,
+      "vision": true,
+      "reasoning": true,
+      "_note": "RETIRED from roles 2026-06-13 \u2014 recurring tool-call-text leak (opencode #30684 + cross-harness) + weak instruction-following. Kept for reference; not assigned to any role.",
+      "fallback": [
+        "glm-5p2"
+      ]
+    },
+    {
+      "id": "gemini-embedding-001",
+      "label": "gemini-embedding-001",
+      "vendor": "gemini",
+      "name": "Gemini Embedding",
+      "price_in": 0.15,
+      "price_out": 0,
+      "_note": "Embedding model \u2014 billing card only (embed cron + query-side embeds). Not servable as a chat model."
+    },
+    {
+      "id": "text-embedding-3-small",
+      "label": "text-embedding-3-small",
+      "vendor": "openai",
+      "name": "OpenAI Embedding Small",
+      "price_in": 0.02,
+      "price_out": 0
+    },
+    {
+      "id": "gpt-image-1",
+      "label": "gpt-image-1",
+      "vendor": "openai",
+      "name": "GPT Image 1",
+      "price_in": 5.0,
+      "price_out": 40.0,
+      "_note": "Images API token billing (official card verified 2026-07-27): text in $5/M (image in $10/M \u2014 floor-priced at text rate since usage reports a blended input count), image out $40/M."
+    },
+    {
+      "id": "gpt-image-2",
+      "label": "gpt-image-2",
+      "vendor": "openai",
+      "name": "GPT Image 2",
+      "price_in": 8.0,
+      "price_out": 30.0,
+      "_note": "gpt-image-2 $8/M in, $30/M out per developers.openai.com pricing (verified 2026-07-27 \u2014 LiteLLM had $5/$10, vendor page wins)."
+    }
+  ],
+  "families": [
+    {
+      "match": [
+        "[1m]",
+        "-1m"
+      ],
+      "window": 1000000
+    },
+    {
+      "match": [
+        "gpt-oss"
+      ],
+      "window": 131072,
+      "price_in": 0.15,
+      "price_out": 0.6
+    },
+    {
+      "match": [
+        "gpt-5.6-sol"
+      ],
+      "price_in": 5,
+      "price_out": 30
+    },
+    {
+      "match": [
+        "gpt-5.6-terra"
+      ],
+      "price_in": 2.5,
+      "price_out": 15
+    },
+    {
+      "match": [
+        "gpt-5.6-luna"
+      ],
+      "price_in": 1,
+      "price_out": 6
+    },
+    {
+      "match": [
+        "gpt-5.6"
+      ],
+      "window": 1050000
+    },
+    {
+      "match_all": [
+        "gemini",
+        "flash-lite"
+      ],
+      "price_in": 0.3,
+      "price_out": 2.5
+    },
+    {
+      "match_all": [
+        "gemini",
+        "pro"
+      ],
+      "price_in": 2,
+      "price_out": 12
+    },
+    {
+      "match": [
+        "gemini"
+      ],
+      "window": 1000000,
+      "price_in": 1.5,
+      "price_out": 7.5,
+      "_note": "windows: all gemini-3.x are 1M; pricing: tier-word rules above catch lite/pro, this row is the flash default (gemini-3.6-flash rate)"
+    },
+    {
+      "match": [
+        "grok-4.5"
+      ],
+      "window": 500000,
+      "price_in": 2,
+      "price_out": 6,
+      "price_cache_read": 0.5
+    },
+    {
+      "match": [
+        "glm-5p2",
+        "deepseek-v4"
+      ],
+      "window": 1000000
+    },
+    {
+      "match": [
+        "glm-5p1"
+      ],
+      "window": 202000
+    },
+    {
+      "match": [
+        "kimi-k3"
+      ],
+      "window": 1000000
+    },
+    {
+      "match": [
+        "kimi-k2"
+      ],
+      "window": 262000
+    },
+    {
+      "match": [
+        "minimax-m3"
+      ],
+      "window": 500000
+    },
+    {
+      "match": [
+        "kimi-k2p7"
+      ],
+      "price_in": 0.95,
+      "price_out": 4.0,
+      "price_cache_read": 0.19,
+      "_note": "Kimi K2.7 real Fireworks card (LiteLLM 2026-07-27) \u2014 the glm floor overcharged kimi ~1.5x"
+    },
+    {
+      "match": [
+        "kimi"
+      ],
+      "price_in": 0.95,
+      "price_out": 4.0,
+      "price_cache_read": 0.16
+    },
+    {
+      "match": [
+        "glm-5p2"
+      ],
+      "price_in": 1.4,
+      "price_out": 4.4,
+      "price_cache_read": 0.14
+    },
+    {
+      "match": [
+        "glm",
+        "deepseek",
+        "kimi",
+        "minimax",
+        "/"
+      ],
+      "price_in": 1.4,
+      "price_out": 4.4,
+      "price_cache_read": 0.26,
+      "_note": "Fireworks families + any leftover accounts/ path: the glm rate card is the floor so cheap-lane metering is never $0. Replace the kimi rows' pricing when Fireworks publishes real Kimi rates."
+    },
+    {
+      "match": [
+        "opus"
+      ],
+      "price_in": 5,
+      "price_out": 25,
+      "_note": "Opus 5 $5/$25 per LiteLLM + vendor page (2026-07-27 audit \u2014 the old $15/$75 was the pre-4.5 card and overcharged CLI users 3x vs www)"
+    },
+    {
+      "match": [
+        "sonnet"
+      ],
+      "price_in": 2,
+      "price_out": 10,
+      "_note": "Sonnet 5 $2/$10 (LiteLLM 2026-07-27) \u2014 previously hit the $3/$15 defaults row"
+    },
+    {
+      "match": [
+        "haiku"
+      ],
+      "window": 200000,
+      "price_in": 1,
+      "price_out": 5
+    },
+    {
+      "match": [
+        "opus-4-6",
+        "opus-4-7",
+        "opus-5",
+        "sonnet-4-6",
+        "sonnet-5",
+        "fable"
+      ],
+      "window": 1000000
+    }
+  ],
+  "search_fees": {
+    "anthropic": 10.0,
+    "openai": 10.0,
+    "grok": 5.0
+  },
+  "_search_fees_note": "Native in-turn web search bills a PER-REQUEST fee upstream on top of tokens \u2014 USD per 1,000 searches, keyed by serving vendor (Response.Backend). Consumed by common.SearchFeeUSD (Go) for the gateway's cost_usd; values must stay floats only (the Go loader parses this object as map[string]float64). VERIFIED 2026-08-06: OpenAI Responses web_search $10/1k calls on reasoning models incl. GPT-5.x (developers.openai.com/api/docs/pricing \u2014 the $25/1k row is web_search_preview on NON-reasoning models, never served here); Anthropic web_search_20250305 $10/1k searches, errored searches not billed, web_fetch has no per-request fee (platform.claude.com/docs web-search-tool); xAI Agent Tools web_search $5/1k invocations (docs.x.ai/developers/pricing \u2014 Live Search's $25/1k-sources card died with search_parameters, 410 since 2026-07-18). Gemini absent: google_search grounding is never wired into serving turns (can't coexist with function tools). Fireworks/cheap lane absent: no native search.",
+  "defaults": {
+    "window": 200000,
+    "price_in": 3,
+    "price_out": 15,
+    "_note": "unknown ids: a safe non-alarming window baseline + the sonnet rate card"
+  },
+  "tiers": {
+    "openai": {
+      "frontier": "sol",
+      "balanced": "terra",
+      "cheap": "luna"
+    },
+    "anthropic": {
+      "frontier": "opus",
+      "balanced": "sonnet",
+      "cheap": "haiku"
+    },
+    "gemini": {
+      "frontier": "gemini-pro",
+      "balanced": "gemini-flash",
+      "cheap": "gemini-flash-lite"
+    },
+    "grok": {
+      "frontier": "grok-4.5",
+      "balanced": "grok-4.5",
+      "cheap": "grok-4.5"
+    },
+    "fireworks": {
+      "frontier": "kimi-k3",
+      "balanced": "kimi-k2p7-code",
+      "cheap": "glm-5p2"
+    }
+  }
+}

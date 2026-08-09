@@ -1,0 +1,253 @@
+package jobs
+
+import (
+	"context"
+	"os"
+	"os/exec"
+	"syscall"
+	"testing"
+	"time"
+)
+
+func TestMetaRoundTripListFinish(t *testing.T) {
+	root := t.TempDir()
+	job := Job{ID: "job_test", Task: "do a thing", Mode: "auto", PID: os.Getpid(),
+		Status: StatusRunning, StartedAt: time.Now().UTC()}
+	if err := os.MkdirAll(jobDir(root, job.ID), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeMeta(root, job); err != nil {
+		t.Fatal(err)
+	}
+
+	list, err := List(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 1 || list[0].ID != "job_test" {
+		t.Fatalf("List = %+v", list)
+	}
+	// Our own pid is alive ⇒ still running.
+	if list[0].Status != StatusRunning {
+		t.Fatalf("status = %q, want running", list[0].Status)
+	}
+
+	if err := Finish(root, job.ID, 0, "the agent's final result"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Get(root, job.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != StatusDone || got.FinishedAt.IsZero() {
+		t.Fatalf("after Finish: %+v", got)
+	}
+	if got.Result != "the agent's final result" {
+		t.Errorf("Finish must persist the result for report-back, got %q", got.Result)
+	}
+}
+
+func TestListReconcilesDeadProcess(t *testing.T) {
+	root := t.TempDir()
+	job := Job{ID: "job_dead", Task: "x", PID: 2147483646, // not a live pid
+		Status: StatusRunning, StartedAt: time.Now().UTC()}
+	if err := os.MkdirAll(jobDir(root, job.ID), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeMeta(root, job); err != nil {
+		t.Fatal(err)
+	}
+	list, err := List(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if list[0].Status != StatusStopped {
+		t.Fatalf("dead-process job status = %q, want stopped", list[0].Status)
+	}
+}
+
+func TestWriterLockSerializes(t *testing.T) {
+	root := t.TempDir()
+	ctx := context.Background()
+
+	release1, err := AcquireWriter(ctx, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// A second acquire must block while the first holds the lock.
+	got := make(chan func(), 1)
+	go func() {
+		r2, err := AcquireWriter(ctx, root)
+		if err != nil {
+			t.Errorf("second acquire: %v", err)
+			return
+		}
+		got <- r2
+	}()
+
+	select {
+	case <-got:
+		t.Fatal("second AcquireWriter returned while the lock was held")
+	case <-time.After(700 * time.Millisecond):
+		// expected: still blocked
+	}
+
+	release1()
+	select {
+	case r2 := <-got:
+		r2()
+	case <-time.After(3 * time.Second):
+		t.Fatal("second AcquireWriter did not proceed after release")
+	}
+}
+
+func TestStaleLockReclaimed(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(dir(root), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Pre-seed a lock owned by a dead pid.
+	if err := os.WriteFile(lockPath(root), []byte("2147483646\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	go func() {
+		release, err := AcquireWriter(context.Background(), root)
+		if err != nil {
+			t.Errorf("acquire over stale lock: %v", err)
+		} else {
+			release()
+		}
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("AcquireWriter did not reclaim a stale lock")
+	}
+}
+
+func TestIsTestBinary(t *testing.T) {
+	cases := []struct {
+		path string
+		want bool
+	}{
+		{"/tmp/go-build123/b507/runtime.test", true},
+		{"/tmp/go-build123/b507/vxui.test.exe", true},
+		{"/usr/local/bin/memcode", false},
+		{"/Users/x/cli/dev/memcode", false},
+	}
+	for _, c := range cases {
+		if got := isTestBinary(c.path); got != c.want {
+			t.Errorf("isTestBinary(%q) = %v, want %v", c.path, got, c.want)
+		}
+	}
+}
+
+// TestSpawnFromTestBinaryChildExitsImmediately is the fork-bomb regression: Spawn
+// called from a test binary (os.Executable() = jobs.test) must NOT re-exec the
+// suite — the child it starts has to exit on its own almost immediately. Before
+// the isTestBinary guard, the child ran the caller's entire test suite and every
+// Spawn-reaching test in it spawned another detached child, exponentially.
+func TestSpawnFromTestBinaryChildExitsImmediately(t *testing.T) {
+	root := t.TempDir()
+	job, err := Spawn(root, "regression: do nothing", "auto", "", false, false)
+	if err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for processAlive(job.PID) {
+		if time.Now().After(deadline) {
+			_ = syscall.Kill(job.PID, syscall.SIGKILL)
+			t.Fatalf("spawned child (pid %d) still alive after 10s — test-binary re-exec guard failed", job.PID)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// TestStopKillsRunningProcessAndRecordsStopped starts a real long-running child
+// (sleep), records it as a running job, then Stop must signal it and mark it
+// stopped. This is the safety valve for a runaway detached agent.
+func TestStopKillsRunningProcessAndRecordsStopped(t *testing.T) {
+	root := t.TempDir()
+
+	// Spawn a real child we can signal — `sleep 30` won't exit on its own.
+	cmd := exec.CommandContext(context.Background(), "sleep", "30")
+	if err := cmd.Start(); err != nil {
+		t.Skipf("can't start sleep: %v", err)
+	}
+	pid := cmd.Process.Pid
+	defer func() { // cleanup if the test bails early
+		_ = cmd.Process.Signal(syscall.SIGKILL)
+		_ = cmd.Wait()
+	}()
+
+	job := Job{ID: "job_stopme", Task: "runaway", Mode: "auto", PID: pid,
+		Status: StatusRunning, StartedAt: time.Now().UTC()}
+	if err := os.MkdirAll(jobDir(root, job.ID), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeMeta(root, job); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := Stop(root, job.ID); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+	got, err := Get(root, job.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != StatusStopped {
+		t.Fatalf("status = %q, want stopped", got.Status)
+	}
+	if got.FinishedAt.IsZero() {
+		t.Fatal("FinishedAt not set after Stop")
+	}
+	if processAlive(pid) {
+		t.Fatalf("pid %d still alive after Stop", pid)
+	}
+}
+
+// TestStopRejectsNonRunningJob verifies Stop refuses a job that already finished —
+// you can't stop something that's not running.
+func TestStopRejectsNonRunningJob(t *testing.T) {
+	root := t.TempDir()
+	job := Job{ID: "job_done", Task: "x", PID: 2147483646,
+		Status: StatusDone, StartedAt: time.Now().UTC()}
+	if err := os.MkdirAll(jobDir(root, job.ID), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeMeta(root, job); err != nil {
+		t.Fatal(err)
+	}
+	if err := Stop(root, job.ID); err == nil {
+		t.Fatal("Stop on a done job should error")
+	}
+}
+
+// TestStopReconcilesAlreadyGoneProcess verifies Stop marks a job as stopped even
+// when its process already died (meta says running, but PID is gone — e.g. the
+// child crashed without recording a finish).
+func TestStopReconcilesAlreadyGoneProcess(t *testing.T) {
+	root := t.TempDir()
+	job := Job{ID: "job_gone", Task: "x", PID: 2147483646, // not a live pid
+		Status: StatusRunning, StartedAt: time.Now().UTC()}
+	if err := os.MkdirAll(jobDir(root, job.ID), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeMeta(root, job); err != nil {
+		t.Fatal(err)
+	}
+	if err := Stop(root, job.ID); err != nil {
+		t.Fatalf("Stop on already-gone job: %v", err)
+	}
+	got, err := Get(root, job.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != StatusStopped {
+		t.Fatalf("status = %q, want stopped", got.Status)
+	}
+}

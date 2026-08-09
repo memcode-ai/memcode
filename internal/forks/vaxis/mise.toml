@@ -1,0 +1,31 @@
+[tools]
+go = "1.21"
+gofumpt = "0.10.0"
+golangci-lint = "2.12.2"
+
+[env]
+GOFLAGS = "-ldflags=-linkmode=external"
+VAXIS_UI_DEBUG = "dev"
+
+[tasks.custom-golangci-lint]
+description = "Build the custom golangci-lint binary"
+sources = [".custom-gcl.yml", "mise.toml"]
+outputs = ["out/custom-golangci-lint"]
+run = "golangci-lint custom"
+
+[tasks.check]
+description = "Run formatting checks and tests"
+depends = ["custom-golangci-lint"]
+run = [
+  "gofumpt -d .",
+  "./out/custom-golangci-lint run ./...",
+  "go test ./...",
+]
+
+[tasks.fix]
+description = "Apply automatic lint fixes and format Go files"
+depends = ["custom-golangci-lint"]
+run = [
+  "./out/custom-golangci-lint run --fix ./... || true",
+  "gofumpt -w $(find . -name '*.go' -not -path './.git/*')",
+]

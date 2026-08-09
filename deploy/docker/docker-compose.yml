@@ -1,0 +1,20 @@
+# Self-hosted memcode gateway. The gateway is STATELESS — no database, no
+# cache, nothing else to run. Copy ../../.example.env to .env, fill in a
+# strong MEMCODE_SELFHOST_TOKEN and at least one provider key, then:
+#
+#   docker compose up --build
+#
+# Point the CLI at it:
+#
+#   MEMCODE_API_URL=http://localhost:8080 \
+#   MEMCODE_API_TOKEN=$MEMCODE_SELFHOST_TOKEN memcode
+services:
+  gateway:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    restart: unless-stopped
