@@ -37,7 +37,7 @@ func runInteractive(ctx context.Context, mode permissions.Mode, modeExplicit boo
 	// with fresh acceptance signal.
 	_, _ = acceptance.Reconcile(ctx, st, cfg.Root)
 
-	provider.LoadDotEnv(cfg.Root)
+	provider.LoadDotEnv()
 	// Mandatory-login boot: the TUI ALWAYS opens. Signed-out gets a banner
 	// notice + a whitelist of local commands; /login swaps credentials into
 	// this lazy provider without a restart. (Non-interactive commands keep the

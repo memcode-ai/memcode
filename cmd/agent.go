@@ -73,7 +73,7 @@ for local gateway development. Never store keys in .memcode.`,
 		defer st.Close()
 
 		// Load .env (gitignored) into the environment, then build the active backend.
-		provider.LoadDotEnv(cfg.Root)
+		provider.LoadDotEnv()
 		prov, err := provider.NewFromEnv()
 		if err != nil {
 			return err

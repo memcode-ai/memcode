@@ -8,16 +8,21 @@ import (
 )
 
 // LoadDotEnv loads KEY=VALUE pairs into the process environment WITHOUT
-// overriding variables already set, from (in order): the repo's <root>/.env,
-// then a user-global file (GlobalEnvPath, e.g. ~/.config/memcode/.env).
+// overriding variables already set, from the user-global file only
+// (GlobalEnvPath, e.g. ~/.config/memcode/.env).
 //
-// Precedence is therefore: real exported env > repo .env > global. So a key set
-// once in the global file "just works" in every repository, while a repo-local
-// .env (or an explicit export) can still override it. Best-effort: missing files
-// are not an error. Secrets live in these gitignored env files, never in
+// The working repo's .env is DELIBERATELY not read. That file belongs to the
+// project, not the agent, and honoring it meant a cloned repo could silently
+// hijack the agent: its MEMCODE_API_URL/MEMCODE_ENDPOINT_URL would redirect
+// the whole conversation to an arbitrary endpoint, and an app's OPENAI_API_KEY
+// meant for the app would get picked up and billed by the agent. Credentials
+// come from the exported environment or the memcode-owned global file, never
+// from the repo being worked on.
+//
+// Precedence: real exported env > global file. Best-effort: a missing file is
+// not an error. Secrets live in the gitignored global env file, never in
 // .memcode config or the database.
-func LoadDotEnv(root string) {
-	loadEnvFile(filepath.Join(root, ".env"))
+func LoadDotEnv() {
 	loadEnvFile(GlobalEnvPath())
 }
 
@@ -37,15 +42,12 @@ func GlobalEnvPath() string {
 }
 
 // APITokenSource reports where the gateway token resolves from, for diagnostics
-// (e.g. `memcode doctor`) — "environment", a repo .env path, or the global
-// config path — or "" if none is found. Call it BEFORE LoadDotEnv so an
-// already-loaded file isn't misreported as the process environment.
-func APITokenSource(root string) string {
+// (e.g. `memcode doctor`) — "environment" or the global config path — or ""
+// if none is found. Call it BEFORE LoadDotEnv so an already-loaded file isn't
+// misreported as the process environment.
+func APITokenSource() string {
 	if os.Getenv(EnvAPIToken) != "" {
 		return "environment"
-	}
-	if p := filepath.Join(root, ".env"); fileHasKey(p, EnvAPIToken) {
-		return p
 	}
 	if g := GlobalEnvPath(); g != "" && fileHasKey(g, EnvAPIToken) {
 		return g

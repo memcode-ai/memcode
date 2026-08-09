@@ -29,7 +29,7 @@ Requires MEMCODE_API_TOKEN (from the environment or a gitignored .env at the rep
 		}
 		defer st.Close()
 
-		provider.LoadDotEnv(cfg.Root)
+		provider.LoadDotEnv()
 		prov, err := provider.NewFromEnv()
 		if err != nil {
 			return err

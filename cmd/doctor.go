@@ -67,7 +67,7 @@ directory you run from.`,
 		// instead of "not connected". No backend configured → checks degrade
 		// gracefully.
 		var prov provider.ModelProvider
-		provider.LoadDotEnv(cfg.Root)
+		provider.LoadDotEnv()
 		var endpoints []provider.Endpoint
 		if ep, ok := cfg.ResolveEndpoint(); ok {
 			endpoints = append(endpoints, ep)

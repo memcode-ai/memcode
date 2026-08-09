@@ -76,8 +76,8 @@ func Check(ctx context.Context, st store.Store, root string, prov provider.Model
 	// describe the backend the app actually dials. The gateway URL defaults
 	// to production: an unset MEMCODE_API_URL with a valid token is the
 	// NORMAL hosted setup, never a failure.
-	tokenSrc := provider.APITokenSource(root)
-	provider.LoadDotEnv(root)
+	tokenSrc := provider.APITokenSource()
+	provider.LoadDotEnv()
 	var ep provider.Endpoint
 	var onEndpoint bool
 	if e, ok := prov.(provider.Endpointer); ok {

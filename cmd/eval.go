@@ -40,7 +40,7 @@ Requires MEMCODE_API_TOKEN (from the environment or a gitignored .env at the rep
 		if err != nil {
 			return err
 		}
-		provider.LoadDotEnv(root)
+		provider.LoadDotEnv()
 		prov, err := provider.NewFromEnv()
 		if err != nil {
 			return err

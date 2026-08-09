@@ -24,7 +24,7 @@ func runStreamJSON(ctx context.Context, mode permissions.Mode, chrome bool) erro
 	}
 	defer st.Close()
 
-	provider.LoadDotEnv(cfg.Root)
+	provider.LoadDotEnv()
 	prov, err := provider.NewFromEnv()
 	if err != nil {
 		return err
