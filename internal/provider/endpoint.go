@@ -75,6 +75,7 @@ func EndpointFromEnv() (Endpoint, bool) {
 // configured — the same shell that runs `openai` or `curl api.openai.com`
 // already exports these.
 var conventionalKeyVars = map[string]string{
+	"api.anthropic.com":                 "ANTHROPIC_API_KEY",
 	"api.openai.com":                    "OPENAI_API_KEY",
 	"api.fireworks.ai":                  "FIREWORKS_API_KEY",
 	"api.groq.com":                      "GROQ_API_KEY",

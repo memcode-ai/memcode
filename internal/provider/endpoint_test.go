@@ -25,6 +25,11 @@ func clearBackendEnv(t *testing.T) {
 	for _, k := range []string{EnvAPIToken, EnvAPIURL, EnvEndpointURL, EnvEndpointKey, EnvEndpointModel} {
 		t.Setenv(k, "")
 	}
+	// Ambient own-key sources select a backend too — clear them so each case
+	// states its world exactly.
+	for _, v := range ownKeyVendors {
+		t.Setenv(v.env, "")
+	}
 }
 
 // TestBackendSelectionMatrix pins the Phase C selection order in both env

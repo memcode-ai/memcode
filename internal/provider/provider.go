@@ -225,6 +225,12 @@ func resolveEndpoint(endpoints []Endpoint) (Endpoint, bool) {
 	if ep, ok := EndpointFromEnv(); ok {
 		return pick(ep)
 	}
+	// Last: an ambient exported provider key (no memcode account, no explicit
+	// endpoint). Already carries its own key, so it skips the conventional-key
+	// fill above.
+	if ep, ok := discoverCredentialEndpoint(); ok {
+		return ep, true
+	}
 	return Endpoint{}, false
 }
 

@@ -22,6 +22,11 @@ func TestNewFromEnvRequiresOnlyToken(t *testing.T) {
 	t.Setenv(EnvAPIURL, "")
 	t.Setenv(EnvAPIToken, "")
 	t.Setenv(EnvEndpointURL, "") // a dev-exported endpoint must not turn the no-backend case into a success
+	// A dev-exported provider key would also light up own-key mode — zero the
+	// ambient sources so the no-backend case is genuinely empty.
+	for _, v := range ownKeyVendors {
+		t.Setenv(v.env, "")
+	}
 	if _, err := NewFromEnv(); err == nil || !strings.Contains(err.Error(), EnvAPIToken) {
 		t.Fatalf("want a missing-token error, got %v", err)
 	}

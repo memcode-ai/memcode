@@ -86,7 +86,11 @@ func Check(ctx context.Context, st store.Store, root string, prov provider.Model
 	hosted := false
 	switch {
 	case onEndpoint:
-		add("backend", OK, "custom endpoint "+ep.BaseURL+" (no memcode account — gateway features off)")
+		if vendor, own := provider.OwnKeyVendor(ep.BaseURL); own {
+			add("backend", OK, "your own "+vendor+" key (direct to "+ep.BaseURL+", no memcode account — gateway features off)")
+		} else {
+			add("backend", OK, "custom endpoint "+ep.BaseURL+" (no memcode account — gateway features off)")
+		}
 	case tokenSrc != "":
 		hosted = true
 		add("gateway", OK, provider.APIURL()+" (token via "+tokenSrc+")")
