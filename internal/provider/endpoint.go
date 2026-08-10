@@ -47,6 +47,12 @@ type Endpoint struct {
 	Key     string   // optional bearer; "" = no Authorization header
 	Model   string   // session model id ("" = resolve via GET {base}/models or /model)
 	Models  []string // optional curated picker list / allowlist from config
+
+	// Headers are extra request headers a subscription backend requires to
+	// accept the turn (a Copilot endpoint's Editor-Version / integration id).
+	// Set only by the credential sources; empty for a normal endpoint. Carried
+	// through to the compat transport.
+	Headers map[string]string
 }
 
 // EndpointFromEnv resolves the env-configured endpoint (the dotenv chain loads

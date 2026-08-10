@@ -81,6 +81,7 @@ func dialEndpoint(ep Endpoint) *conn {
 			BaseURL: ep.BaseURL, // the FULL base as configured, incl. any path prefix
 			Token:   ep.Key,     // "" = no Authorization header
 			Model:   ep.Model,   // the session model when a request doesn't pin one
+			Headers: ep.Headers, // a subscription backend's required identity headers
 			Compose: composeDoctrine,
 		}),
 		ep: &ep,

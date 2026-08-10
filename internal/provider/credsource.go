@@ -19,9 +19,19 @@ package provider
 // never an override of a backend the user chose.
 
 import (
+	"context"
 	"os"
 	"strings"
+	"time"
+
+	"github.com/memcode-ai/memcode/internal/subscription/copilot"
 )
+
+// EnvCredentialSource names the explicitly-selected credential source. Empty =
+// own exported keys only (the ambient path). Set to a subscription source
+// ("copilot", …) — by the first-run wizard or by hand — to activate a login
+// that lives in another tool's files/keychain, which never auto-activates.
+const EnvCredentialSource = "MEMCODE_CREDENTIAL_SOURCE"
 
 // ownKeyVendors lists the direct-provider hosts memcode dials when the matching
 // ecosystem-standard key is exported, in priority order. Each BaseURL is a
@@ -56,10 +66,40 @@ func OwnKeyVendor(baseURL string) (string, bool) {
 // any custom endpoint. Subscription sources (a Claude/Codex/Copilot login) do
 // NOT flow through here — they are wizard-gated (see the consent line above).
 func discoverCredentialEndpoint() (Endpoint, bool) {
+	// An explicitly-selected subscription source wins: the user chose it, so it
+	// is allowed to read a login from another tool. Selection is required — a
+	// subscription source NEVER activates from ambient state alone.
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(EnvCredentialSource))) {
+	case "copilot":
+		if ep, ok := resolveCopilot(); ok {
+			return ep, true
+		}
+		// Selected but unresolved (not signed in, Copilot disabled): fall
+		// through so an exported own key can still connect.
+	}
 	for _, v := range ownKeyVendors {
 		if key := strings.TrimSpace(os.Getenv(v.env)); key != "" {
 			return Endpoint{Name: v.name, BaseURL: v.baseURL, Key: key}, true
 		}
 	}
 	return Endpoint{}, false
+}
+
+// resolveCopilot exchanges the machine's GitHub token for a Copilot backend and
+// shapes it as an endpoint on the compat transport (Copilot speaks
+// chat/completions). ok=false when Copilot can't be resolved.
+func resolveCopilot() (Endpoint, bool) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	b, err := copilot.Resolve(ctx)
+	if err != nil {
+		return Endpoint{}, false
+	}
+	return Endpoint{
+		Name:    "copilot",
+		BaseURL: b.BaseURL,
+		Key:     b.Token,
+		Headers: b.Headers,
+		Model:   strings.TrimSpace(os.Getenv(EnvEndpointModel)),
+	}, true
 }

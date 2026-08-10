@@ -61,6 +61,11 @@ type Config struct {
 	// this default, calls fail with an actionable error instead of sending the
 	// gateway sentinel "auto" to an endpoint that can't serve it.
 	Model string
+	// Headers are extra request headers sent on every turn — the identity a
+	// subscription backend requires to accept the request (e.g. a Copilot
+	// endpoint's Editor-Version / Copilot-Integration-Id). Applied after the
+	// standard headers. Empty for a plain endpoint.
+	Headers map[string]string
 	// HTTPClient overrides the default client (tests, custom timeouts).
 	HTTPClient *http.Client
 }
@@ -72,6 +77,7 @@ type Transport struct {
 	token   string
 	memcode bool
 	model   string // endpoint default model (Config.Model)
+	headers map[string]string
 	compose func(wire.Request) (wire.Request, error)
 	salvage bool
 	lane    bool
@@ -88,6 +94,7 @@ func New(cfg Config) *Transport {
 		token:   cfg.Token,
 		memcode: cfg.Memcode,
 		model:   cfg.Model,
+		headers: cfg.Headers,
 		http:    cfg.HTTPClient,
 		compose: cfg.Compose,
 		salvage: cfg.Salvage,
@@ -309,6 +316,11 @@ func (t *Transport) newRequest(ctx context.Context, payload []byte, stream bool)
 	}
 	if stream {
 		req.Header.Set("Accept", "text/event-stream")
+	}
+	// A subscription backend's required identity headers, applied last so the
+	// backend sees exactly what it expects.
+	for k, v := range t.headers {
+		req.Header.Set(k, v)
 	}
 	return req, nil
 }

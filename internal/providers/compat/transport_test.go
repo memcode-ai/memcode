@@ -628,3 +628,37 @@ func TestComposeHookRuns(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// A subscription backend's identity headers (Config.Headers) must ride every
+// turn — this is what lets a Copilot endpoint accept the request. Applied
+// alongside the standard Authorization, not instead of it.
+func TestConfigHeadersAreSent(t *testing.T) {
+	var got http.Header
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header.Clone()
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(okCompletion("ok"))
+	}))
+	t.Cleanup(srv.Close)
+	tr := New(Config{
+		BaseURL:    srv.URL,
+		Token:      "copilot-tok",
+		Model:      "gpt-4o",
+		HTTPClient: srv.Client(),
+		Headers: map[string]string{
+			"Editor-Version":         "vscode/1.104.1",
+			"Copilot-Integration-Id": "vscode-chat",
+		},
+	})
+	if _, err := tr.Complete(context.Background(), wire.Request{
+		Pin: "gpt-4o", Messages: []wire.Message{{Role: "user", Blocks: []wire.Block{wire.TextBlock("hi")}}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got.Get("Copilot-Integration-Id") != "vscode-chat" || got.Get("Editor-Version") != "vscode/1.104.1" {
+		t.Errorf("identity headers not sent: %v", got)
+	}
+	if got.Get("Authorization") != "Bearer copilot-tok" {
+		t.Errorf("standard auth header dropped: %q", got.Get("Authorization"))
+	}
+}

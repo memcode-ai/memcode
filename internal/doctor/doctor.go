@@ -86,9 +86,14 @@ func Check(ctx context.Context, st store.Store, root string, prov provider.Model
 	hosted := false
 	switch {
 	case onEndpoint:
-		if vendor, own := provider.OwnKeyVendor(ep.BaseURL); own {
+		pickOwnKeyVendor := func(e provider.Endpoint) bool { _, ok := provider.OwnKeyVendor(e.BaseURL); return ok }
+		switch {
+		case ep.Name == "copilot":
+			add("backend", OK, "your GitHub Copilot subscription (via "+ep.BaseURL+", no memcode account — gateway features off)")
+		case pickOwnKeyVendor(ep):
+			vendor, _ := provider.OwnKeyVendor(ep.BaseURL)
 			add("backend", OK, "your own "+vendor+" key (direct to "+ep.BaseURL+", no memcode account — gateway features off)")
-		} else {
+		default:
 			add("backend", OK, "custom endpoint "+ep.BaseURL+" (no memcode account — gateway features off)")
 		}
 	case tokenSrc != "":
