@@ -14,6 +14,11 @@ Most coding agents start every session from zero. memcode keeps a persistent mod
 
 One Go binary, a full terminal UI, and it runs against whatever models you already have: the hosted memcode gateway, your own API keys, or a local endpoint like Ollama.
 
+<p align="center">
+  <img src="assets/screenshot-agent.png" alt="memcode editing code while tracking a live task plan in the terminal" width="49%">
+  <img src="assets/screenshot-plan.png" alt="memcode completing a multi-step plan, 20 of 20 tasks done" width="49%">
+</p>
+
 <table>
 <tr><td><b>Remembers your repo</b></td><td>Version-control-friendly state in <code>.memcode</code> that survives sessions and machines. Searchable session history. Repeated failures distill into lessons that resurface when they matter. Honors <code>MEMCODE.md</code>, <code>AGENTS.md</code>, and <code>CLAUDE.md</code> instructions, and compresses oversized ones once instead of re-reading them forever.</td></tr>
 <tr><td><b>Model policy in the client</b></td><td>Automatic mode routes each call by what the turn needs: cheap models for routine work, strong models for planning, review, high-risk changes, and recovery after its own mistakes. Pin any model with <code>/model</code>. Failures walk catalog-defined fallback chains. See <a href="ROUTING.md">ROUTING.md</a>.</td></tr>
