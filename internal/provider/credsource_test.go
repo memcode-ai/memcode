@@ -55,4 +55,20 @@ func TestOwnKeyBackendSelection(t *testing.T) {
 			t.Error("discovery must find nothing in an empty environment")
 		}
 	})
+
+	// A source must carry a default model so the first turn works with zero
+	// configuration; MEMCODE_ENDPOINT_MODEL overrides it.
+	t.Run("own key gets a default model, overridable", func(t *testing.T) {
+		clearBackendEnv(t)
+		t.Setenv("ANTHROPIC_API_KEY", "sk-ant-own")
+		ep, ok := discoverCredentialEndpoint()
+		if !ok || ep.Model == "" {
+			t.Fatalf("own-key endpoint must default a model: %+v", ep)
+		}
+		t.Setenv(EnvEndpointModel, "claude-opus-5")
+		ep, _ = discoverCredentialEndpoint()
+		if ep.Model != "claude-opus-5" {
+			t.Errorf("MEMCODE_ENDPOINT_MODEL must override the default, got %q", ep.Model)
+		}
+	})
 }

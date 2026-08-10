@@ -80,6 +80,14 @@ for local gateway development. Never store keys in .memcode.`,
 		}
 
 		model := provider.EffectiveModel(cfg.Models.Coder)
+		// On a custom endpoint or a subscription source the served model is the
+		// endpoint's model, not the config default — show and use that so the
+		// header names what actually serves the turn.
+		if ep, ok := prov.(provider.Endpointer); ok {
+			if e, on := ep.Endpoint(); on && e.Model != "" {
+				model = e.Model
+			}
+		}
 		runner := llm.NewRunner(prov)
 
 		// A resumed one-shot continues a saved conversation for exactly one more

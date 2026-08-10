@@ -24,6 +24,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/memcode-ai/memcode/catalog"
 	"github.com/memcode-ai/memcode/internal/subscription/claudesub"
 	"github.com/memcode-ai/memcode/internal/subscription/codex"
 	"github.com/memcode-ai/memcode/internal/subscription/copilot"
@@ -41,12 +42,13 @@ const EnvCredentialSource = "MEMCODE_CREDENTIAL_SOURCE"
 // (Anthropic x-api-key, OpenAI Bearer) via the full-fidelity adapter — the same
 // implementation the hosted gateway runs.
 var ownKeyVendors = []struct {
-	env     string
-	baseURL string
-	name    string
+	env      string
+	baseURL  string
+	name     string
+	defModel string
 }{
-	{"ANTHROPIC_API_KEY", "https://api.anthropic.com", "anthropic"},
-	{"OPENAI_API_KEY", "https://api.openai.com/v1", "openai"},
+	{"ANTHROPIC_API_KEY", "https://api.anthropic.com", "anthropic", catalog.ModelSonnet},
+	{"OPENAI_API_KEY", "https://api.openai.com/v1", "openai", catalog.ModelTerra},
 }
 
 // OwnKeyVendor reports the vendor name when a base URL is a direct-provider
@@ -89,10 +91,21 @@ func discoverCredentialEndpoint() (Endpoint, bool) {
 	}
 	for _, v := range ownKeyVendors {
 		if key := strings.TrimSpace(os.Getenv(v.env)); key != "" {
-			return Endpoint{Name: v.name, BaseURL: v.baseURL, Key: key}, true
+			return Endpoint{Name: v.name, BaseURL: v.baseURL, Key: key, Model: sourceModel(v.defModel)}, true
 		}
 	}
 	return Endpoint{}, false
+}
+
+// sourceModel resolves a subscription source's initial model: an explicit
+// MEMCODE_ENDPOINT_MODEL override wins, else the source's sensible default so a
+// subscription "just works" with no configuration. The /model picker changes it
+// per session.
+func sourceModel(def string) string {
+	if m := strings.TrimSpace(os.Getenv(EnvEndpointModel)); m != "" {
+		return m
+	}
+	return def
 }
 
 // resolveCopilot exchanges the machine's GitHub token for a Copilot backend and
@@ -110,7 +123,7 @@ func resolveCopilot() (Endpoint, bool) {
 		BaseURL: b.BaseURL,
 		Key:     b.Token,
 		Headers: b.Headers,
-		Model:   strings.TrimSpace(os.Getenv(EnvEndpointModel)),
+		Model:   sourceModel("gpt-4o"), // widely served by Copilot; /model to change
 	}, true
 }
 
@@ -126,7 +139,7 @@ func resolveCodex() (Endpoint, bool) {
 		BaseURL: b.BaseURL,
 		Key:     b.Token,
 		Headers: b.Headers,
-		Model:   strings.TrimSpace(os.Getenv(EnvEndpointModel)),
+		Model:   sourceModel(catalog.ModelTerra), // a current Codex model; /model to change
 	}, true
 }
 
@@ -143,6 +156,6 @@ func resolveClaudeSub() (Endpoint, bool) {
 		Name:    "claude-sub",
 		BaseURL: "https://api.anthropic.com",
 		Key:     tok,
-		Model:   strings.TrimSpace(os.Getenv(EnvEndpointModel)),
+		Model:   sourceModel(catalog.ModelSonnet), // Claude Sonnet by default; /model to change
 	}, true
 }
