@@ -71,20 +71,32 @@ func (s *Session) codeQuery(ctx context.Context, input json.RawMessage) toolResu
 	if err := json.Unmarshal(input, &in); err != nil {
 		return errResult(err.Error())
 	}
-	terms := cqTokenize(in.Query)
-	if len(terms) == 0 {
-		return errResult("code_query: couldn't extract search terms — use ripgrep with a specific string.")
-	}
 	// Hidden tier: internal machinery, no marker at all (see toolLineStat's tier contract).
+	text, ok := CodeQuery(ctx, s.root, in.Query, in.Scope)
+	if !ok {
+		return errResult(text)
+	}
+	return textResult(text)
+}
 
+// CodeQuery is the deterministic "where does X live" oracle over root — a
+// ranked search with no model loop. Shared by the agent tool (Session.codeQuery)
+// and the standalone `memcode mcp serve` memory server, so an external agent
+// gets the same answer. ok=false marks a usage error (no terms, bad scope,
+// timeout); a no-match result is ok=true with a guidance string.
+func CodeQuery(ctx context.Context, root, query, scope string) (string, bool) {
+	terms := cqTokenize(query)
+	if len(terms) == 0 {
+		return "code_query: couldn't extract search terms — use ripgrep with a specific string.", false
+	}
 	sctx, cancel := context.WithTimeout(ctx, searchTimeout)
 	defer cancel()
-	scope := "."
-	if in.Scope != "" {
-		if _, err := safeJoin(s.root, in.Scope); err != nil {
-			return errResult(err.Error())
+	sc := "."
+	if scope != "" {
+		if _, err := safeJoin(root, scope); err != nil {
+			return err.Error(), false
 		}
-		scope = in.Scope
+		sc = scope
 	}
 	alt := "(" + strings.Join(terms, "|") + ")"
 
@@ -92,24 +104,24 @@ func (s *Session) codeQuery(ctx context.Context, input json.RawMessage) toolResu
 	switch {
 	case hasExec("rg"):
 		cmd = exec.CommandContext(sctx, "rg", "--line-number", "--no-heading", "--color", "never",
-			"-i", "--glob", "!**/node_modules/**", "-e", alt, scope)
-	case inGitRepo(sctx, s.root):
-		cmd = exec.CommandContext(sctx, "git", "-C", s.root, "grep", "-nI", "--no-color", "--untracked",
-			"-i", "-E", "-e", alt, "--", scope, ":(exclude,glob)**/node_modules/**")
+			"-i", "--glob", "!**/node_modules/**", "-e", alt, sc)
+	case inGitRepo(sctx, root):
+		cmd = exec.CommandContext(sctx, "git", "-C", root, "grep", "-nI", "--no-color", "--untracked",
+			"-i", "-E", "-e", alt, "--", sc, ":(exclude,glob)**/node_modules/**")
 	default:
-		cmd = exec.CommandContext(sctx, "grep", "-rnIE", "-i", alt, scope)
+		cmd = exec.CommandContext(sctx, "grep", "-rnIE", "-i", alt, sc)
 	}
-	cmd.Dir = s.root
+	cmd.Dir = root
 	out, _ := cmd.Output()
 	if sctx.Err() == context.DeadlineExceeded {
-		return errResult("code_query timed out — narrow the query or pass a `scope`.")
+		return "code_query timed out — narrow the query or pass a `scope`.", false
 	}
 
 	files := cqRank(string(out), terms)
 	if len(files) == 0 {
-		return textResult(fmt.Sprintf("code_query: no matches for terms %v — try ripgrep with a precise string, or widen the scope.", terms))
+		return fmt.Sprintf("code_query: no matches for terms %v — try ripgrep with a precise string, or widen the scope.", terms), true
 	}
-	return textResult(cqFormat(in.Query, terms, files))
+	return cqFormat(query, terms, files), true
 }
 
 // cqRank parses `path:line:text` matches, groups by file, and scores each file by
