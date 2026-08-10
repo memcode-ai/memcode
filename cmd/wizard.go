@@ -108,18 +108,32 @@ func runFirstRunWizard(ctx context.Context) {
 		opts = append(opts, wizardOption{label, action})
 	}
 
-	add("Sign in to memcode (hosted — metered, no API keys)  [recommended]", func(context.Context) error {
-		return runLogin()
-	})
-	if copilot.Available() {
-		add("Use your GitHub Copilot subscription", func(context.Context) error { return selectSource("copilot") })
-	}
-	if codex.Available() {
-		add("Use your ChatGPT (Codex) subscription", func(context.Context) error { return selectSource("codex") })
+	// A subscription the machine already has costs the user nothing at the
+	// margin, so when one is detected it leads the menu as the recommended,
+	// pre-selected default. Order of preference: Claude, ChatGPT, Copilot.
+	// Hosted (memcode's metered product) stays available, just not the default.
+	haveSub := false
+	rec := func(first bool) string {
+		if first {
+			return "  [recommended]"
+		}
+		return ""
 	}
 	if claudesub.Available() {
-		add("Use your Claude (Pro/Max) subscription", func(context.Context) error { return selectSource("claude") })
+		add("Use your Claude (Pro/Max) subscription — no extra cost"+rec(!haveSub), func(context.Context) error { return selectSource("claude") })
+		haveSub = true
 	}
+	if codex.Available() {
+		add("Use your ChatGPT (Codex) subscription — no extra cost"+rec(!haveSub), func(context.Context) error { return selectSource("codex") })
+		haveSub = true
+	}
+	if copilot.Available() {
+		add("Use your GitHub Copilot subscription — no extra cost"+rec(!haveSub), func(context.Context) error { return selectSource("copilot") })
+		haveSub = true
+	}
+	add("Sign in to memcode (hosted — metered, no API keys)"+rec(!haveSub), func(context.Context) error {
+		return runLogin()
+	})
 	add("Use your own API key (Anthropic or OpenAI)", func(context.Context) error { return promptOwnKey() })
 	add("Point at a custom endpoint (Ollama, vLLM, a provider URL)", func(context.Context) error { return promptEndpoint() })
 	add("Skip for now", func(context.Context) error {
