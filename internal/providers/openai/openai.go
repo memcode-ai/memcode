@@ -70,6 +70,11 @@ type OpenAI struct {
 	keyEnv       string // env var named in missing-key errors
 	clampEffort  bool   // clamp reasoning.effort to the low|high vocabulary (xAI)
 	includeEnc   bool   // request encrypted-reasoning round-trip (OpenAI-only includable)
+
+	// extraHeaders are sent on every request — the identity a subscription
+	// backend requires (a ChatGPT/Codex endpoint's originator + account id).
+	// Empty for a normal OpenAI/xAI key.
+	extraHeaders map[string]string
 }
 
 // NewOpenAI returns a client using the given API key. baseURL is left empty so the SDK
@@ -89,6 +94,10 @@ func NewOpenAI(apiKey string) *OpenAI {
 // proxies, enterprise gateways). "" restores the SDK default.
 func (o *OpenAI) SetBaseURL(u string) { o.baseURL = u }
 
+// SetExtraHeaders sets identity headers sent on every request — the shape a
+// subscription backend (ChatGPT/Codex) requires to accept the call.
+func (o *OpenAI) SetExtraHeaders(h map[string]string) { o.extraHeaders = h }
+
 // BaseURL reports the configured override ("" = the SDK default).
 func (o *OpenAI) BaseURL() string { return o.baseURL }
 
@@ -102,6 +111,9 @@ func (o *OpenAI) client(extraOpts ...option.RequestOption) oai.Client {
 	}
 	if o.baseURL != "" {
 		opts = append(opts, option.WithBaseURL(o.baseURL))
+	}
+	for k, v := range o.extraHeaders {
+		opts = append(opts, option.WithHeader(k, v))
 	}
 	opts = append(opts, extraOpts...)
 	return oai.NewClient(opts...)

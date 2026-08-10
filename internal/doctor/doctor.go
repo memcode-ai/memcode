@@ -90,6 +90,8 @@ func Check(ctx context.Context, st store.Store, root string, prov provider.Model
 		switch {
 		case ep.Name == "copilot":
 			add("backend", OK, "your GitHub Copilot subscription (via "+ep.BaseURL+", no memcode account — gateway features off)")
+		case ep.Name == "codex":
+			add("backend", OK, "your ChatGPT (Codex) subscription (via "+ep.BaseURL+", no memcode account — gateway features off)")
 		case pickOwnKeyVendor(ep):
 			vendor, _ := provider.OwnKeyVendor(ep.BaseURL)
 			add("backend", OK, "your own "+vendor+" key (direct to "+ep.BaseURL+", no memcode account — gateway features off)")

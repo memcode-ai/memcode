@@ -31,6 +31,9 @@ var nativeDefaults = map[string]string{
 	"api.x.ai":                          "https://api.x.ai/v1",
 	"api.anthropic.com":                 "https://api.anthropic.com",
 	"generativelanguage.googleapis.com": "https://generativelanguage.googleapis.com",
+	// The ChatGPT/Codex backend speaks the Responses dialect too — a Codex
+	// subscription rides the same adapter, base-overridden to its path.
+	"chatgpt.com": "https://chatgpt.com/backend-api/codex",
 }
 
 // nativeTurnTransport returns the shared native adapter for an endpoint whose
@@ -53,6 +56,13 @@ func nativeTurnTransport(ep Endpoint) turnTransport {
 		if override != "" {
 			p.SetBaseURL(override)
 		}
+		return &nativeShim{prov: p, model: ep.Model}
+	case "chatgpt.com":
+		// A Codex subscription: the Responses adapter pointed at the ChatGPT
+		// backend, carrying the originator + account identity it requires.
+		p := openai.NewOpenAI(ep.Key)
+		p.SetBaseURL(nativeDefaults[host])
+		p.SetExtraHeaders(ep.Headers)
 		return &nativeShim{prov: p, model: ep.Model}
 	case "api.x.ai":
 		p := openai.NewGrok(ep.Key)

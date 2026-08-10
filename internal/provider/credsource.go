@@ -24,6 +24,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/memcode-ai/memcode/internal/subscription/codex"
 	"github.com/memcode-ai/memcode/internal/subscription/copilot"
 )
 
@@ -76,6 +77,10 @@ func discoverCredentialEndpoint() (Endpoint, bool) {
 		}
 		// Selected but unresolved (not signed in, Copilot disabled): fall
 		// through so an exported own key can still connect.
+	case "codex":
+		if ep, ok := resolveCodex(); ok {
+			return ep, true
+		}
 	}
 	for _, v := range ownKeyVendors {
 		if key := strings.TrimSpace(os.Getenv(v.env)); key != "" {
@@ -97,6 +102,22 @@ func resolveCopilot() (Endpoint, bool) {
 	}
 	return Endpoint{
 		Name:    "copilot",
+		BaseURL: b.BaseURL,
+		Key:     b.Token,
+		Headers: b.Headers,
+		Model:   strings.TrimSpace(os.Getenv(EnvEndpointModel)),
+	}, true
+}
+
+// resolveCodex reuses the Codex CLI login and shapes it as an endpoint on the
+// ChatGPT/Codex backend (the native Responses adapter, base-overridden).
+func resolveCodex() (Endpoint, bool) {
+	b, err := codex.Resolve()
+	if err != nil {
+		return Endpoint{}, false
+	}
+	return Endpoint{
+		Name:    "codex",
 		BaseURL: b.BaseURL,
 		Key:     b.Token,
 		Headers: b.Headers,
