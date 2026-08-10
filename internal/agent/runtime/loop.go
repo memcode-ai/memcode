@@ -1198,7 +1198,13 @@ func (s *Session) complete(ctx context.Context, purpose llm.Purpose, req wire.Re
 		// at the top of each user turn (runLoop), so every turn still re-announces.
 		if line != s.turn.servedLine {
 			s.turn.servedLine = line
-			s.printf("%s\n\n", metaStyle.Render(line))
+			// Interactive chat wants the trailing blank before the next prompt;
+			// headless Run() (liveChat == nil) is one-shot, so no trailing blank.
+			if s.liveChat == nil {
+				s.printf("%s\n", metaStyle.Render(line))
+			} else {
+				s.printf("%s\n\n", metaStyle.Render(line))
+			}
 		}
 	}
 	if err == nil {

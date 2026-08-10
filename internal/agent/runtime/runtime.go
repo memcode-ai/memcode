@@ -398,14 +398,6 @@ func (s *Session) Run(ctx context.Context, task string) (Result, error) {
 	s.startSessionLog(headSHA) // open the append-only episodic log
 	s.logUser(input.Bundle{Text: task})
 	defer s.endSessionLog()
-	s.printf("session %s\n", s.sessionID)
-
-	if len(dirtyBefore) > 0 {
-		s.printf("● baseline: HEAD %s · %d file(s) already modified (excluded from attribution)\n",
-			short(headSHA), len(dirtyBefore))
-	} else {
-		s.printf("● baseline: HEAD %s · clean tree\n", short(headSHA))
-	}
 
 	// Orient. Normal mode embeds the (redacted) ContextPack in the system prompt;
 	// cold mode (A/B eval) omits it.
@@ -419,7 +411,6 @@ func (s *Session) Run(ctx context.Context, task string) (Result, error) {
 			return Result{}, err
 		}
 		packJSON, _ := json.MarshalIndent(pack, "", "  ")
-		s.printf("● orienting via context (subsystem: %s)\n", orEmpty(pack.Subsystem, "repo"))
 		sys = s.execSpec(s.redactor.Redact(string(packJSON)))
 	}
 	s.skills = skills.Discover(s.root)                 // recruitable skills for this headless run too
@@ -496,11 +487,11 @@ func (s *Session) Run(ctx context.Context, task string) (Result, error) {
 		"hit_limit":              !completed,
 	})
 
-	s.printf("\n✓ done (%d iteration(s))\n", iterations)
-	if len(changed) == 0 {
-		s.printf("  no files changed by the agent\n")
-	} else {
-		s.printf("  agent changed %d file(s): %s\n", len(changed), strings.Join(changed, ", "))
+	// Only surface an outcome line when there's something to say: files changed
+	// (with the list) or the verification guardrail tripped. A clean no-op run
+	// prints nothing — the agent's own reply is the whole output.
+	if len(changed) > 0 {
+		s.printf("\n  agent changed %d file(s): %s\n", len(changed), strings.Join(changed, ", "))
 	}
 	// Guardrail: a change must be verified AFTER the last edit, not merely sometime.
 	if s.metrics.didEdit && !verified {
