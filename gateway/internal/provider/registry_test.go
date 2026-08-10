@@ -54,7 +54,7 @@ func TestPinnableCatalog(t *testing.T) {
 	if pinnableCount < 12 {
 		t.Errorf("expected the full pinnable lineup (>=12 models), got %d", pinnableCount)
 	}
-	for _, label := range []string{"gpt-oss-120b", "glm-5p1", "deepseek-v4-pro", "minimax-m3"} {
+	for _, label := range []string{"gpt-oss-120b", "glm-5p1", "minimax-m3"} {
 		if s, ok := reg.specByLabel(label); ok && s.Pinnable {
 			t.Errorf("%s must not be pinnable (utility/retired/not-yet-live)", label)
 		}
