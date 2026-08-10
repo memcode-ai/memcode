@@ -15,6 +15,10 @@ Most coding agents start every session from zero. memcode keeps a persistent mod
 One Go binary, a full terminal UI, and it runs against whatever models you already have: the hosted memcode gateway, your own API keys, or a local endpoint like Ollama.
 
 <p align="center">
+  <img src="assets/screenshot-models.png" alt="memcode terminal UI: the matrix splash and the model picker, from Automatic to any specific model" width="100%">
+</p>
+
+<p align="center">
   <img src="assets/screenshot-agent.png" alt="memcode editing code while tracking a live task plan in the terminal" width="100%">
 </p>
 
