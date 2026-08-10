@@ -399,6 +399,17 @@
       "window": 1000000,
       "vision": false,
       "reasoning": true,
+      "_note": "DeepSeek V4 (Fireworks, exposed 2026-08-10 at Tim's request): open-weight reasoning + coding, 1M context, no vision. Fireworks-family pricing applies (glm rate card floor, so cheap-lane metering is never $0). Pinnable + web chat; NOT a routing role. The Fireworks id was NOT re-probed at expose time — verify accounts/fireworks/models/deepseek-v4-pro resolves on the account before making it a role.",
+      "pinnable": true,
+      "group": "DeepSeek",
+      "desc": "Open-weight reasoning",
+      "name": "DeepSeek V4",
+      "www": {
+        "chat": true,
+        "order": 25,
+        "description": "DeepSeek's open-weight reasoning and coding model with a 1M context window."
+      },
+      "max_output": 32000,
       "fallback": [
         "glm-5p2"
       ]
