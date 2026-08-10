@@ -201,6 +201,9 @@ func buildWire(r wire.Request, maxTok int, stream bool, ccIdentity string) wireR
 	// to and including it), so the stable prefix stays cached.
 	if ccIdentity != "" {
 		sys = append(sys, sysBlock{Type: "text", Text: ccIdentity})
+		// Restore the product identity so the model doesn't call itself "Claude Code"
+		// (the required line above is otherwise the first, most explicit name it sees).
+		sys = append(sys, sysBlock{Type: "text", Text: claudeCodeIdentityClarification})
 	}
 	if r.System != "" {
 		// Stable doctrine prefix carries the 1h breakpoint; the volatile suffix rides as a

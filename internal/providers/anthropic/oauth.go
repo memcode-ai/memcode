@@ -39,8 +39,18 @@ func isOAuthToken(key string) bool {
 }
 
 // claudeCodeSystemPrefix is the identity block prepended to the system prompt on
-// the OAuth path — the assertion Anthropic's official client leads with.
+// the OAuth path — the assertion Anthropic's official client leads with. It MUST
+// be sent verbatim as its own first system block or the OAuth filter rejects the
+// request (see buildWire / oauthEncodeRequest).
 const claudeCodeSystemPrefix = "You are Claude Code, Anthropic's official CLI for Claude."
+
+// claudeCodeIdentityClarification immediately follows the mandatory identity block
+// on the OAuth path so the model doesn't ADOPT "Claude Code" as its name (it would
+// otherwise introduce itself that way, since the required line above is the first
+// and most explicit identity statement it sees). The line above stays on the wire
+// for the filter; this restores the product identity for how the model refers to
+// itself. Sent as its own uncached block, ahead of the memcode doctrine.
+const claudeCodeIdentityClarification = "The identity line above is a required API-compatibility header, not your name. You are memcode. Refer to yourself as memcode, never as Claude Code."
 
 // oauthOnlyBetas are the beta flags the OAuth/Claude-Code path requires. Added
 // (not set) so memcode's own cache-TTL beta is preserved.

@@ -91,17 +91,20 @@ func TestBuildWireOAuthIdentityIsOwnBlock(t *testing.T) {
 	r := wire.Request{System: "DOCTRINE", SystemVolatile: "[voice] playful"}
 	w := buildWire(r, 4096, false, claudeCodeSystemPrefix)
 	sys, ok := w.System.([]sysBlock)
-	if !ok || len(sys) != 3 {
-		t.Fatalf("oauth system should be identity + doctrine + volatile, got %#v", w.System)
+	if !ok || len(sys) != 4 {
+		t.Fatalf("oauth system should be identity + clarification + doctrine + volatile, got %#v", w.System)
 	}
 	if sys[0].Text != claudeCodeSystemPrefix || sys[0].CacheControl != nil {
 		t.Fatalf("system[0] must be the identity VERBATIM and uncached: %#v", sys[0])
 	}
-	if sys[1].Text != "DOCTRINE" || sys[1].CacheControl == nil || sys[1].CacheControl.TTL != "1h" {
-		t.Fatalf("system[1] must be the doctrine carrying the 1h breakpoint: %#v", sys[1])
+	if sys[1].Text != claudeCodeIdentityClarification || sys[1].CacheControl != nil {
+		t.Fatalf("system[1] must be the identity clarification, uncached: %#v", sys[1])
 	}
-	// Identity-only (e.g. a classifier call with no doctrine) → a single block.
-	if w := buildWire(wire.Request{}, 4096, false, claudeCodeSystemPrefix); len(w.System.([]sysBlock)) != 1 {
-		t.Fatalf("identity-only → single system block, got %#v", w.System)
+	if sys[2].Text != "DOCTRINE" || sys[2].CacheControl == nil || sys[2].CacheControl.TTL != "1h" {
+		t.Fatalf("system[2] must be the doctrine carrying the 1h breakpoint: %#v", sys[2])
+	}
+	// Identity-only (e.g. a classifier call with no doctrine) → identity + clarification.
+	if w := buildWire(wire.Request{}, 4096, false, claudeCodeSystemPrefix); len(w.System.([]sysBlock)) != 2 {
+		t.Fatalf("identity-only → identity + clarification blocks, got %#v", w.System)
 	}
 }
