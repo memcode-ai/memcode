@@ -24,6 +24,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/memcode-ai/memcode/internal/subscription/claudesub"
 	"github.com/memcode-ai/memcode/internal/subscription/codex"
 	"github.com/memcode-ai/memcode/internal/subscription/copilot"
 )
@@ -81,6 +82,10 @@ func discoverCredentialEndpoint() (Endpoint, bool) {
 		if ep, ok := resolveCodex(); ok {
 			return ep, true
 		}
+	case "claude", "claude-sub", "anthropic-sub":
+		if ep, ok := resolveClaudeSub(); ok {
+			return ep, true
+		}
 	}
 	for _, v := range ownKeyVendors {
 		if key := strings.TrimSpace(os.Getenv(v.env)); key != "" {
@@ -121,6 +126,23 @@ func resolveCodex() (Endpoint, bool) {
 		BaseURL: b.BaseURL,
 		Key:     b.Token,
 		Headers: b.Headers,
+		Model:   strings.TrimSpace(os.Getenv(EnvEndpointModel)),
+	}, true
+}
+
+// resolveClaudeSub reuses the Claude Code login and shapes it as an endpoint on
+// api.anthropic.com. The token is a subscription OAuth token, so the native
+// Anthropic adapter switches itself into Claude Code compatibility mode purely
+// from the token shape (never from the host).
+func resolveClaudeSub() (Endpoint, bool) {
+	tok, err := claudesub.Resolve()
+	if err != nil {
+		return Endpoint{}, false
+	}
+	return Endpoint{
+		Name:    "claude-sub",
+		BaseURL: "https://api.anthropic.com",
+		Key:     tok,
 		Model:   strings.TrimSpace(os.Getenv(EnvEndpointModel)),
 	}, true
 }

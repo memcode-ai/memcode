@@ -48,15 +48,22 @@ type Anthropic struct {
 	apiKey  string
 	http    *http.Client
 	baseURL string
+	// oauth turns on the Claude Code compatibility mode (Bearer auth + betas +
+	// UA, system-identity prepend, mcp__ tool renaming). Set from the token
+	// shape at construction — a subscription OAuth token, never a console key.
+	oauth bool
 }
 
-// NewAnthropic returns a client using the given API key.
-// baseURL is left empty so the SDK defaults to https://api.anthropic.com.
-// Tests override it via a.baseURL = srv.URL before use.
+// NewAnthropic returns a client using the given credential. A normal
+// sk-ant-api* key takes the clean x-api-key path; a Claude subscription OAuth
+// token (cc-*/eyJ*/sk-ant-oat*) turns on the Claude Code compatibility mode
+// (see oauth.go). baseURL is left empty so the SDK defaults to
+// https://api.anthropic.com; tests override it via a.baseURL = srv.URL.
 func NewAnthropic(apiKey string) *Anthropic {
 	return &Anthropic{
 		apiKey: apiKey,
 		http:   provcore.NewTurnHTTPClient(),
+		oauth:  isOAuthToken(apiKey),
 	}
 }
 
@@ -71,9 +78,22 @@ func (a *Anthropic) BaseURL() string { return a.baseURL }
 // Building per-call is cheap and is what makes the baseURL test override work.
 func (a *Anthropic) client(extraOpts ...option.RequestOption) anthropicsdk.Client {
 	opts := []option.RequestOption{
-		option.WithAPIKey(a.apiKey),
 		option.WithMaxRetries(0), // we run our own bounded retry loop
 		option.WithHTTPClient(a.http),
+	}
+	if a.oauth {
+		// Bearer auth (NOT x-api-key), the OAuth betas ADDED so the cache-TTL
+		// beta survives, and the Claude Code client identity.
+		opts = append(opts, option.WithAuthToken(a.apiKey))
+		for _, b := range oauthOnlyBetas {
+			opts = append(opts, option.WithHeaderAdd("anthropic-beta", b))
+		}
+		opts = append(opts,
+			option.WithHeader("user-agent", claudeCodeUserAgent()),
+			option.WithHeader("x-app", "cli"),
+		)
+	} else {
+		opts = append(opts, option.WithAPIKey(a.apiKey))
 	}
 	if a.baseURL != "" {
 		opts = append(opts, option.WithBaseURL(a.baseURL))
@@ -662,9 +682,16 @@ func (a *Anthropic) Stream(ctx context.Context, r wire.Request, h wire.StreamHan
 	if a.apiKey == "" {
 		return wire.Response{}, fmt.Errorf("no Anthropic API key (set %s)", EnvAnthropicKey)
 	}
+	// Claude Code compatibility mode: shape the request (identity + mcp__ tool
+	// names) once, and restore memcode's tool names on the response.
+	var oauthRev map[string]string
+	if a.oauth {
+		r, oauthRev = oauthEncodeRequest(r)
+	}
 	for attempt := 1; ; attempt++ {
 		resp, emitted, err := a.streamOnce(ctx, r, h)
 		if err == nil {
+			oauthDecodeResponse(&resp, oauthRev)
 			return resp, nil
 		}
 		code, _, isAPI := provcore.APIErrorInfo(err)
