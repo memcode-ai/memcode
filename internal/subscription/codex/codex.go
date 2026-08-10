@@ -122,3 +122,14 @@ func accountIDFromJWT(tok string) string {
 	}
 	return claims.Auth.ChatGPTAccountID
 }
+
+// Available reports whether a Codex CLI login file is present, for the wizard's
+// menu (no parse, no network).
+func Available() bool {
+	p := authPath()
+	if p == "" {
+		return false
+	}
+	_, err := os.Stat(p)
+	return err == nil
+}

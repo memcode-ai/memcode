@@ -38,6 +38,11 @@ func runInteractive(ctx context.Context, mode permissions.Mode, modeExplicit boo
 	_, _ = acceptance.Reconcile(ctx, st, cfg.Root)
 
 	provider.LoadDotEnv()
+	// First-run front door: if nothing is configured yet, offer the zero-cost
+	// ways in (a memcode account, an existing subscription, an own key, an
+	// endpoint) before the TUI opens. Runs once, interactive only; a choice is
+	// exported in-process so the provider built below picks it up.
+	maybeRunFirstRunWizard(ctx, cfg)
 	// Mandatory-login boot: the TUI ALWAYS opens. Signed-out gets a banner
 	// notice + a whitelist of local commands; /login swaps credentials into
 	// this lazy provider without a restart. (Non-interactive commands keep the

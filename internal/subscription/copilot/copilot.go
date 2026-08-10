@@ -287,3 +287,14 @@ func writeCache(fp string, ent cacheEntry) {
 	}
 	_ = os.Rename(tmp, p)
 }
+
+// Available reports whether a GitHub token the exchange could use is present —
+// an env var or a gh install — without exchanging. For the wizard's menu.
+func Available() bool {
+	for _, v := range copilotEnvVars {
+		if strings.TrimSpace(os.Getenv(v)) != "" {
+			return true
+		}
+	}
+	return ghBinary() != ""
+}

@@ -289,3 +289,39 @@ func openBrowser(url string) error {
 		return fmt.Errorf("no browser-opening command found")
 	}
 }
+
+// SetGlobalEnv writes key=value pairs into the global env file
+// (~/.config/memcode/.env), replacing any existing lines for those keys and
+// leaving everything else intact. The wizard uses it to persist a credential
+// choice (a selected subscription source, an own key, an endpoint). Values are
+// written verbatim; callers pass already-trimmed values.
+func SetGlobalEnv(kv map[string]string) error {
+	path := provider.GlobalEnvPath()
+	if path == "" {
+		return fmt.Errorf("cannot determine global config path (no home directory)")
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		return err
+	}
+	var lines []string
+	if existing, err := os.ReadFile(path); err == nil {
+		for _, line := range strings.Split(string(existing), "\n") {
+			trimmed := strings.TrimSpace(line)
+			if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+				lines = append(lines, line)
+				continue
+			}
+			key, _, ok := strings.Cut(strings.TrimPrefix(trimmed, "export "), "=")
+			if ok {
+				if _, replace := kv[strings.TrimSpace(key)]; replace {
+					continue // drop the old value; re-appended below
+				}
+			}
+			lines = append(lines, line)
+		}
+	}
+	for k, v := range kv {
+		lines = append(lines, fmt.Sprintf("%s=%s", k, v))
+	}
+	return os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0600)
+}

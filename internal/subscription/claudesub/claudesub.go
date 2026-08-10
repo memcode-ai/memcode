@@ -233,3 +233,17 @@ func writeBackFile(c creds) {
 	}
 	_ = os.Rename(tmp, p)
 }
+
+// Available reports whether a Claude Code login is present (file, or the macOS
+// Keychain), for the wizard's menu.
+func Available() bool {
+	if p := credFilePath(); p != "" {
+		if _, err := os.Stat(p); err == nil {
+			return true
+		}
+	}
+	if _, ok := readKeychainCreds(); ok {
+		return true
+	}
+	return false
+}
