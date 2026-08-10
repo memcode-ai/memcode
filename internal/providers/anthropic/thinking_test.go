@@ -30,7 +30,7 @@ func TestThinkingWireShape(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			w := buildWire(wire.Request{Model: c.model, Effort: c.effort, Messages: []wire.Message{
 				{Role: "user", Blocks: []wire.Block{wire.TextBlock("hi")}},
-			}}, 4096, false)
+			}}, 4096, false, "")
 			if (w.Thinking != nil) != c.wantThinking {
 				t.Fatalf("thinking present=%v, want %v", w.Thinking != nil, c.wantThinking)
 			}

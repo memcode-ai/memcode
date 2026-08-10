@@ -19,7 +19,7 @@ func searchToolReq() wire.Request {
 }
 
 func TestAnthropicNativeWebSearch(t *testing.T) {
-	w := buildWire(searchToolReq(), 4096, false)
+	w := buildWire(searchToolReq(), 4096, false, "")
 	if !w.NativeWebSearch {
 		t.Fatal("buildWire must flag the stripped web_search def")
 	}
@@ -44,7 +44,7 @@ func TestAnthropicNativeWebSearch(t *testing.T) {
 		}
 	}
 	// No def → no native tool, no flag.
-	w = buildWire(wire.Request{Tools: []wire.ToolDef{{Name: "bash", InputSchema: map[string]any{"type": "object"}}}}, 4096, false)
+	w = buildWire(wire.Request{Tools: []wire.ToolDef{{Name: "bash", InputSchema: map[string]any{"type": "object"}}}}, 4096, false, "")
 	if w.NativeWebSearch || len(wireToParams(w).Tools) != 1 {
 		t.Fatal("native search must only appear when the def was declared")
 	}

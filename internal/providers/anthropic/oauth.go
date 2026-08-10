@@ -111,14 +111,20 @@ func oauthEncodeRequest(r wire.Request) (wire.Request, map[string]string) {
 		return wn
 	}
 
-	// System: prepend the Claude Code identity. We do NOT blanket-rewrite the
-	// body: unlike a distinct agent name, "memcode" is also a path (.memcode)
-	// and a tool name, so a global replace would corrupt the prompt. The leading
-	// identity block is the assertion the filter keys on.
-	if r.System != "" {
-		r.System = claudeCodeSystemPrefix + "\n\n" + r.System
-	} else {
-		r.System = claudeCodeSystemPrefix
+	// System: the Claude Code identity is NOT fused into r.System here. The OAuth
+	// filter requires the FIRST system block to be EXACTLY the identity string —
+	// fusing "prefix\n\n<doctrine>" into one block makes block[0] != the identity
+	// and the request is refused with a bare rate_limit_error. buildWire emits the
+	// identity as its own leading block instead (it takes ccIdentity on the OAuth
+	// path). We do NOT blanket-rewrite the body: unlike a distinct agent name,
+	// "memcode" is also a path (.memcode) and a tool name, so a global replace
+	// would corrupt the prompt.
+
+	// Forced tool choice must carry the same mcp__ wire name as the renamed
+	// definition below, or the API 400s ("Tool '<name>' not found in provided
+	// tools") — which silently zeroes every forced-tool classifier verdict.
+	if r.ToolChoice != "" {
+		r.ToolChoice = record(r.ToolChoice)
 	}
 
 	// Tool definitions.

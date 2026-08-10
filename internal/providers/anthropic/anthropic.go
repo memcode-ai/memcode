@@ -191,15 +191,27 @@ func cacheParam(cc *wire.CacheControl) anthropicsdk.CacheControlEphemeralParam {
 //     breakpoint, so a per-turn fact change never busts the cached doctrine prefix.
 //   - conversation prefix: a 5-min breakpoint on the last block of the last message, so
 //     each turn caches the full prior history for the next turn to read.
-func buildWire(r wire.Request, maxTok int, stream bool) wireRequest {
+func buildWire(r wire.Request, maxTok int, stream bool, ccIdentity string) wireRequest {
 	w := wireRequest{Model: r.Model, MaxTokens: maxTok, Stream: stream}
+	var sys []sysBlock
+	// OAuth/Claude-Code path: the identity is its OWN leading block, verbatim. The
+	// filter keys on system[0] being EXACTLY the identity string, so it must not be
+	// fused with the doctrine (see oauth.go). It rides uncached — the 1h breakpoint
+	// on the doctrine block below still covers it (a breakpoint caches everything up
+	// to and including it), so the stable prefix stays cached.
+	if ccIdentity != "" {
+		sys = append(sys, sysBlock{Type: "text", Text: ccIdentity})
+	}
 	if r.System != "" {
 		// Stable doctrine prefix carries the 1h breakpoint; the volatile suffix rides as a
 		// SEPARATE, uncached block AFTER it (so it's still sent, just never cached).
-		w.System = []sysBlock{{Type: "text", Text: r.System, CacheControl: ephemeral1h}}
+		sys = append(sys, sysBlock{Type: "text", Text: r.System, CacheControl: ephemeral1h})
 		if r.SystemVolatile != "" {
-			w.System = append(w.System.([]sysBlock), sysBlock{Type: "text", Text: r.SystemVolatile})
+			sys = append(sys, sysBlock{Type: "text", Text: r.SystemVolatile})
 		}
+	}
+	if len(sys) > 0 {
+		w.System = sys
 	}
 	// The web_search function def is stripped BEFORE cache decoration, so the 1h
 	// breakpoint lands on the last REAL function tool; wireToParams re-adds the native
@@ -720,7 +732,11 @@ func (a *Anthropic) streamOnce(ctx context.Context, r wire.Request, h wire.Strea
 		}
 	}
 
-	params := wireToParams(buildWire(r, maxTok, true))
+	ccIdentity := ""
+	if a.oauth {
+		ccIdentity = claudeCodeSystemPrefix
+	}
+	params := wireToParams(buildWire(r, maxTok, true, ccIdentity))
 	cl := a.client()
 	stream := cl.Messages.NewStreaming(ctx, params)
 

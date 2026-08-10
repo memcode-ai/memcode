@@ -22,7 +22,7 @@ func TestBuildWireCacheBreakpoints(t *testing.T) {
 			}},
 		},
 	}
-	w := buildWire(r, 4096, false)
+	w := buildWire(r, 4096, false, "")
 
 	// System becomes a cache-marked text block array.
 	sys, ok := w.System.([]sysBlock)
@@ -59,7 +59,7 @@ func TestBuildWireCacheBreakpoints(t *testing.T) {
 // per-turn fact change never busts the cached doctrine prefix.
 func TestBuildWireSplitsVolatileSystem(t *testing.T) {
 	r := wire.Request{System: "DOCTRINE", SystemVolatile: "[voice — tone only] be playful"}
-	w := buildWire(r, 4096, false)
+	w := buildWire(r, 4096, false, "")
 	sys, ok := w.System.([]sysBlock)
 	if !ok || len(sys) != 2 {
 		t.Fatalf("system should split into stable + volatile blocks, got %#v", w.System)
@@ -71,14 +71,37 @@ func TestBuildWireSplitsVolatileSystem(t *testing.T) {
 		t.Fatalf("volatile block must follow uncached: %#v", sys[1])
 	}
 	// No volatile → a single cached block (unchanged behaviour).
-	if w := buildWire(wire.Request{System: "DOCTRINE"}, 4096, false); len(w.System.([]sysBlock)) != 1 {
+	if w := buildWire(wire.Request{System: "DOCTRINE"}, 4096, false, ""); len(w.System.([]sysBlock)) != 1 {
 		t.Fatalf("no volatile → single system block, got %#v", w.System)
 	}
 }
 
 func TestBuildWireEmpty(t *testing.T) {
-	w := buildWire(wire.Request{}, 4096, false)
+	w := buildWire(wire.Request{}, 4096, false, "")
 	if w.System != nil || len(w.Tools) != 0 || len(w.Messages) != 0 {
 		t.Fatalf("empty request should stay empty: %#v", w)
+	}
+}
+
+// The OAuth/Claude-Code path emits the identity as its OWN leading system block,
+// verbatim and uncached, ahead of the doctrine. Anthropic's OAuth filter rejects
+// the request (bare rate_limit_error) unless system[0] is EXACTLY the identity
+// string — fusing it onto the doctrine block was the whole bug.
+func TestBuildWireOAuthIdentityIsOwnBlock(t *testing.T) {
+	r := wire.Request{System: "DOCTRINE", SystemVolatile: "[voice] playful"}
+	w := buildWire(r, 4096, false, claudeCodeSystemPrefix)
+	sys, ok := w.System.([]sysBlock)
+	if !ok || len(sys) != 3 {
+		t.Fatalf("oauth system should be identity + doctrine + volatile, got %#v", w.System)
+	}
+	if sys[0].Text != claudeCodeSystemPrefix || sys[0].CacheControl != nil {
+		t.Fatalf("system[0] must be the identity VERBATIM and uncached: %#v", sys[0])
+	}
+	if sys[1].Text != "DOCTRINE" || sys[1].CacheControl == nil || sys[1].CacheControl.TTL != "1h" {
+		t.Fatalf("system[1] must be the doctrine carrying the 1h breakpoint: %#v", sys[1])
+	}
+	// Identity-only (e.g. a classifier call with no doctrine) → a single block.
+	if w := buildWire(wire.Request{}, 4096, false, claudeCodeSystemPrefix); len(w.System.([]sysBlock)) != 1 {
+		t.Fatalf("identity-only → single system block, got %#v", w.System)
 	}
 }

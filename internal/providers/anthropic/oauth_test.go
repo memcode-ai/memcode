@@ -58,22 +58,26 @@ func TestOAuthEncodeDecodeRoundTrip(t *testing.T) {
 			{Name: "bash"},
 			{Name: "mcp__supabase__query"},
 		},
+		ToolChoice: "bash",
 		Messages: []wire.Message{
 			{Role: "assistant", Blocks: []wire.Block{{Type: "tool_use", ID: "t1", Name: "bash"}}},
 		},
 	}
 	enc, rev := oauthEncodeRequest(r)
 
-	// System identity prepended, body preserved (no destructive rewrite).
-	if enc.System[:len(claudeCodeSystemPrefix)] != claudeCodeSystemPrefix {
-		t.Error("identity prefix not prepended")
-	}
-	if want := "You are memcode. Use .memcode/ for state."; enc.System[len(enc.System)-len(want):] != want {
-		t.Error("system body must be preserved verbatim (no memcode->Claude Code rewrite)")
+	// System is preserved VERBATIM: the identity is NOT fused in here — the OAuth
+	// filter needs system[0] to be exactly the identity string, so buildWire emits
+	// it as its own leading block instead of concatenating it onto the doctrine.
+	if enc.System != "You are memcode. Use .memcode/ for state." {
+		t.Errorf("system must be preserved verbatim (identity is a separate buildWire block), got %q", enc.System)
 	}
 	// Tool defs renamed; already-prefixed one untouched.
 	if enc.Tools[0].Name != "mcp__bash" || enc.Tools[1].Name != "mcp__supabase__query" {
 		t.Errorf("tool defs wrong: %q, %q", enc.Tools[0].Name, enc.Tools[1].Name)
+	}
+	// Forced tool choice renamed to match the definition, or the API 400s.
+	if enc.ToolChoice != "mcp__bash" {
+		t.Errorf("tool_choice not renamed: %q, want mcp__bash", enc.ToolChoice)
 	}
 	// History tool_use renamed.
 	if enc.Messages[0].Blocks[0].Name != "mcp__bash" {

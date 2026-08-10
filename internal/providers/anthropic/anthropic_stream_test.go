@@ -130,7 +130,7 @@ func TestWireToParamsDoesNotCacheDecorateThinking(t *testing.T) {
 				{Type: "text", Text: "done"},
 			}},
 		},
-	}, 4096, true))
+	}, 4096, true, ""))
 
 	if got := len(params.Messages); got != 4 {
 		t.Fatalf("messages = %d, want 4", got)
