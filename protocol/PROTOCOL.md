@@ -6,16 +6,15 @@ not a second source of truth.
 
 ## 1. The serving wire: OpenAI-compatible /v1
 
-Every backend memcode speaks to — the hosted gateway, a self-hosted gateway,
-Ollama, any compat endpoint — serves standard OpenAI chat completions:
+Every backend memcode speaks to — the hosted gateway, Ollama, any compat
+endpoint — serves standard OpenAI chat completions:
 
 - `POST /v1/chat/completions` (streamed and non-streamed)
 - `GET  /v1/models`
 
 The `model` field always carries a concrete catalog label; there is no
 server-side "auto". Four memcode extensions ride the standard shapes, and any
-compat client can ignore them (implementation: `internal/providers/compat/wire.go`,
-served by `gateway/internal/compat`):
+compat client can ignore them (implementation: `internal/providers/compat/wire.go`):
 
 1. Two-system convention: the first `system` message is the stable
    (prompt-cacheable) prefix, the second is the per-turn volatile suffix.

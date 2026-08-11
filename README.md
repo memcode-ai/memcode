@@ -12,7 +12,7 @@
 
 Most coding agents start every session from zero. memcode keeps a persistent model of your repo in `.memcode`: the subsystems, what you worked on last week, which approaches failed and why, and the preferences you have corrected it on. The longer you use it, the less you have to explain.
 
-One Go binary, a full terminal UI, and it runs against whatever models you already have: the hosted memcode gateway, your own API keys, or a local endpoint like Ollama.
+One Go binary, a full terminal UI, and it runs against whatever models you already have: your own API keys, a local endpoint like Ollama, or a hosted memcode account.
 
 <p align="center">
   <img src="assets/screenshot-models.png" alt="memcode terminal UI: the matrix splash and the model picker, from Automatic to any specific model" width="100%">
@@ -77,20 +77,9 @@ With a memcode account you get one balance across every vendor, a key vault for 
 memcode login
 ```
 
-## Self-hosting
-
-The whole product is in this repo, gateway included, and the gateway is a single stateless binary:
-
-```bash
-cd deploy/docker && cp ../../.example.env .env   # set a token + a provider key
-docker compose up --build
-```
-
-See [docs/self-hosting.md](docs/self-hosting.md). The hosted service at [memcode.ai](https://memcode.ai) runs this same code with a private control plane on top (accounts, one balance across vendors, the BYOK vault, team features).
-
 ## Architecture
 
-The CLI is the agent: all model selection, escalation, and recovery run client-side; every backend is a plain serving surface speaking one OpenAI-compatible wire ([protocol/PROTOCOL.md](protocol/PROTOCOL.md)). The gateway under `gateway/` is that serving surface, metered and typed, sharing one provider implementation with the CLI. Cloud-only behavior sits behind one control-plane seam; self-host mode constructs none of it.
+The CLI is the agent: all model selection, escalation, and recovery run client-side; every backend is a plain serving surface speaking one OpenAI-compatible wire ([protocol/PROTOCOL.md](protocol/PROTOCOL.md)). Point memcode at your own API keys, a local endpoint like Ollama, or a hosted [memcode.ai](https://memcode.ai) account (one balance across vendors, a BYOK vault, and team features).
 
 ## License
 
