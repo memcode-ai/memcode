@@ -29,8 +29,11 @@ import (
 // this default lets login work even when the callback doesn't include it.
 const DefaultGatewayURL = provider.DefaultAPIURL
 
-// DefaultWebAppURL is where the browser opens to authenticate.
-const DefaultWebAppURL = "https://memcode.ai"
+// DefaultWebAppURL is where the browser opens to authenticate. Use the www
+// host directly: the apex (memcode.ai) 308-redirects to www, and that extra
+// cross-host hop on the /api/cli/auth?port=&state= URL is needless churn on a
+// load-bearing flow. Point straight at the canonical host.
+const DefaultWebAppURL = "https://www.memcode.ai"
 
 // Result is a successful login: the minted org key and the gateway to use it
 // against.
@@ -279,7 +282,8 @@ func openBrowser(url string) error {
 	case "darwin":
 		return exec.Command("open", url).Start()
 	case "windows":
-		return exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
+		prog, args := windowsBrowserCmd(url)
+		return exec.Command(prog, args...).Start()
 	default: // linux, *bsd
 		for _, cmd := range []string{"xdg-open", "wslview", "gio"} {
 			if _, err := exec.LookPath(cmd); err == nil {
@@ -288,6 +292,27 @@ func openBrowser(url string) error {
 		}
 		return fmt.Errorf("no browser-opening command found")
 	}
+}
+
+// windowsBrowserCmd builds the argv that opens url in the default browser on
+// Windows. It is split out from openBrowser so the shell quoting — the part
+// that actually broke — is unit-testable off a Windows host.
+//
+// It deliberately does NOT use `rundll32 url.dll,FileProtocolHandler`: that
+// strips/percent-encodes the query string (the ? became %3F), so
+//
+//	/api/cli/auth?port=&state=
+//
+// reached the browser as /api/cli/auth%3Fport=… and 404'd — the Windows-only
+// login failure. `cmd /c start` preserves the URL verbatim, with two caveats:
+//   - & is a cmd command separator, so every & is caret-escaped (^&); cmd
+//     collapses ^& back to a literal & before the browser sees it. (Go does not
+//     quote this arg — no spaces — so the caret survives to cmd unquoted, which
+//     is exactly where it must be to take effect.)
+//   - the empty "" is start's title argument, so a URL that ever ends up quoted
+//     is not mistaken for the window title.
+func windowsBrowserCmd(url string) (string, []string) {
+	return "cmd", []string{"/c", "start", "", strings.ReplaceAll(url, "&", "^&")}
 }
 
 // SetGlobalEnv writes key=value pairs into the global env file
