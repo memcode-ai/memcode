@@ -106,6 +106,7 @@ type Session struct {
 	sessionID         string
 	headSHA           string                      // repo HEAD at session start — provenance stamp for signals emitted this session
 	resumeID          string                      // when set, the next StartChat re-enters this session with its saved transcript (see transcript.go)
+	pendingAtts       []input.Attachment          // attachments merged into the next Submit (set by AttachNext; the stream-json protocol's user_turn attachments)
 	allowPending      string                      // permission-provenance note awaiting its surface's header (see allowNote/flushAllowNote)
 	hookSet           *hooks.Set                  // user hooks (~/.memcode/hooks.json + project), lazily loaded; see hooks.go
 	ckpt              *checkpoint.Log             // per-session edit pre-images (rewind); recreated with the session id
