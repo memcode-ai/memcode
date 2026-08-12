@@ -313,6 +313,7 @@ func (s *Session) runTurn(ctx context.Context, st *ChatState, b input.Bundle) {
 	defer func() {
 		if s.bgCtx.Err() == nil {
 			s.persistTranscript(st)
+			s.maybeGenerateTitle() // one-shot, off-goroutine; names the session for the sidebar/`session recent`
 		}
 	}()
 	s.lastErr = nil // fresh turn; set below if the loop returns a terminal error

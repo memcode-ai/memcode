@@ -45,8 +45,13 @@ var sessionListCmd = &cobra.Command{
 			out := make([]sessionRecentJSON, 0, len(sessions))
 			for i := len(sessions) - 1; i >= 0; i-- { // newest first
 				s := sessions[i]
+				title := runtime.TitleFor(cfg.Root, s.id)
+				if title == "" {
+					title = s.task
+				}
 				out = append(out, sessionRecentJSON{
 					ID:           s.id,
+					Title:        title,
 					Task:         s.task,
 					Mode:         s.mode,
 					Model:        s.model,
@@ -72,6 +77,7 @@ var sessionListCmd = &cobra.Command{
 
 type sessionRecentJSON struct {
 	ID           string `json:"id"`
+	Title        string `json:"title"`
 	Task         string `json:"task"`
 	Mode         string `json:"mode"`
 	Model        string `json:"model"`
