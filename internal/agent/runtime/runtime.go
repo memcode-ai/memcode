@@ -106,6 +106,7 @@ type Session struct {
 	sessionID         string
 	headSHA           string                      // repo HEAD at session start — provenance stamp for signals emitted this session
 	resumeID          string                      // when set, the next StartChat re-enters this session with its saved transcript (see transcript.go)
+	structured        bool                        // structured client (stream-json protocol): suppress terminal chrome (route echo, served-by, tool markers) — the client gets those as events
 	titleOnce         sync.Once                   // guards one-shot generated chat title (title.go)
 	pendingAtts       []input.Attachment          // attachments merged into the next Submit (set by AttachNext; the stream-json protocol's user_turn attachments)
 	allowPending      string                      // permission-provenance note awaiting its surface's header (see allowNote/flushAllowNote)

@@ -68,6 +68,13 @@ func (s *Session) SetAsker(fn func(context.Context, AskRequest) AskResponse) { s
 // SetObserver attaches a UIObserver (see above). Pass nil to detach.
 func (s *Session) SetObserver(o UIObserver) { s.observer = o }
 
+// SetStructured marks this session as driven by a structured client (the
+// stream-json protocol). Operational terminal chrome — the route echo, the
+// "served by" line, and the per-tool markers — is suppressed, because the
+// client receives that information as structured events instead of scraping it
+// out of the text stream. The TUI leaves this false and prints as usual.
+func (s *Session) SetStructured(v bool) { s.structured = v }
+
 // All cost/token readouts come from the shared Ledger (the metered gateway), so
 // they count EVERY model response — main loop, explore sub-agents, overview,
 // classify, predict — automatically. The Ledger has its OWN mutex (held only

@@ -216,7 +216,9 @@ func (s *Session) Submit(ctx context.Context, st *ChatState, line string) {
 	}
 	s.turnHighRisk = highRiskTurn(dec.Bundle.Text) // high-blast-radius surface → escalate the backend
 
-	s.printf("  ↳ %s — %s\n", dec.Route, dec.Reason)
+	if !s.structured {
+		s.printf("  ↳ %s — %s\n", dec.Route, dec.Reason)
+	}
 	if s.observer != nil {
 		s.observer.Routed(dec.Route, dec.Reason)
 		s.observer.Mood(reading)

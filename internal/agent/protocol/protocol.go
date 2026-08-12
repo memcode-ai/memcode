@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"regexp"
 	"strconv"
 	"sync"
 
@@ -26,6 +27,10 @@ import (
 	"github.com/memcode-ai/memcode/internal/agent/runtime"
 	"github.com/memcode-ai/memcode/internal/wire"
 )
+
+// ansiEscape matches SGR color/style escape sequences so the structured client
+// receives clean assistant text even if a styled string reaches the output seam.
+var ansiEscape = regexp.MustCompile("\x1b\\[[0-9;]*m")
 
 // turnReq is one queued user turn: prompt text plus resolved attachments.
 type turnReq struct {
@@ -79,9 +84,16 @@ func Run(ctx context.Context, sess *runtime.Session, in io.Reader, out io.Writer
 		ask:  make(chan askReply, 1),
 	}
 
-	// Bind the runtime seams to the protocol (the same hooks the TUI uses).
+	// Structured client: suppress terminal chrome (route echo, served-by, tool
+	// markers) — the client gets those as events, not scraped text.
+	sess.SetStructured(true)
+	// Bind the runtime seams to the protocol (the same hooks the TUI uses). Strip
+	// any residual ANSI styling so the client receives clean assistant text.
 	sess.SetOutput(writerFunc(func(p []byte) (int, error) {
-		d.emit("", wire.MsgAssistantDelta, wire.AssistantDeltaData{Text: string(p)})
+		clean := ansiEscape.ReplaceAllString(string(p), "")
+		if clean != "" {
+			d.emit("", wire.MsgAssistantDelta, wire.AssistantDeltaData{Text: clean})
+		}
 		return len(p), nil
 	}))
 	sess.SetApprover(d.approve)

@@ -56,6 +56,10 @@ func (s *Session) toolLineStat(shown bool, verb, arg, status string, stat toolSt
 	// Structured tool event for a protocol client (the TUI reads the printed marker
 	// below; a stream-json client gets this instead). No-op for a plain observer.
 	s.emitTool(verb, arg, stat == statFail)
+	// A structured client renders the emitted event; don't also leak the terminal marker.
+	if s.structured {
+		return
+	}
 	mark := "⏺"
 	// Color the bullet on-theme: tool-glyph color for success (Faint for the quiet tier,
 	// so research stays visually subordinate), Warning for a partial, Danger for a
@@ -91,6 +95,9 @@ func (s *Session) toolLineStat(shown bool, verb, arg, status string, stat toolSt
 // glyph) — so a command's output reads as a single result instead of N stacked ⎿ rows.
 // All lines are muted (metaStyle); callers pre-clip each line to one row.
 func (s *Session) toolResult(lines []string) {
+	if s.structured {
+		return // the client renders tool output from structured events, not scraped markers
+	}
 	for i, line := range lines {
 		prefix := "  ⎿  " // Claude-Code spacing: 2 + glyph + 2 → content at col 5
 		if i > 0 {
