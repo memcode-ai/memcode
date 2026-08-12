@@ -15,12 +15,19 @@ export const IPC = {
   // CLI config surface (renderer -> main, invoke)
   status: 'cli:status',
   models: 'cli:models',
+  sources: 'cli:sources',
+  setConfig: 'cli:setConfig',
+  sessionsRecent: 'cli:sessionsRecent',
   login: 'cli:login',
   logout: 'cli:logout',
   appInfo: 'app:info',
   // main -> renderer (push)
   bridgeEvent: 'bridge:event',
+  menuAction: 'menu:action',
 } as const
+
+// Actions the native application menu dispatches to the renderer.
+export type MenuAction = 'login' | 'logout' | 'run-setup' | 'open-settings' | 'new-session'
 
 export interface StartSessionArgs {
   cwd: string

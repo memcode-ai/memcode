@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useSession, type Block } from './useSession'
+import { SetupWizard } from './SetupWizard'
+import { SessionSidebar } from './SessionSidebar'
 import type { CatalogModel, StatusJSON } from '../../shared/cli-types'
 import type { Attachment, DiffData } from '../../shared/protocol'
-import type { AppInfo } from '../../shared/ipc'
+import type { AppInfo, MenuAction } from '../../shared/ipc'
 
 export default function App() {
   const { state, clearPermission, clearAsk, recordUserTurn, reset } = useSession()
@@ -12,22 +14,81 @@ export default function App() {
   const [status, setStatus] = useState<StatusJSON | null>(null)
   const [appInfo, setAppInfo] = useState<AppInfo | null>(null)
   const [showSettings, setShowSettings] = useState(false)
+  const [showWizard, setShowWizard] = useState(false)
+  const [sidebarKey, setSidebarKey] = useState(0)
 
   const refreshStatus = useCallback(() => window.memcode.status().then(setStatus).catch(() => {}), [])
 
+  // First launch: if no backend is configured yet, open the setup wizard.
   useEffect(() => {
     window.memcode.models(true).then(setModels).catch(() => {})
     window.memcode.appInfo().then(setAppInfo).catch(() => {})
     refreshStatus()
+    window.memcode
+      .sources()
+      .then((s) => setShowWizard(!s.has_backend))
+      .catch(() => {})
   }, [refreshStatus])
+
+  const doLogin = useCallback(async () => {
+    try {
+      await window.memcode.login()
+    } finally {
+      refreshStatus()
+    }
+  }, [refreshStatus])
+
+  const doLogout = useCallback(async () => {
+    try {
+      await window.memcode.logout()
+    } finally {
+      refreshStatus()
+    }
+  }, [refreshStatus])
+
+  const startIn = useCallback(
+    async (dir: string, resume?: string) => {
+      setRepo(dir)
+      reset()
+      await window.memcode.startSession({ cwd: dir, mode: 'ask', pin: pin || undefined, resume })
+      setSidebarKey((k) => k + 1)
+    },
+    [pin, reset],
+  )
 
   const openRepo = useCallback(async () => {
     const dir = await window.memcode.pickRepo()
     if (!dir) return
-    setRepo(dir)
-    reset()
-    await window.memcode.startSession({ cwd: dir, mode: 'ask', pin: pin || undefined })
-  }, [pin, reset])
+    await startIn(dir)
+  }, [startIn])
+
+  // Native menu actions.
+  useEffect(() => {
+    return window.memcode.onMenu((action: MenuAction) => {
+      switch (action) {
+        case 'login':
+          doLogin()
+          break
+        case 'logout':
+          doLogout()
+          break
+        case 'run-setup':
+          setShowWizard(true)
+          break
+        case 'open-settings':
+          setShowSettings(true)
+          break
+        case 'new-session':
+          if (repo) startIn(repo)
+          break
+      }
+    })
+  }, [doLogin, doLogout, repo, startIn])
+
+  // Refetch the session sidebar whenever a turn finishes (a new/updated transcript).
+  useEffect(() => {
+    if (!state.busy) setSidebarKey((k) => k + 1)
+  }, [state.busy])
 
   const send = useCallback(
     async (text: string, attachments: Attachment[]) => {
@@ -51,6 +112,15 @@ export default function App() {
       />
 
       <div className="body">
+        {repo && (
+          <SessionSidebar
+            cwd={repo}
+            reloadKey={sidebarKey}
+            activeId={state.sessionId}
+            onResume={(id) => startIn(repo, id)}
+            onNew={() => startIn(repo)}
+          />
+        )}
         <main className="main">
           {!repo ? (
             <Welcome onOpen={openRepo} loggedIn={status?.logged_in ?? false} />
@@ -96,6 +166,16 @@ export default function App() {
           appInfo={appInfo}
           onClose={() => setShowSettings(false)}
           onChanged={refreshStatus}
+          onLogin={doLogin}
+          onLogout={doLogout}
+        />
+      )}
+      {showWizard && (
+        <SetupWizard
+          onDone={() => {
+            setShowWizard(false)
+            refreshStatus()
+          }}
         />
       )}
     </div>
@@ -410,26 +490,45 @@ function Settings(props: {
   appInfo: AppInfo | null
   onClose: () => void
   onChanged: () => void
+  onLogin: () => Promise<void>
+  onLogout: () => Promise<void>
 }) {
   const [busy, setBusy] = useState(false)
-  const doLogin = async () => {
+  const [key, setKey] = useState('')
+  const [endpoint, setEndpoint] = useState('')
+  const [saved, setSaved] = useState('')
+
+  const withBusy = async (fn: () => Promise<unknown>) => {
     setBusy(true)
+    setSaved('')
     try {
-      await window.memcode.login()
-      props.onChanged()
+      await fn()
     } finally {
       setBusy(false)
     }
   }
-  const doLogout = async () => {
-    setBusy(true)
-    try {
-      await window.memcode.logout()
+  const doLogin = () => withBusy(props.onLogin)
+  const doLogout = () => withBusy(props.onLogout)
+  const saveKey = () =>
+    withBusy(async () => {
+      const v = key.trim()
+      if (!v) return
+      const env = v.startsWith('sk-ant-') ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY'
+      await window.memcode.setConfig({ [env]: v })
+      setKey('')
+      setSaved(`Saved ${env}`)
       props.onChanged()
-    } finally {
-      setBusy(false)
-    }
-  }
+    })
+  const saveEndpoint = () =>
+    withBusy(async () => {
+      const v = endpoint.trim()
+      if (!v) return
+      await window.memcode.setConfig({ MEMCODE_ENDPOINT_URL: v })
+      setEndpoint('')
+      setSaved('Saved endpoint')
+      props.onChanged()
+    })
+
   const s = props.status
   return (
     <Modal>
@@ -461,9 +560,39 @@ function Settings(props: {
               </button>
             )}
           </div>
+        </section>
+
+        <section>
+          <div className="settings-subhead">Bring your own key</div>
+          <label className="field-label">Provider API key</label>
+          <div className="field-row">
+            <input
+              className="cmd"
+              type="password"
+              placeholder="sk-ant-… or sk-…"
+              value={key}
+              onChange={(e) => setKey(e.target.value)}
+            />
+            <button className="ghost" onClick={saveKey} disabled={busy || !key.trim()}>
+              Save
+            </button>
+          </div>
+          <label className="field-label">Custom endpoint</label>
+          <div className="field-row">
+            <input
+              className="cmd"
+              placeholder="http://localhost:11434/v1"
+              value={endpoint}
+              onChange={(e) => setEndpoint(e.target.value)}
+            />
+            <button className="ghost" onClick={saveEndpoint} disabled={busy || !endpoint.trim()}>
+              Save
+            </button>
+          </div>
+          {saved && <div className="saved-note">{saved}</div>}
           <p className="hint">
-            BYOK keys and subscription import are managed by the CLI (`memcode login`, key store). This app drives the same
-            configuration — no separate credential copy.
+            Stored locally by the CLI in ~/.config/memcode/.env. Keys go to the provider only. Subscription import
+            (Claude/ChatGPT/Copilot) is offered in Setup (Account → Run Setup).
           </p>
         </section>
 

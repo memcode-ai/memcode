@@ -10,6 +10,29 @@ export interface StatusJSON {
   protocol_version: string
 }
 
+export interface Source {
+  id: string
+  label: string
+}
+
+export interface SourcesJSON {
+  logged_in: boolean
+  has_backend: boolean
+  endpoint: string
+  credential_source: string
+  subscriptions: Source[]
+}
+
+export interface SessionRecent {
+  id: string
+  task: string
+  mode: string
+  model: string
+  files_changed: number
+  iterations: number
+  resumable: boolean
+}
+
 export interface CatalogModel {
   id: string
   label: string

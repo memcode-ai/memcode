@@ -4,6 +4,7 @@ import { CliBridge } from './cli-bridge'
 import * as cli from './config'
 import { resolveCliBin } from './resolve-bin'
 import { initAutoUpdate } from './updater'
+import { buildAppMenu } from './menu'
 import { IPC, type AppInfo, type StartSessionArgs } from '../shared/ipc'
 import type { Attachment, PermissionResponseData } from '../shared/protocol'
 
@@ -30,6 +31,8 @@ function createWindow(): void {
   })
 
   mainWindow.on('ready-to-show', () => mainWindow?.show())
+
+  buildAppMenu(mainWindow)
 
   // External links open in the system browser, never in-app.
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -70,6 +73,9 @@ function registerIpc(): void {
 
   ipcMain.handle(IPC.status, () => cli.status(binPath()))
   ipcMain.handle(IPC.models, (_e, pinnableOnly?: boolean) => cli.models(binPath(), pinnableOnly))
+  ipcMain.handle(IPC.sources, () => cli.sources(binPath()))
+  ipcMain.handle(IPC.setConfig, (_e, kv: Record<string, string>) => cli.setConfig(binPath(), kv))
+  ipcMain.handle(IPC.sessionsRecent, (_e, cwd: string) => cli.sessionsRecent(binPath(), cwd))
   ipcMain.handle(IPC.login, () => cli.login(binPath()))
   ipcMain.handle(IPC.logout, () => cli.logout(binPath()))
   ipcMain.handle(IPC.appInfo, (): AppInfo => ({
