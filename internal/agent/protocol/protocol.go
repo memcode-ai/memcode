@@ -166,6 +166,12 @@ func Run(ctx context.Context, sess *runtime.Session, in io.Reader, out io.Writer
 				default:
 				}
 			}
+		case wire.MsgSetModel:
+			// The GUI model picker changed mid-session — re-pin the live session.
+			var m wire.SetModelData
+			if json.Unmarshal(env.Data, &m) == nil {
+				d.applyPin(m.Pin)
+			}
 		case wire.MsgCancel:
 			d.cancelTurn()
 		}
@@ -200,19 +206,29 @@ func (d *driver) applyInitialize(env wire.Envelope) string {
 	// window comes from the SDK catalog — the same source the picker's list is built
 	// from. An unknown label is skipped, not sent: the gateway would silently serve
 	// Automatic anyway, so surface it on stderr instead of pinning a lie.
-	if in.Pin != "" {
-		if m, ok := catalog.LookupModel(in.Pin); ok {
-			d.sess.SetPin(in.Pin, m.Window)
-		} else {
-			fmt.Fprintf(os.Stderr, "protocol: unknown model pin %q — staying on Automatic\n", in.Pin)
-		}
-	}
+	d.applyPin(in.Pin)
 	if in.Resume != "" {
 		if err := d.sess.ResumeSession(in.Resume); err != nil {
 			fmt.Fprintf(os.Stderr, "protocol: could not resume %q: %v — starting fresh\n", in.Resume, err)
 		}
 	}
 	return in.Cwd
+}
+
+// applyPin resolves a model pin (id/label) via the SDK catalog and pins it live.
+// "" clears to Automatic. Unknown labels are surfaced on stderr, not pinned (the
+// gateway would silently serve Automatic anyway). Shared by initialize and the
+// mid-session set_model command.
+func (d *driver) applyPin(pin string) {
+	if pin == "" {
+		d.sess.SetPin("", 0) // Automatic
+		return
+	}
+	if m, ok := catalog.LookupModel(pin); ok {
+		d.sess.SetPin(pin, m.Window)
+	} else {
+		fmt.Fprintf(os.Stderr, "protocol: unknown model pin %q — staying on Automatic\n", pin)
+	}
 }
 
 // resolveAttachments turns wire attachments (file paths from a GUI client) into

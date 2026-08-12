@@ -30,6 +30,7 @@ const (
 	MsgPermissionResponse = "permission_response" // answer a permission_request
 	MsgAskResponse        = "ask_response"        // answer an ask_request
 	MsgCancel             = "cancel"              // interrupt the running turn
+	MsgSetModel           = "set_model"           // change the model pin mid-session (the GUI model picker)
 
 	// CLI → client (events)
 	MsgInitialized       = "initialized"        // session ready; carries session id
@@ -54,6 +55,12 @@ type InitializeData struct {
 	Mode   string `json:"mode,omitempty"`   // permission mode: ask | auto | allow-all
 	Pin    string `json:"pin,omitempty"`    // pinned model label ("" = Automatic)
 	Resume string `json:"resume,omitempty"` // resume a prior session by id or unique prefix ("" = fresh)
+}
+
+// SetModelData changes the pinned model mid-session (client → CLI), so the GUI
+// model picker takes effect on the running session, not just at startup.
+type SetModelData struct {
+	Pin string `json:"pin"` // model id/label ("" = Automatic)
 }
 
 // InitializedData announces a ready session (CLI → client).
