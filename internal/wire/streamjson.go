@@ -36,6 +36,8 @@ const (
 	MsgAssistantDelta    = "assistant_delta"    // a chunk of assistant text
 	MsgToolCall          = "tool_call"          // a tool is running
 	MsgToolResult        = "tool_result"        // a tool finished (summary)
+	MsgDiff              = "diff"               // a structured file change (path + unified diff)
+	MsgTodos             = "todos"              // the current plan/checklist steps
 	MsgPermissionRequest = "permission_request" // the turn is blocked awaiting approval
 	MsgAskRequest        = "ask_request"        // the turn is blocked awaiting a user choice
 	MsgSessionState      = "session_state"      // busy/idle + room/mode telemetry
@@ -48,9 +50,10 @@ const (
 
 // InitializeData configures the session (client → CLI).
 type InitializeData struct {
-	Cwd  string `json:"cwd,omitempty"`  // working directory / repo root
-	Mode string `json:"mode,omitempty"` // permission mode: ask | auto | allow-all
-	Pin  string `json:"pin,omitempty"`  // pinned model label ("" = Automatic)
+	Cwd    string `json:"cwd,omitempty"`    // working directory / repo root
+	Mode   string `json:"mode,omitempty"`   // permission mode: ask | auto | allow-all
+	Pin    string `json:"pin,omitempty"`    // pinned model label ("" = Automatic)
+	Resume string `json:"resume,omitempty"` // resume a prior session by id or unique prefix ("" = fresh)
 }
 
 // InitializedData announces a ready session (CLI → client).
@@ -59,9 +62,19 @@ type InitializedData struct {
 	Protocol  string `json:"protocol"` // echoes the version for handshake validation
 }
 
+// Attachment is a local file surfaced to a turn as context. Path is required;
+// Name/Mime are advisory. The runtime reads the file locally — nothing is
+// uploaded. Same effect as an @path reference, but with real structure.
+type Attachment struct {
+	Path string `json:"path"`
+	Name string `json:"name,omitempty"`
+	Mime string `json:"mime,omitempty"`
+}
+
 // UserTurnData submits a prompt (client → CLI).
 type UserTurnData struct {
-	Text string `json:"text"`
+	Text        string       `json:"text"`
+	Attachments []Attachment `json:"attachments,omitempty"`
 }
 
 // AssistantDeltaData is a chunk of streamed assistant text (CLI → client).
@@ -80,6 +93,26 @@ type ToolResultData struct {
 	Status string `json:"status,omitempty"` // "ok" | "failed" | …
 }
 
+// DiffData is a structured file change (CLI → client). The client renders its
+// own syntax-highlighted diff from the unified text rather than parsing ANSI.
+type DiffData struct {
+	Path     string `json:"path"`
+	Language string `json:"language,omitempty"`
+	Unified  string `json:"unified,omitempty"` // unified diff text, no color
+	Added    int    `json:"added"`
+	Removed  int    `json:"removed"`
+	NewFile  bool   `json:"new_file,omitempty"`
+}
+
+// TodoItem / TodosData carry the current plan checklist (CLI → client).
+type TodoItem struct {
+	Text   string `json:"text"`
+	Status string `json:"status"` // pending | in_progress | done
+}
+type TodosData struct {
+	Items []TodoItem `json:"items"`
+}
+
 // PermissionRequestData asks the client to approve an action (CLI → client). The
 // client answers with a PermissionResponseData carrying the same Envelope.ID.
 type PermissionRequestData struct {
@@ -92,10 +125,12 @@ type PermissionRequestData struct {
 	Editable bool   `json:"editable,omitempty"`
 }
 type PermissionResponseData struct {
-	Allow     bool   `json:"allow"`
-	Command   string `json:"command,omitempty"`   // run this edited command instead
-	Reason    string `json:"reason,omitempty"`    // when !allow: fed back to the model
-	Interrupt bool   `json:"interrupt,omitempty"` // stop the whole turn
+	Allow         bool   `json:"allow"`
+	Command       string `json:"command,omitempty"`        // run this edited command instead
+	Reason        string `json:"reason,omitempty"`         // when !allow: fed back to the model
+	Interrupt     bool   `json:"interrupt,omitempty"`      // stop the whole turn
+	Remember      bool   `json:"remember,omitempty"`       // persist an allow-rule ("don't ask again")
+	RememberScope string `json:"remember_scope,omitempty"` // which offered scope to remember
 }
 
 // AskRequestData / AskResponseData are the ask_user human-in-the-loop round-trip.
