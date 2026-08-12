@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import { IPC, type AppInfo, type MenuAction, type StartSessionArgs } from '../shared/ipc'
+import { IPC, type AppInfo, type MenuAction, type RepoInfo, type SaveAttachmentArgs, type StartSessionArgs } from '../shared/ipc'
 import type { Attachment, BridgeEvent, PermissionResponseData } from '../shared/protocol'
 import type { CatalogModel, SessionRecent, SourcesJSON, StatusJSON } from '../shared/cli-types'
 
@@ -18,6 +18,8 @@ const api = {
 
   pickRepo: (): Promise<string | null> => ipcRenderer.invoke(IPC.pickRepo),
   recentRepos: (): Promise<string[]> => ipcRenderer.invoke(IPC.recentRepos),
+  repoInfo: (cwd: string): Promise<RepoInfo> => ipcRenderer.invoke(IPC.repoInfo, cwd),
+  saveAttachment: (args: SaveAttachmentArgs): Promise<Attachment> => ipcRenderer.invoke(IPC.saveAttachment, args),
 
   status: (): Promise<StatusJSON> => ipcRenderer.invoke(IPC.status),
   models: (pinnableOnly?: boolean): Promise<CatalogModel[]> => ipcRenderer.invoke(IPC.models, pinnableOnly),

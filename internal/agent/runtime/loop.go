@@ -1208,6 +1208,9 @@ func (s *Session) complete(ctx context.Context, purpose llm.Purpose, req wire.Re
 				s.printf("%s\n\n", metaStyle.Render(line))
 			}
 		}
+		if s.structured {
+			s.notifyTokens(committedOut + resp.OutputTokens)
+		}
 	}
 	if err == nil {
 		s.captureToolCallLeak(ctx, purpose, req, resp)

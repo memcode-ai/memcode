@@ -98,6 +98,8 @@ type ToolCallData struct {
 type ToolResultData struct {
 	Name   string `json:"name"`
 	Status string `json:"status,omitempty"` // "ok" | "failed" | …
+	Detail string `json:"detail,omitempty"` // compact result note, e.g. "5 tools · glm-5p2"
+	Output string `json:"output,omitempty"` // muted continuation/result preview
 }
 
 // DiffData is a structured file change (CLI → client). The client renders its
@@ -151,7 +153,18 @@ type AskResponseData struct {
 
 // UsageData reports running token counts (CLI → client).
 type UsageData struct {
-	OutputTokens int `json:"output_tokens"`
+	InputTokens       int    `json:"input_tokens,omitempty"`        // cumulative session input, when available
+	OutputTokens      int    `json:"output_tokens"`                 // live per-turn output counter
+	TotalOutputTokens int    `json:"total_output_tokens,omitempty"` // cumulative session output, when available
+	CacheReadTokens   int    `json:"cache_read_tokens,omitempty"`   // cumulative cache-read tokens, when available
+	CacheWriteTokens  int    `json:"cache_write_tokens,omitempty"`  // cumulative cache-write tokens, when available
+	ContextTokens     int    `json:"context_tokens,omitempty"`      // latest main-call context size, when available
+	ContextWindow     int    `json:"context_window,omitempty"`      // serving context window, when available
+	Model             string `json:"model,omitempty"`               // display model, when available
+	ReasoningEffort   string `json:"reasoning_effort,omitempty"`    // honest serving-model reasoning tier, when available
+	ServedBy          string `json:"served_by,omitempty"`           // compact actual serving lane/model label, when available
+	ServedByok        bool   `json:"served_byok,omitempty"`         // last main call used user's provider key
+	RunningShells     int    `json:"running_shells,omitempty"`      // live background shell count
 }
 
 // SessionStateData reports busy/idle + light room telemetry (CLI → client).

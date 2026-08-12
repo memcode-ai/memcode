@@ -14,7 +14,10 @@ type diffEmitter interface {
 	EmitDiff(path, language, unified string, added, removed int, newFile bool)
 }
 type toolEmitter interface {
-	EmitTool(name, target string, failed bool)
+	EmitTool(name, target, detail string, failed bool)
+}
+type toolOutputEmitter interface {
+	EmitToolOutput(name, output string)
 }
 
 // emitDiff forwards a structured file change to a diffEmitter observer, if any.
@@ -35,9 +38,15 @@ func (s *Session) emitDiff(path, body string, newFile bool) {
 }
 
 // emitTool forwards tool activity to a toolEmitter observer, if any.
-func (s *Session) emitTool(name, target string, failed bool) {
+func (s *Session) emitTool(name, target, detail string, failed bool) {
 	if te, ok := s.observer.(toolEmitter); ok {
-		te.EmitTool(name, target, failed)
+		te.EmitTool(name, target, detail, failed)
+	}
+}
+
+func (s *Session) emitToolOutput(name, output string) {
+	if te, ok := s.observer.(toolOutputEmitter); ok {
+		te.EmitToolOutput(name, output)
 	}
 }
 

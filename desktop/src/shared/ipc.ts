@@ -14,6 +14,8 @@ export const IPC = {
   // repo / files
   pickRepo: 'repo:pick',
   recentRepos: 'repo:recent',
+  repoInfo: 'repo:info',
+  saveAttachment: 'attachment:save',
   // CLI config surface (renderer -> main, invoke)
   status: 'cli:status',
   models: 'cli:models',
@@ -42,4 +44,20 @@ export interface AppInfo {
   appVersion: string
   electron: string
   platform: string
+}
+
+export interface RepoInfo {
+  branch: string
+  files: number
+  added: number
+  removed: number
+  stagedFiles: number
+  stagedAdded: number
+  stagedRemoved: number
+}
+
+export interface SaveAttachmentArgs {
+  name: string
+  mime?: string
+  bytes: ArrayBuffer
 }

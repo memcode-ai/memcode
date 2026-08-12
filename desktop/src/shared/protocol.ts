@@ -68,6 +68,8 @@ export interface ToolCallData {
 export interface ToolResultData {
   name: string
   status?: string
+  detail?: string
+  output?: string
 }
 export interface DiffData {
   path: string
@@ -109,7 +111,18 @@ export interface AskResponseData {
   answer: string
 }
 export interface UsageData {
+  input_tokens?: number
   output_tokens: number
+  total_output_tokens?: number
+  cache_read_tokens?: number
+  cache_write_tokens?: number
+  context_tokens?: number
+  context_window?: number
+  model?: string
+  reasoning_effort?: string
+  served_by?: string
+  served_byok?: boolean
+  running_shells?: number
 }
 export interface SessionStateData {
   busy: boolean

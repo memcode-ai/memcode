@@ -418,7 +418,11 @@ func (s *Session) exploreTool(ctx context.Context, input json.RawMessage) toolRe
 		status += " · " + res.ServedBy // who ran this scout — cheap lane (minimax) or an Anthropic fallback
 	}
 	s.toolLine(true, "Explore", scope, status, false)
-	s.printf("%s\n", metaStyle.Render("   "+strings.TrimSpace(q)))
+	if s.structured {
+		s.emitToolOutput("Explore", strings.TrimSpace(q))
+	} else {
+		s.printf("%s\n", metaStyle.Render("   "+strings.TrimSpace(q)))
+	}
 	return textResult(s.spillReport("explore-"+scope, s.redactor.Redact(res.Text)))
 }
 

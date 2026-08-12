@@ -55,7 +55,7 @@ func (s *Session) toolLine(shown bool, verb, arg, status string, failed bool) {
 func (s *Session) toolLineStat(shown bool, verb, arg, status string, stat toolStat) {
 	// Structured tool event for a protocol client (the TUI reads the printed marker
 	// below; a stream-json client gets this instead). No-op for a plain observer.
-	s.emitTool(verb, arg, stat == statFail)
+	s.emitTool(verb, arg, status, stat == statFail)
 	// A structured client renders the emitted event; don't also leak the terminal marker.
 	if s.structured {
 		return

@@ -182,9 +182,10 @@ func TestObserverEmitsStructuredEvents(t *testing.T) {
 
 	d.Todos(todos.List{{Title: "build the thing", Status: todos.StatusActive}})
 	d.EmitDiff("main.go", "go", "@@ -1 +1 @@\n-old\n+new", 1, 1, false)
-	d.EmitTool("Write", "main.go", false)
+	d.EmitTool("Write", "main.go", "done", false)
+	d.EmitToolOutput("Write", "updated main.go")
 
-	var sawTodos, sawDiff, sawToolCall, sawToolResult bool
+	var sawTodos, sawDiff, sawToolCall, sawToolResult, sawToolOutput bool
 	sc := bufio.NewScanner(&buf)
 	for sc.Scan() {
 		var env wire.Envelope
@@ -216,13 +217,23 @@ func TestObserverEmitsStructuredEvents(t *testing.T) {
 		case wire.MsgToolResult:
 			var tr wire.ToolResultData
 			_ = json.Unmarshal(env.Data, &tr)
+			if tr.Output != "" {
+				if tr.Output != "updated main.go" {
+					t.Errorf("tool_result output = %q, want preview text", tr.Output)
+				}
+				sawToolOutput = true
+				break
+			}
 			if tr.Status != "ok" {
 				t.Errorf("tool_result status = %q, want ok", tr.Status)
+			}
+			if tr.Detail != "done" {
+				t.Errorf("tool_result detail = %q, want done", tr.Detail)
 			}
 			sawToolResult = true
 		}
 	}
-	if !sawTodos || !sawDiff || !sawToolCall || !sawToolResult {
-		t.Errorf("missing events: todos=%v diff=%v tool_call=%v tool_result=%v", sawTodos, sawDiff, sawToolCall, sawToolResult)
+	if !sawTodos || !sawDiff || !sawToolCall || !sawToolResult || !sawToolOutput {
+		t.Errorf("missing events: todos=%v diff=%v tool_call=%v tool_result=%v tool_output=%v", sawTodos, sawDiff, sawToolCall, sawToolResult, sawToolOutput)
 	}
 }

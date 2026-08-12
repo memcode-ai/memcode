@@ -12,7 +12,7 @@ import type {
 export type Block =
   | { kind: 'user'; text: string; attachments: string[] }
   | { kind: 'assistant'; text: string; done: boolean }
-  | { kind: 'tool'; name: string; target?: string; status: 'running' | 'ok' | 'failed' }
+  | { kind: 'tool'; name: string; target?: string; detail?: string; output?: string; status: 'running' | 'ok' | 'failed' }
   | { kind: 'diff'; data: DiffData }
   | { kind: 'error'; message: string }
 
@@ -22,7 +22,18 @@ export interface SessionState {
   todos: TodoItem[]
   busy: boolean
   mode: string
+  inputTokens: number
   tokens: number
+  totalOutputTokens: number
+  cacheReadTokens: number
+  cacheWriteTokens: number
+  contextTokens: number
+  contextWindow: number
+  model: string
+  reasoningEffort: string
+  servedBy: string
+  servedByok: boolean
+  runningShells: number
   pendingPermission: (PermissionRequestData & { id: string }) | null
   pendingAsk: (AskRequestData & { id: string }) | null
   exited: boolean
@@ -34,7 +45,18 @@ const initial: SessionState = {
   todos: [],
   busy: false,
   mode: 'ask',
+  inputTokens: 0,
   tokens: 0,
+  totalOutputTokens: 0,
+  cacheReadTokens: 0,
+  cacheWriteTokens: 0,
+  contextTokens: 0,
+  contextWindow: 0,
+  model: '',
+  reasoningEffort: '',
+  servedBy: '',
+  servedByok: false,
+  runningShells: 0,
   pendingPermission: null,
   pendingAsk: null,
   exited: false,
@@ -73,12 +95,17 @@ function reduce(state: SessionState, action: Action): SessionState {
         blocks: [...state.blocks, { kind: 'tool', name: ev.data.name, target: ev.data.target, status: 'running' }],
       }
     case 'tool_result': {
-      // Resolve the most recent running tool block with a matching name.
+      // Resolve/update the most recent tool block with a matching name.
       const blocks = state.blocks.slice()
       for (let i = blocks.length - 1; i >= 0; i--) {
         const b = blocks[i]
-        if (b.kind === 'tool' && b.status === 'running' && b.name === ev.data.name) {
-          blocks[i] = { ...b, status: ev.data.status === 'failed' ? 'failed' : 'ok' }
+        if (b.kind === 'tool' && b.name === ev.data.name) {
+          blocks[i] = {
+            ...b,
+            status: ev.data.status ? (ev.data.status === 'failed' ? 'failed' : 'ok') : b.status,
+            detail: ev.data.detail ?? b.detail,
+            output: ev.data.output ?? b.output,
+          }
           break
         }
       }
@@ -91,7 +118,21 @@ function reduce(state: SessionState, action: Action): SessionState {
     case 'session_state':
       return { ...state, busy: ev.data.busy, mode: ev.data.mode ?? state.mode }
     case 'usage':
-      return { ...state, tokens: ev.data.output_tokens }
+      return {
+        ...state,
+        inputTokens: ev.data.input_tokens ?? state.inputTokens,
+        tokens: ev.data.output_tokens,
+        totalOutputTokens: ev.data.total_output_tokens ?? state.totalOutputTokens,
+        cacheReadTokens: ev.data.cache_read_tokens ?? state.cacheReadTokens,
+        cacheWriteTokens: ev.data.cache_write_tokens ?? state.cacheWriteTokens,
+        contextTokens: ev.data.context_tokens ?? state.contextTokens,
+        contextWindow: ev.data.context_window ?? state.contextWindow,
+        model: ev.data.model ?? state.model,
+        reasoningEffort: ev.data.reasoning_effort ?? state.reasoningEffort,
+        servedBy: ev.data.served_by ?? state.servedBy,
+        servedByok: ev.data.served_byok ?? state.servedByok,
+        runningShells: ev.data.running_shells ?? state.runningShells,
+      }
     case 'permission_request':
       return { ...state, pendingPermission: { ...ev.data, id: ev.id } }
     case 'ask_request':

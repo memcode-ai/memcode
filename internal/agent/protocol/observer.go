@@ -21,7 +21,23 @@ func (d *driver) Room(s room.State) {
 }
 
 func (d *driver) Tokens(output int) {
-	d.emit(d.currentTurn(), wire.MsgUsage, wire.UsageData{OutputTokens: output})
+	data := wire.UsageData{OutputTokens: output}
+	if d.sess != nil {
+		in, out := d.sess.Tokens()
+		cacheRead, cacheWrite := d.sess.CacheStats()
+		data.InputTokens = in
+		data.TotalOutputTokens = out
+		data.CacheReadTokens = cacheRead
+		data.CacheWriteTokens = cacheWrite
+		data.ContextTokens = d.sess.ContextTokens()
+		data.ContextWindow = d.sess.ContextWindow()
+		data.Model = d.sess.DisplayModel()
+		data.ReasoningEffort = d.sess.ReasoningDisplay()
+		data.ServedBy = d.sess.ServedBy()
+		data.ServedByok = d.sess.ServedByok()
+		data.RunningShells = len(d.sess.RunningShells())
+	}
+	d.emit(d.currentTurn(), wire.MsgUsage, data)
 }
 
 // Raw output (the `$` direct-shell lane) rides as a verbatim assistant delta.
@@ -67,11 +83,15 @@ func (d *driver) EmitDiff(path, language, unified string, added, removed int, ne
 	})
 }
 
-func (d *driver) EmitTool(name, target string, failed bool) {
+func (d *driver) EmitTool(name, target, detail string, failed bool) {
 	d.emit(d.currentTurn(), wire.MsgToolCall, wire.ToolCallData{Name: name, Target: target})
 	status := "ok"
 	if failed {
 		status = "failed"
 	}
-	d.emit(d.currentTurn(), wire.MsgToolResult, wire.ToolResultData{Name: name, Status: status})
+	d.emit(d.currentTurn(), wire.MsgToolResult, wire.ToolResultData{Name: name, Status: status, Detail: detail})
+}
+
+func (d *driver) EmitToolOutput(name, output string) {
+	d.emit(d.currentTurn(), wire.MsgToolResult, wire.ToolResultData{Name: name, Output: output})
 }
