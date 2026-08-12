@@ -51,6 +51,18 @@ var ownKeyVendors = []struct {
 	{"OPENAI_API_KEY", "https://api.openai.com/v1", "openai", catalog.ModelTerra},
 }
 
+// OwnKeyEnvs returns the ecosystem-standard key env var names memcode dials
+// directly, in priority order (e.g. ANTHROPIC_API_KEY, OPENAI_API_KEY), so a
+// diagnostics/config surface can report BYOK presence without hardcoding the
+// list — it derives from ownKeyVendors, the single source.
+func OwnKeyEnvs() []string {
+	envs := make([]string, len(ownKeyVendors))
+	for i, v := range ownKeyVendors {
+		envs[i] = v.env
+	}
+	return envs
+}
+
 // OwnKeyVendor reports the vendor name when a base URL is a direct-provider
 // host memcode dials with an exported key ("anthropic", "openai"), ok=false for
 // a generic/local endpoint. Lets diagnostics name an own-key backend for what

@@ -67,10 +67,57 @@ var guiStatusCmd = &cobra.Command{
 	},
 }
 
+type configJSON struct {
+	Endpoint      string            `json:"endpoint"`
+	TokenSource   string            `json:"token_source"`
+	LoggedIn      bool              `json:"logged_in"`
+	DefaultModels map[string]string `json:"default_models"` // tier -> model id
+	BYOK          map[string]bool   `json:"byok"`           // own-key env -> present
+}
+
+var guiConfigCmd = &cobra.Command{
+	Use:   "config",
+	Short: "Read effective configuration as JSON",
+	Long:  "Print the effective configuration a GUI Settings page reads — endpoint, login state, per-tier default models, and which direct-provider BYOK keys are present. Secret values are never emitted, only presence.",
+}
+
+var guiConfigGetCmd = &cobra.Command{
+	Use:   "get",
+	Short: "Print effective configuration as JSON",
+	RunE: func(_ *cobra.Command, _ []string) error {
+		provider.LoadDotEnv()
+		src := provider.APITokenSource()
+		endpoint := os.Getenv(provider.EnvAPIURL)
+		if endpoint == "" {
+			endpoint = provider.DefaultAPIURL
+		}
+		byok := map[string]bool{}
+		for _, env := range provider.OwnKeyEnvs() {
+			byok[env] = os.Getenv(env) != ""
+		}
+		return json.NewEncoder(os.Stdout).Encode(configJSON{
+			Endpoint:    endpoint,
+			TokenSource: src,
+			LoggedIn:    src != "" && src != "none",
+			DefaultModels: map[string]string{
+				string(provider.TierPlanner):     provider.DefaultModel(provider.TierPlanner),
+				string(provider.TierCoder):       provider.DefaultModel(provider.TierCoder),
+				string(provider.TierReviewer):    provider.DefaultModel(provider.TierReviewer),
+				string(provider.TierSynthesizer): provider.DefaultModel(provider.TierSynthesizer),
+				string(provider.TierClassifier):  provider.DefaultModel(provider.TierClassifier),
+			},
+			BYOK: byok,
+		})
+	},
+}
+
 func init() {
 	guiModelsCmd.Flags().Bool("json", true, "output JSON (default; only format)")
 	guiModelsCmd.Flags().Bool("pinnable", false, "only models offered in the picker")
 	guiStatusCmd.Flags().Bool("json", true, "output JSON (default; only format)")
+	guiConfigGetCmd.Flags().Bool("json", true, "output JSON (default; only format)")
+	guiConfigCmd.AddCommand(guiConfigGetCmd)
 	rootCmd.AddCommand(guiModelsCmd)
 	rootCmd.AddCommand(guiStatusCmd)
+	rootCmd.AddCommand(guiConfigCmd)
 }
