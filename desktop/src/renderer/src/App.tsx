@@ -16,6 +16,8 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false)
   const [showWizard, setShowWizard] = useState(false)
   const [sidebarKey, setSidebarKey] = useState(0)
+  const [recents, setRecents] = useState<string[]>([])
+  const bootedRef = useRef(false)
 
   const refreshStatus = useCallback(() => window.memcode.status().then(setStatus).catch(() => {}), [])
 
@@ -60,6 +62,21 @@ export default function App() {
     const dir = await window.memcode.pickRepo()
     if (!dir) return
     await startIn(dir)
+  }, [startIn])
+
+  // Reopen the last repo on launch (and populate the welcome recents list), so
+  // the app doesn't start cold at the picker every time.
+  useEffect(() => {
+    window.memcode
+      .recentRepos()
+      .then((r) => {
+        setRecents(r)
+        if (!bootedRef.current && r.length > 0) {
+          bootedRef.current = true
+          startIn(r[0])
+        }
+      })
+      .catch(() => {})
   }, [startIn])
 
   // Native menu actions.
@@ -123,7 +140,7 @@ export default function App() {
         )}
         <main className="main">
           {!repo ? (
-            <Welcome onOpen={openRepo} loggedIn={status?.logged_in ?? false} />
+            <Welcome onOpen={openRepo} recents={recents} onOpenRecent={startIn} loggedIn={status?.logged_in ?? false} />
           ) : (
             <Transcript blocks={state.blocks} />
           )}
@@ -214,7 +231,12 @@ function Header(props: {
   )
 }
 
-function Welcome(props: { onOpen: () => void; loggedIn: boolean }) {
+function Welcome(props: {
+  onOpen: () => void
+  recents: string[]
+  onOpenRecent: (dir: string) => void
+  loggedIn: boolean
+}) {
   return (
     <div className="welcome">
       <h1>Memcode Desktop</h1>
@@ -222,6 +244,17 @@ function Welcome(props: { onOpen: () => void; loggedIn: boolean }) {
       <button className="primary" onClick={props.onOpen}>
         Open a repository…
       </button>
+      {props.recents.length > 0 && (
+        <div className="recents">
+          <div className="recents-title">Recent</div>
+          {props.recents.map((r) => (
+            <button key={r} className="recent-item" title={r} onClick={() => props.onOpenRecent(r)}>
+              <span className="recent-name">{r.split('/').pop()}</span>
+              <span className="recent-path">{r}</span>
+            </button>
+          ))}
+        </div>
+      )}
       {!props.loggedIn && <p className="hint">You are not signed in. Open Settings to log in or set a BYOK key.</p>}
     </div>
   )

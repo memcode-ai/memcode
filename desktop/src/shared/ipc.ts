@@ -12,6 +12,7 @@ export const IPC = {
   sessionStop: 'session:stop',
   // repo / files
   pickRepo: 'repo:pick',
+  recentRepos: 'repo:recent',
   // CLI config surface (renderer -> main, invoke)
   status: 'cli:status',
   models: 'cli:models',

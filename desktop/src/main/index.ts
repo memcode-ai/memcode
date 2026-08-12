@@ -5,6 +5,7 @@ import * as cli from './config'
 import { resolveCliBin } from './resolve-bin'
 import { initAutoUpdate } from './updater'
 import { buildAppMenu } from './menu'
+import { recentRepos, recordRepo } from './store'
 import { IPC, type AppInfo, type StartSessionArgs } from '../shared/ipc'
 import type { Attachment, PermissionResponseData } from '../shared/protocol'
 
@@ -56,6 +57,7 @@ async function startSession(args: StartSessionArgs): Promise<void> {
   bridge = new CliBridge({ binPath: binPath(), cwd: args.cwd, mode: args.mode ?? 'ask', pin: args.pin, resume: args.resume })
   forwardBridgeEvents(bridge)
   bridge.start()
+  recordRepo(args.cwd)
 }
 
 function registerIpc(): void {
@@ -70,6 +72,7 @@ function registerIpc(): void {
     const res = await dialog.showOpenDialog(mainWindow!, { properties: ['openDirectory'] })
     return res.canceled ? null : res.filePaths[0]
   })
+  ipcMain.handle(IPC.recentRepos, () => recentRepos())
 
   ipcMain.handle(IPC.status, () => cli.status(binPath()))
   ipcMain.handle(IPC.models, (_e, pinnableOnly?: boolean) => cli.models(binPath(), pinnableOnly))

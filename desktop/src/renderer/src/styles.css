@@ -119,6 +119,47 @@ body {
   color: var(--muted);
   font-size: 12.5px;
 }
+.recents {
+  margin: 22px auto 0;
+  max-width: 380px;
+  text-align: left;
+}
+.recents-title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+.recent-item {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  width: 100%;
+  text-align: left;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin-bottom: 6px;
+  cursor: pointer;
+  color: var(--text);
+}
+.recent-item:hover {
+  border-color: var(--accent);
+}
+.recent-name {
+  font-weight: 600;
+  font-size: 13px;
+}
+.recent-path {
+  font-size: 11.5px;
+  color: var(--muted);
+  font-family: var(--mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 /* Transcript */
 .transcript {

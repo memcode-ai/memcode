@@ -16,6 +16,7 @@ const api = {
   stop: (): Promise<void> => ipcRenderer.invoke(IPC.sessionStop),
 
   pickRepo: (): Promise<string | null> => ipcRenderer.invoke(IPC.pickRepo),
+  recentRepos: (): Promise<string[]> => ipcRenderer.invoke(IPC.recentRepos),
 
   status: (): Promise<StatusJSON> => ipcRenderer.invoke(IPC.status),
   models: (pinnableOnly?: boolean): Promise<CatalogModel[]> => ipcRenderer.invoke(IPC.models, pinnableOnly),
