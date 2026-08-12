@@ -1327,8 +1327,10 @@ func (s *Session) editFile(ctx context.Context, input json.RawMessage) toolResul
 	s.toolLine(true, verb, res.Path, "", false)
 	if res.Created {
 		renderNewFile(s.out, newContent, res.Path, s.diffWidth())
+		s.emitDiff(res.Path, newContent, true)
 	} else if safeDiff != "" {
 		renderDiff(s.out, safeDiff, res.Path, s.diffWidth())
+		s.emitDiff(res.Path, safeDiff, false)
 	}
 	if safeDiff == "" {
 		safeDiff = "(applied; no git diff available)"
@@ -1477,6 +1479,7 @@ func (s *Session) applyPatch(ctx context.Context, input json.RawMessage) toolRes
 		s.toolLine(true, verb, res.Path, "", false)
 		if d := s.redactor.Redact(res.Diff); d != "" {
 			renderDiff(s.out, d, res.Path, s.diffWidth())
+			s.emitDiff(res.Path, d, res.Created)
 		}
 		fmt.Fprintf(&b, "  %s %s\n", verb, res.Path)
 	}

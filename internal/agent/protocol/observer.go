@@ -33,4 +33,45 @@ func (d *driver) Raw(text string) {
 func (d *driver) Routed(input.Route, string) {}
 func (d *driver) QueueChanged([]string)      {}
 func (d *driver) Mood(mood.Reading)          {}
-func (d *driver) Todos(todos.List)           {}
+
+// Todos forwards the plan/checklist as a `todos` event (a GUI plan panel).
+func (d *driver) Todos(list todos.List) {
+	items := make([]wire.TodoItem, 0, len(list))
+	for _, it := range list {
+		items = append(items, wire.TodoItem{Text: it.Title, Status: mapTodoStatus(it.Status)})
+	}
+	d.emit(d.currentTurn(), wire.MsgTodos, wire.TodosData{Items: items})
+}
+
+func mapTodoStatus(s string) string {
+	switch s {
+	case todos.StatusActive:
+		return "in_progress"
+	case todos.StatusDone:
+		return "done"
+	case todos.StatusBlocked:
+		return "blocked"
+	case todos.StatusSkipped:
+		return "skipped"
+	default:
+		return "pending"
+	}
+}
+
+// EmitDiff / EmitTool satisfy the runtime's optional diffEmitter / toolEmitter
+// interfaces (internal/agent/runtime/emit.go), turning structured file changes and
+// tool activity into protocol events a GUI client renders natively.
+func (d *driver) EmitDiff(path, language, unified string, added, removed int, newFile bool) {
+	d.emit(d.currentTurn(), wire.MsgDiff, wire.DiffData{
+		Path: path, Language: language, Unified: unified, Added: added, Removed: removed, NewFile: newFile,
+	})
+}
+
+func (d *driver) EmitTool(name, target string, failed bool) {
+	d.emit(d.currentTurn(), wire.MsgToolCall, wire.ToolCallData{Name: name, Target: target})
+	status := "ok"
+	if failed {
+		status = "failed"
+	}
+	d.emit(d.currentTurn(), wire.MsgToolResult, wire.ToolResultData{Name: name, Status: status})
+}

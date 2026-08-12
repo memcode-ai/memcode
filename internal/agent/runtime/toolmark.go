@@ -53,6 +53,9 @@ func (s *Session) toolLine(shown bool, verb, arg, status string, failed bool) {
 //	hidden   — truly internal machinery (CodeQuery/RepoMap/Memcode): don't call toolLine
 //	         at all. Hiding is the absence of a marker call, never a dropped line here.
 func (s *Session) toolLineStat(shown bool, verb, arg, status string, stat toolStat) {
+	// Structured tool event for a protocol client (the TUI reads the printed marker
+	// below; a stream-json client gets this instead). No-op for a plain observer.
+	s.emitTool(verb, arg, stat == statFail)
 	mark := "⏺"
 	// Color the bullet on-theme: tool-glyph color for success (Faint for the quiet tier,
 	// so research stays visually subordinate), Warning for a partial, Danger for a
