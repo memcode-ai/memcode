@@ -75,15 +75,16 @@ export default function App() {
     reset()
   }, [reset])
 
-  const resumeSession = useCallback(
-    async (id: string) => {
-      if (!repo) return
+  // Resume a conversation, switching to its project first if needed.
+  const resumeIn = useCallback(
+    async (dir: string, id: string) => {
+      setRepo(dir)
       reset()
-      await window.memcode.startSession({ cwd: repo, mode: 'ask', pin: pin || undefined, resume: id })
+      await window.memcode.startSession({ cwd: dir, mode: 'ask', pin: pin || undefined, resume: id })
       setSessionLive(true)
       setSidebarKey((k) => k + 1)
     },
-    [repo, pin, reset],
+    [pin, reset],
   )
 
   // Spawn the CLI session on demand (first message of a fresh project).
@@ -154,26 +155,18 @@ export default function App() {
 
   return (
     <div className="app">
-      <Header
-        repo={repo}
-        onOpen={openRepo}
-        models={models}
-        pin={pin}
-        onPin={setPin}
-        busy={state.busy}
-        onSettings={() => setShowSettings(true)}
-        onToggleTheme={toggleTheme}
-      />
-
       <div className="body">
         <SessionSidebar
-          cwd={repo}
-          reloadKey={sidebarKey}
+          projects={repo ? [repo, ...recents.filter((r) => r !== repo)] : recents}
+          activeRepo={repo}
           activeId={state.sessionId}
-          onResume={resumeSession}
+          reloadKey={sidebarKey}
           onNew={newSession}
+          onResume={resumeIn}
+          onSelectProject={selectRepo}
         />
         <div className="content">
+          <div className="drag-strip" />
           <main className="main">
             {state.blocks.length === 0 ? (
               <EmptyState repo={repo} recents={recents} onOpenRecent={selectRepo} loggedIn={status?.logged_in ?? false} />
@@ -183,6 +176,9 @@ export default function App() {
           </main>
           <Composer
             noRepo={!repo}
+            models={models}
+            pin={pin}
+            onPin={setPin}
             disabled={state.exited}
             busy={state.busy}
             onSend={send}
@@ -231,46 +227,6 @@ export default function App() {
         />
       )}
     </div>
-  )
-}
-
-function Wordmark() {
-  return <span className="wordmark">MEMCODE</span>
-}
-
-function Header(props: {
-  repo: string | null
-  onOpen: () => void
-  models: CatalogModel[]
-  pin: string
-  onPin: (v: string) => void
-  busy: boolean
-  onSettings: () => void
-  onToggleTheme: () => void
-}) {
-  const repoName = props.repo ? props.repo.split('/').pop() : null
-  return (
-    <header className="header">
-      <Wordmark />
-      <button className="repo-btn" onClick={props.onOpen} title={props.repo ?? 'Open a folder'}>
-        {repoName ? `▸ ${repoName}` : 'Open folder…'}
-      </button>
-      <div className="spacer" />
-      <select className="model" value={props.pin} onChange={(e) => props.onPin(e.target.value)} disabled={props.busy}>
-        <option value="">Automatic</option>
-        {props.models.map((m) => (
-          <option key={m.id} value={m.id}>
-            {m.label}
-          </option>
-        ))}
-      </select>
-      <button className="icon-btn" onClick={props.onToggleTheme} title="Toggle light / dark (⌘⇧L)">
-        ◐
-      </button>
-      <button className="icon-btn" onClick={props.onSettings} title="Settings">
-        ⚙
-      </button>
-    </header>
   )
 }
 
@@ -414,6 +370,9 @@ function PlanPanel({ todos }: { todos: { text: string; status: string }[] }) {
 
 function Composer(props: {
   noRepo: boolean
+  models: CatalogModel[]
+  pin: string
+  onPin: (v: string) => void
   disabled: boolean
   busy: boolean
   onSend: (text: string, attachments: Attachment[]) => void
@@ -500,6 +459,19 @@ function Composer(props: {
           <span className="attach-btn" title="Drag files onto the composer to attach">
             +
           </span>
+          <select
+            className="model model-mini"
+            value={props.pin}
+            onChange={(e) => props.onPin(e.target.value)}
+            title="Model"
+          >
+            <option value="">Automatic</option>
+            {props.models.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.label}
+              </option>
+            ))}
+          </select>
           <span className="composer-hint">{props.noRepo ? 'No folder open' : '⌘↵ to send'}</span>
           {props.busy ? (
             <button className="stop-btn" onClick={props.onCancel} title="Stop">

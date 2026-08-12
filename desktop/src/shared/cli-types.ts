@@ -25,6 +25,7 @@ export interface SourcesJSON {
 
 export interface SessionRecent {
   id: string
+  title: string // generated chat title (falls back to task server-side)
   task: string
   mode: string
   model: string

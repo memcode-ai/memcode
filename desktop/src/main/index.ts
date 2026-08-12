@@ -13,6 +13,9 @@ let mainWindow: BrowserWindow | null = null
 let bridge: CliBridge | null = null
 
 const binPath = () => resolveCliBin()
+// The square matrix MEMCODE mark (build/icon.png). Packaged builds get it via
+// electron-builder; in dev we set it on the window/dock explicitly.
+const iconPath = () => join(app.getAppPath(), 'build', 'icon.png')
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -21,7 +24,8 @@ function createWindow(): void {
     minWidth: 720,
     minHeight: 480,
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
-    backgroundColor: '#0e0f11',
+    backgroundColor: '#0c0d0f',
+    icon: iconPath(),
     show: false,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -89,6 +93,14 @@ function registerIpc(): void {
 }
 
 app.whenReady().then(() => {
+  // Dev dock icon on macOS (packaged builds carry the bundle icon already).
+  if (process.platform === 'darwin' && !app.isPackaged) {
+    try {
+      app.dock?.setIcon(iconPath())
+    } catch {
+      // non-fatal
+    }
+  }
   registerIpc()
   createWindow()
   initAutoUpdate()
