@@ -108,6 +108,11 @@ export class CliBridge extends EventEmitter {
     this.send('ask_response', { answer }, id)
   }
 
+  /** Change the pinned model on the live session (the GUI model picker). */
+  setModel(pin: string): void {
+    this.send('set_model', { pin })
+  }
+
   /** Interrupt the in-flight turn. */
   cancel(): void {
     this.send('cancel', {})

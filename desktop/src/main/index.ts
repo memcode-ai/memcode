@@ -69,6 +69,7 @@ function registerIpc(): void {
   ipcMain.handle(IPC.sessionUserTurn, (_e, text: string, attachments?: Attachment[]) => bridge?.userTurn(text, attachments) ?? null)
   ipcMain.handle(IPC.sessionPermission, (_e, id: string, data: PermissionResponseData) => bridge?.permissionResponse(id, data))
   ipcMain.handle(IPC.sessionAsk, (_e, id: string, answer: string) => bridge?.askResponse(id, answer))
+  ipcMain.handle(IPC.sessionSetModel, (_e, pin: string) => bridge?.setModel(pin))
   ipcMain.handle(IPC.sessionCancel, () => bridge?.cancel())
   ipcMain.handle(IPC.sessionStop, () => bridge?.stop())
 

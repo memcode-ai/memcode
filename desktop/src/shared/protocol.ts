@@ -18,6 +18,7 @@ export type ClientMsg =
   | 'user_turn'
   | 'permission_response'
   | 'ask_response'
+  | 'set_model'
   | 'cancel'
 
 // CLI -> client

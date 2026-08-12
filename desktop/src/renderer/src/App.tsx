@@ -87,6 +87,16 @@ export default function App() {
     [pin, reset],
   )
 
+  // Changing the model picker applies immediately to a live session (and is used
+  // for the next session otherwise).
+  const changePin = useCallback(
+    (v: string) => {
+      setPin(v)
+      if (sessionLive) window.memcode.setModel(v)
+    },
+    [sessionLive],
+  )
+
   // Spawn the CLI session on demand (first message of a fresh project).
   const ensureSession = useCallback(async () => {
     if (!repo || sessionLive) return
@@ -178,7 +188,7 @@ export default function App() {
             noRepo={!repo}
             models={models}
             pin={pin}
-            onPin={setPin}
+            onPin={changePin}
             disabled={state.exited}
             busy={state.busy}
             onSend={send}
@@ -468,7 +478,7 @@ function Composer(props: {
             <option value="">Automatic</option>
             {props.models.map((m) => (
               <option key={m.id} value={m.id}>
-                {m.label}
+                {m.name || m.label}
               </option>
             ))}
           </select>

@@ -12,6 +12,7 @@ const api = {
   permission: (id: string, data: PermissionResponseData): Promise<void> =>
     ipcRenderer.invoke(IPC.sessionPermission, id, data),
   ask: (id: string, answer: string): Promise<void> => ipcRenderer.invoke(IPC.sessionAsk, id, answer),
+  setModel: (pin: string): Promise<void> => ipcRenderer.invoke(IPC.sessionSetModel, pin),
   cancel: (): Promise<void> => ipcRenderer.invoke(IPC.sessionCancel),
   stop: (): Promise<void> => ipcRenderer.invoke(IPC.sessionStop),
 

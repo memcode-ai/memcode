@@ -8,6 +8,7 @@ export const IPC = {
   sessionUserTurn: 'session:userTurn',
   sessionPermission: 'session:permission',
   sessionAsk: 'session:ask',
+  sessionSetModel: 'session:setModel',
   sessionCancel: 'session:cancel',
   sessionStop: 'session:stop',
   // repo / files
