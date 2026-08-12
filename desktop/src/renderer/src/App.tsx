@@ -138,24 +138,25 @@ export default function App() {
             onNew={() => startIn(repo)}
           />
         )}
-        <main className="main">
-          {!repo ? (
-            <Welcome onOpen={openRepo} recents={recents} onOpenRecent={startIn} loggedIn={status?.logged_in ?? false} />
-          ) : (
-            <Transcript blocks={state.blocks} />
+        <div className="content">
+          <main className="main">
+            {!repo ? (
+              <Welcome onOpen={openRepo} recents={recents} onOpenRecent={startIn} loggedIn={status?.logged_in ?? false} />
+            ) : (
+              <Transcript blocks={state.blocks} />
+            )}
+          </main>
+          {repo && (
+            <Composer
+              disabled={state.exited}
+              busy={state.busy}
+              onSend={send}
+              onCancel={() => window.memcode.cancel()}
+            />
           )}
-        </main>
+        </div>
         {state.todos.length > 0 && <PlanPanel todos={state.todos} />}
       </div>
-
-      {repo && (
-        <Composer
-          disabled={state.exited}
-          busy={state.busy}
-          onSend={send}
-          onCancel={() => window.memcode.cancel()}
-        />
-      )}
 
       <StatusBar status={status} tokens={state.tokens} mode={state.mode} busy={state.busy} sessionId={state.sessionId} />
 
@@ -231,6 +232,16 @@ function Header(props: {
   )
 }
 
+function MemcodeMark() {
+  return (
+    <svg className="mark" width="60" height="60" viewBox="0 0 60 60" fill="none" aria-hidden="true">
+      <rect x="3" y="3" width="54" height="54" rx="16" fill="#16171b" stroke="#2a2d34" strokeWidth="1.5" />
+      <path d="M20 24l7 6-7 6" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M32 38h9" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+    </svg>
+  )
+}
+
 function Welcome(props: {
   onOpen: () => void
   recents: string[]
@@ -239,8 +250,9 @@ function Welcome(props: {
 }) {
   return (
     <div className="welcome">
-      <h1>Memcode Desktop</h1>
-      <p>Open a repository to start a session. The agent runs locally against the code you point it at.</p>
+      <MemcodeMark />
+      <h1>Let&apos;s build</h1>
+      <p className="welcome-sub">Open a repository to start a session. The agent runs locally against the code you point it at.</p>
       <button className="primary" onClick={props.onOpen}>
         Open a repository…
       </button>
@@ -249,13 +261,15 @@ function Welcome(props: {
           <div className="recents-title">Recent</div>
           {props.recents.map((r) => (
             <button key={r} className="recent-item" title={r} onClick={() => props.onOpenRecent(r)}>
-              <span className="recent-name">{r.split('/').pop()}</span>
-              <span className="recent-path">{r}</span>
+              <span className="recent-text">
+                <span className="recent-name">{r.split('/').pop()}</span>
+                <span className="recent-path">{r}</span>
+              </span>
             </button>
           ))}
         </div>
       )}
-      {!props.loggedIn && <p className="hint">You are not signed in. Open Settings to log in or set a BYOK key.</p>}
+      {!props.loggedIn && <p className="hint">Not signed in — open Settings to log in or set a BYOK key.</p>}
     </div>
   )
 }
@@ -371,12 +385,21 @@ function Composer(props: {
   const [text, setText] = useState('')
   const [atts, setAtts] = useState<Attachment[]>([])
   const [dragging, setDragging] = useState(false)
+  const taRef = useRef<HTMLTextAreaElement>(null)
+
+  const grow = () => {
+    const ta = taRef.current
+    if (!ta) return
+    ta.style.height = 'auto'
+    ta.style.height = `${Math.min(ta.scrollHeight, 240)}px`
+  }
 
   const submit = () => {
     if (!text.trim()) return
     props.onSend(text, atts)
     setText('')
     setAtts([])
+    requestAnimationFrame(grow)
   }
 
   const onDrop = (e: React.DragEvent) => {
@@ -392,48 +415,58 @@ function Composer(props: {
   }
 
   return (
-    <div
-      className={`composer ${dragging ? 'dragging' : ''}`}
-      onDragOver={(e) => {
-        e.preventDefault()
-        setDragging(true)
-      }}
-      onDragLeave={() => setDragging(false)}
-      onDrop={onDrop}
-    >
-      {atts.length > 0 && (
-        <div className="chips">
-          {atts.map((a, i) => (
-            <span className="chip" key={i}>
-              📎 {a.name}
-              <button className="chip-x" onClick={() => setAtts(atts.filter((_, j) => j !== i))}>
-                ×
-              </button>
-            </span>
-          ))}
-        </div>
-      )}
-      <textarea
-        className="input"
-        placeholder={dragging ? 'Drop files to attach…' : 'Ask memcode to build, fix, or explain…'}
-        value={text}
-        disabled={props.disabled}
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) submit()
+    <div className="composer-wrap">
+      <div
+        className={`composer ${dragging ? 'dragging' : ''}`}
+        onDragOver={(e) => {
+          e.preventDefault()
+          setDragging(true)
         }}
-      />
-      <div className="composer-actions">
-        <span className="composer-hint">⌘↵ to send</span>
-        {props.busy ? (
-          <button className="cancel" onClick={props.onCancel}>
-            Stop
-          </button>
-        ) : (
-          <button className="primary" onClick={submit} disabled={props.disabled || !text.trim()}>
-            Send
-          </button>
+        onDragLeave={() => setDragging(false)}
+        onDrop={onDrop}
+      >
+        {atts.length > 0 && (
+          <div className="chips">
+            {atts.map((a, i) => (
+              <span className="chip" key={i}>
+                📎 {a.name}
+                <button className="chip-x" onClick={() => setAtts(atts.filter((_, j) => j !== i))}>
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
         )}
+        <textarea
+          ref={taRef}
+          className="input"
+          placeholder={dragging ? 'Drop files to attach…' : 'Ask memcode to build, fix, or explain…'}
+          value={text}
+          disabled={props.disabled}
+          rows={1}
+          onChange={(e) => {
+            setText(e.target.value)
+            grow()
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) submit()
+          }}
+        />
+        <div className="composer-row">
+          <span className="attach-btn" title="Drag files onto the composer to attach">
+            +
+          </span>
+          <span className="composer-hint">⌘↵ to send</span>
+          {props.busy ? (
+            <button className="stop-btn" onClick={props.onCancel} title="Stop">
+              ■
+            </button>
+          ) : (
+            <button className="send-btn" onClick={submit} disabled={props.disabled || !text.trim()} title="Send">
+              ↑
+            </button>
+          )}
+        </div>
       </div>
     </div>
   )

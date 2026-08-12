@@ -19,12 +19,10 @@ export function SessionSidebar(props: {
 
   return (
     <aside className="sidebar">
-      <div className="sidebar-head">
-        <span className="sidebar-title">Sessions</span>
-        <button className="icon-btn" title="New session" onClick={props.onNew}>
-          ＋
-        </button>
-      </div>
+      <button className="sidebar-new" onClick={props.onNew}>
+        <span className="plus">+</span> New session
+      </button>
+      <div className="sidebar-title">Sessions</div>
       <div className="sidebar-list">
         {sessions.length === 0 && <div className="sidebar-empty">No sessions yet.</div>}
         {sessions.map((s) => (
