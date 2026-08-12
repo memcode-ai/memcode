@@ -7,7 +7,6 @@ export function SessionSidebar(props: {
   cwd: string | null
   reloadKey: number // bump to refetch (e.g. after a turn completes)
   activeId: string | null
-  onOpenFolder: () => void
   onResume: (id: string) => void
   onNew: () => void
 }) {
@@ -24,9 +23,7 @@ export function SessionSidebar(props: {
   if (!props.cwd) {
     return (
       <aside className="sidebar">
-        <button className="sidebar-new" onClick={props.onOpenFolder}>
-          <span className="plus">+</span> Open folder
-        </button>
+        <div className="sidebar-title">Sessions</div>
         <div className="sidebar-empty">No folder open.</div>
       </aside>
     )

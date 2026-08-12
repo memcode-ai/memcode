@@ -12,15 +12,15 @@
   --text: #191b20;
   --muted: #5e626b;
   --faint: #9aa0aa;
-  --accent: #3f51ff;
-  --accent-hover: #3040e8;
+  --accent: #7c3aed;
+  --accent-hover: #6d28d9;
   --accent-fg: #ffffff;
-  --accent-soft: rgba(63, 81, 255, 0.12);
+  --accent-soft: rgba(124, 58, 237, 0.12);
   --add: #17924f;
   --del: #d43644;
   --warn: #b07d08;
   --code-bg: #f3f4f7;
-  --ring: rgba(63, 81, 255, 0.18);
+  --ring: rgba(124, 58, 237, 0.2);
   --shadow: 0 18px 48px rgba(20, 25, 55, 0.16);
   --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
   --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", Roboto, sans-serif;
@@ -40,15 +40,15 @@
     --text: #ededee;
     --muted: #8c8f97;
     --faint: #5c5f67;
-    --accent: #7c8cff;
-    --accent-hover: #8f9dff;
+    --accent: #a78bfa;
+    --accent-hover: #b9a4ff;
     --accent-fg: #0b0c10;
-    --accent-soft: rgba(124, 140, 255, 0.14);
+    --accent-soft: rgba(167, 139, 250, 0.16);
     --add: #56c98a;
     --del: #f0616d;
     --warn: #e0af68;
     --code-bg: #0a0b0d;
-    --ring: rgba(124, 140, 255, 0.22);
+    --ring: rgba(167, 139, 250, 0.24);
     --shadow: 0 18px 48px rgba(0, 0, 0, 0.5);
   }
 }
@@ -117,13 +117,11 @@ button {
   -webkit-app-region: no-drag;
 }
 .wordmark {
-  font-weight: 750;
-  letter-spacing: -0.035em;
-  font-size: 16px;
+  font-family: "Arial Black", "Helvetica Neue", Arial, sans-serif;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+  font-size: 15px;
   color: var(--text);
-}
-.wm-accent {
-  color: var(--accent);
 }
 .repo-btn {
   display: inline-flex;
@@ -213,17 +211,11 @@ button {
   padding: 0 24px 6vh;
   text-align: center;
 }
-.watermark {
-  font-family: var(--serif);
-  font-weight: 800;
-  font-size: clamp(46px, 7vw, 76px);
-  letter-spacing: -0.03em;
-  line-height: 1;
-  margin-bottom: 18px;
-  text-transform: uppercase;
-}
-.watermark .wm-accent {
-  color: var(--accent);
+.watermark-canvas {
+  display: block;
+  width: min(560px, 82vw);
+  height: 136px;
+  margin: 0 auto 14px;
 }
 .empty-tag {
   color: var(--muted);
@@ -231,6 +223,15 @@ button {
   line-height: 1.55;
   max-width: 440px;
   margin: 0 0 22px;
+}
+.empty-tag kbd {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  background: var(--raised);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 1px 6px;
+  color: var(--text);
 }
 .empty .primary {
   padding: 9px 18px;

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useSession, type Block } from './useSession'
 import { SetupWizard } from './SetupWizard'
 import { SessionSidebar } from './SessionSidebar'
+import { MatrixWordmark } from './MatrixWordmark'
 import { toggleTheme } from './theme'
 import type { CatalogModel, StatusJSON } from '../../shared/cli-types'
 import type { Attachment, DiffData } from '../../shared/protocol'
@@ -169,27 +170,19 @@ export default function App() {
           cwd={repo}
           reloadKey={sidebarKey}
           activeId={state.sessionId}
-          onOpenFolder={openRepo}
           onResume={resumeSession}
           onNew={newSession}
         />
         <div className="content">
           <main className="main">
             {state.blocks.length === 0 ? (
-              <EmptyState
-                repo={repo}
-                onOpen={openRepo}
-                recents={recents}
-                onOpenRecent={selectRepo}
-                loggedIn={status?.logged_in ?? false}
-              />
+              <EmptyState repo={repo} recents={recents} onOpenRecent={selectRepo} loggedIn={status?.logged_in ?? false} />
             ) : (
               <Transcript blocks={state.blocks} />
             )}
           </main>
           <Composer
             noRepo={!repo}
-            onOpen={openRepo}
             disabled={state.exited}
             busy={state.busy}
             onSend={send}
@@ -242,11 +235,7 @@ export default function App() {
 }
 
 function Wordmark() {
-  return (
-    <span className="wordmark">
-      <span className="wm-accent">mem</span>code
-    </span>
-  )
+  return <span className="wordmark">MEMCODE</span>
 }
 
 function Header(props: {
@@ -287,24 +276,20 @@ function Header(props: {
 
 function EmptyState(props: {
   repo: string | null
-  onOpen: () => void
   recents: string[]
   onOpenRecent: (dir: string) => void
   loggedIn: boolean
 }) {
   return (
     <div className="empty">
-      <div className="watermark">
-        <span className="wm-accent">mem</span>code
-      </div>
+      <MatrixWordmark className="watermark-canvas" />
       {props.repo ? (
         <p className="empty-tag">Tell me the goal — I&apos;ll search the repo, edit files, run tests, and explain as I go.</p>
       ) : (
         <>
-          <p className="empty-tag">Open a folder to start a session. The agent runs locally against the code you point it at.</p>
-          <button className="primary" onClick={props.onOpen}>
-            Open a folder…
-          </button>
+          <p className="empty-tag">
+            Open a folder to start — from the toolbar, or <kbd>⌘O</kbd>.
+          </p>
           {props.recents.length > 0 && (
             <div className="recents">
               <div className="recents-title">Recent</div>
@@ -429,7 +414,6 @@ function PlanPanel({ todos }: { todos: { text: string; status: string }[] }) {
 
 function Composer(props: {
   noRepo: boolean
-  onOpen: () => void
   disabled: boolean
   busy: boolean
   onSend: (text: string, attachments: Attachment[]) => void
@@ -517,16 +501,12 @@ function Composer(props: {
             +
           </span>
           <span className="composer-hint">{props.noRepo ? 'No folder open' : '⌘↵ to send'}</span>
-          {props.noRepo ? (
-            <button className="send-btn" onClick={props.onOpen} title="Open a folder">
-              ↑
-            </button>
-          ) : props.busy ? (
+          {props.busy ? (
             <button className="stop-btn" onClick={props.onCancel} title="Stop">
               ■
             </button>
           ) : (
-            <button className="send-btn" onClick={submit} disabled={props.disabled || !text.trim()} title="Send">
+            <button className="send-btn" onClick={submit} disabled={props.noRepo || props.disabled || !text.trim()} title="Send">
               ↑
             </button>
           )}
