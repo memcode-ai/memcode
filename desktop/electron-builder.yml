@@ -1,0 +1,56 @@
+appId: ai.memcode.desktop
+productName: Memcode
+afterSign: build/notarize.cjs
+directories:
+  output: dist
+  buildResources: build
+files:
+  - out/**/*
+  - package.json
+# The core `memcode` binary is compiled from THIS repo's commit in CI and dropped
+# into resources/bin/ before packaging, so Desktop and core never skew protocol
+# versions. resolve-bin.ts reads it from process.resourcesPath/bin at runtime.
+extraResources:
+  - from: resources/bin
+    to: bin
+    filter:
+      - "**/*"
+publish:
+  provider: github
+  owner: memcode-ai
+  repo: memcode
+  # Desktop releases live under a separate tag namespace so they never collide
+  # with the CLI's `v*` release tags. electron-updater reads the same channel.
+  releaseType: release
+
+mac:
+  category: public.app-category.developer-tools
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+    - target: zip
+      arch: [arm64, x64]
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  # Signing/notarization run only when Apple credentials are present in the
+  # environment (see afterSign hook + CI). Absent creds -> unsigned dev artifact.
+
+win:
+  target:
+    - target: nsis
+      arch: [x64, arm64]
+
+linux:
+  category: Development
+  target:
+    - target: AppImage
+      arch: [x64, arm64]
+    - target: deb
+      arch: [x64, arm64]
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true

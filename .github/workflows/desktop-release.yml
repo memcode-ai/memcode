@@ -1,0 +1,107 @@
+name: desktop-release
+
+# Builds Memcode Desktop for macOS, Windows, and Linux. The core `memcode` binary
+# is compiled from THIS commit and bundled into the app (no downloaded release),
+# so Desktop and core share the same protocol version. Signing/notarization run
+# automatically when credentials are present; otherwise unsigned dev artifacts.
+
+on:
+  push:
+    tags:
+      - "desktop-v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            goos: darwin
+          - os: windows-latest
+            goos: windows
+          - os: ubuntu-latest
+            goos: linux
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: desktop/pnpm-lock.yaml
+
+      # Compile the core binary from the checked-out commit for host and (on mac)
+      # both arches, embedding version/commit so About/diagnostics show real values.
+      - name: Build core binary (unix)
+        if: matrix.goos != 'windows'
+        shell: bash
+        working-directory: .
+        run: |
+          mkdir -p desktop/resources/bin
+          VER="${GITHUB_REF_NAME}"
+          SHA="$(git rev-parse --short HEAD)"
+          LDFLAGS="-s -w -X github.com/memcode-ai/memcode/internal/buildinfo.Version=${VER} -X github.com/memcode-ai/memcode/internal/buildinfo.Commit=${SHA}"
+          CGO_ENABLED=0 go build -trimpath -ldflags "$LDFLAGS" -o desktop/resources/bin/memcode .
+
+      - name: Build core binary (windows)
+        if: matrix.goos == 'windows'
+        shell: bash
+        working-directory: .
+        run: |
+          mkdir -p desktop/resources/bin
+          VER="${GITHUB_REF_NAME}"
+          SHA="$(git rev-parse --short HEAD)"
+          LDFLAGS="-s -w -X github.com/memcode-ai/memcode/internal/buildinfo.Version=${VER} -X github.com/memcode-ai/memcode/internal/buildinfo.Commit=${SHA}"
+          CGO_ENABLED=0 go build -trimpath -ldflags "$LDFLAGS" -o desktop/resources/bin/memcode.exe .
+
+      - name: Install deps
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm run typecheck
+
+      - name: Build renderer/main/preload
+        run: pnpm run build
+
+      - name: Package (mac, conditional sign + notarize)
+        if: matrix.goos == 'darwin'
+        run: pnpm exec electron-builder --mac --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Present only when configured; absent -> unsigned dev artifact.
+          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
+      - name: Package (windows, conditional sign)
+        if: matrix.goos == 'windows'
+        run: pnpm exec electron-builder --win --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+
+      - name: Package (linux)
+        if: matrix.goos == 'linux'
+        run: pnpm exec electron-builder --linux --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
