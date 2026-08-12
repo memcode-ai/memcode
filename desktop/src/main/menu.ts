@@ -34,6 +34,7 @@ export function buildAppMenu(win: BrowserWindow): void {
     {
       label: 'File',
       submenu: [
+        { label: 'Open Folder…', accelerator: 'CmdOrCtrl+O', click: () => send('open-folder') },
         { label: 'New Session', accelerator: 'CmdOrCtrl+N', click: () => send('new-session') },
         ...(isMac ? [] : [{ label: 'Settings…', click: () => send('open-settings') } as MenuItemConstructorOptions]),
         { type: 'separator' },
@@ -50,7 +51,21 @@ export function buildAppMenu(win: BrowserWindow): void {
         { label: 'Run Setup…', click: () => send('run-setup') },
       ],
     },
-    { label: 'View', submenu: [{ role: 'reload' }, { role: 'toggleDevTools' }, { type: 'separator' }, { role: 'resetZoom' }, { role: 'zoomIn' }, { role: 'zoomOut' }, { type: 'separator' }, { role: 'togglefullscreen' }] },
+    {
+      label: 'View',
+      submenu: [
+        { label: 'Toggle Light / Dark Theme', accelerator: 'CmdOrCtrl+Shift+L', click: () => send('toggle-theme') },
+        { type: 'separator' },
+        { role: 'reload' },
+        { role: 'toggleDevTools' },
+        { type: 'separator' },
+        { role: 'resetZoom' },
+        { role: 'zoomIn' },
+        { role: 'zoomOut' },
+        { type: 'separator' },
+        { role: 'togglefullscreen' },
+      ],
+    },
     { role: 'window', submenu: [{ role: 'minimize' }, { role: 'zoom' }, ...(isMac ? [{ type: 'separator' as const }, { role: 'front' as const }] : [{ role: 'close' as const }])] },
     {
       role: 'help',

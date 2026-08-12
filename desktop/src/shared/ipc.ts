@@ -28,7 +28,7 @@ export const IPC = {
 } as const
 
 // Actions the native application menu dispatches to the renderer.
-export type MenuAction = 'login' | 'logout' | 'run-setup' | 'open-settings' | 'new-session'
+export type MenuAction = 'login' | 'logout' | 'run-setup' | 'open-settings' | 'new-session' | 'open-folder' | 'toggle-theme'
 
 export interface StartSessionArgs {
   cwd: string

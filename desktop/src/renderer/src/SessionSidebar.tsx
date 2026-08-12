@@ -4,18 +4,33 @@ import type { SessionRecent } from '../../shared/cli-types'
 // Session history for the open repo (from `memcode session recent --json`).
 // Click a resumable session to reopen its thread; New starts a fresh one.
 export function SessionSidebar(props: {
-  cwd: string
+  cwd: string | null
   reloadKey: number // bump to refetch (e.g. after a turn completes)
   activeId: string | null
+  onOpenFolder: () => void
   onResume: (id: string) => void
   onNew: () => void
 }) {
   const [sessions, setSessions] = useState<SessionRecent[]>([])
 
   useEffect(() => {
-    if (!props.cwd) return
+    if (!props.cwd) {
+      setSessions([])
+      return
+    }
     window.memcode.sessionsRecent(props.cwd).then(setSessions).catch(() => setSessions([]))
   }, [props.cwd, props.reloadKey])
+
+  if (!props.cwd) {
+    return (
+      <aside className="sidebar">
+        <button className="sidebar-new" onClick={props.onOpenFolder}>
+          <span className="plus">+</span> Open folder
+        </button>
+        <div className="sidebar-empty">No folder open.</div>
+      </aside>
+    )
+  }
 
   return (
     <aside className="sidebar">

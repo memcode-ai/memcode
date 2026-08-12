@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useSession, type Block } from './useSession'
 import { SetupWizard } from './SetupWizard'
 import { SessionSidebar } from './SessionSidebar'
+import { toggleTheme } from './theme'
 import type { CatalogModel, StatusJSON } from '../../shared/cli-types'
 import type { Attachment, DiffData } from '../../shared/protocol'
 import type { AppInfo, MenuAction } from '../../shared/ipc'
@@ -9,6 +10,7 @@ import type { AppInfo, MenuAction } from '../../shared/ipc'
 export default function App() {
   const { state, clearPermission, clearAsk, recordUserTurn, reset } = useSession()
   const [repo, setRepo] = useState<string | null>(null)
+  const [sessionLive, setSessionLive] = useState(false) // a CLI session is spawned for `repo`
   const [models, setModels] = useState<CatalogModel[]>([])
   const [pin, setPin] = useState('') // '' = Automatic
   const [status, setStatus] = useState<StatusJSON | null>(null)
@@ -21,7 +23,6 @@ export default function App() {
 
   const refreshStatus = useCallback(() => window.memcode.status().then(setStatus).catch(() => {}), [])
 
-  // First launch: if no backend is configured yet, open the setup wizard.
   useEffect(() => {
     window.memcode.models(true).then(setModels).catch(() => {})
     window.memcode.appInfo().then(setAppInfo).catch(() => {})
@@ -48,24 +49,61 @@ export default function App() {
     }
   }, [refreshStatus])
 
-  const startIn = useCallback(
-    async (dir: string, resume?: string) => {
+  // Selecting a folder loads the project (sidebar sessions) but does NOT spawn a
+  // CLI session — that happens lazily on the first message, so the app lands on
+  // the branded empty state instead of a blank chat.
+  const selectRepo = useCallback(
+    (dir: string) => {
       setRepo(dir)
+      setSessionLive(false)
       reset()
-      await window.memcode.startSession({ cwd: dir, mode: 'ask', pin: pin || undefined, resume })
       setSidebarKey((k) => k + 1)
     },
-    [pin, reset],
+    [reset],
   )
 
   const openRepo = useCallback(async () => {
     const dir = await window.memcode.pickRepo()
     if (!dir) return
-    await startIn(dir)
-  }, [startIn])
+    selectRepo(dir)
+  }, [selectRepo])
 
-  // Reopen the last repo on launch (and populate the welcome recents list), so
-  // the app doesn't start cold at the picker every time.
+  const newSession = useCallback(async () => {
+    await window.memcode.stop()
+    setSessionLive(false)
+    reset()
+  }, [reset])
+
+  const resumeSession = useCallback(
+    async (id: string) => {
+      if (!repo) return
+      reset()
+      await window.memcode.startSession({ cwd: repo, mode: 'ask', pin: pin || undefined, resume: id })
+      setSessionLive(true)
+      setSidebarKey((k) => k + 1)
+    },
+    [repo, pin, reset],
+  )
+
+  // Spawn the CLI session on demand (first message of a fresh project).
+  const ensureSession = useCallback(async () => {
+    if (!repo || sessionLive) return
+    await window.memcode.startSession({ cwd: repo, mode: 'ask', pin: pin || undefined })
+    setSessionLive(true)
+  }, [repo, sessionLive, pin])
+
+  const send = useCallback(
+    async (text: string, attachments: Attachment[]) => {
+      if (!repo || !text.trim()) return
+      await ensureSession()
+      recordUserTurn(text, attachments.map((a) => a.name ?? a.path))
+      await window.memcode.userTurn(text, attachments.length ? attachments : undefined)
+    },
+    [repo, ensureSession, recordUserTurn],
+  )
+
+  // On launch, reselect the last project (populates the sidebar) but stay on the
+  // empty state — no session, no forced chat — until you type something.
   useEffect(() => {
     window.memcode
       .recentRepos()
@@ -73,11 +111,11 @@ export default function App() {
         setRecents(r)
         if (!bootedRef.current && r.length > 0) {
           bootedRef.current = true
-          startIn(r[0])
+          selectRepo(r[0])
         }
       })
       .catch(() => {})
-  }, [startIn])
+  }, [selectRepo])
 
   // Native menu actions.
   useEffect(() => {
@@ -96,25 +134,22 @@ export default function App() {
           setShowSettings(true)
           break
         case 'new-session':
-          if (repo) startIn(repo)
+          newSession()
+          break
+        case 'open-folder':
+          openRepo()
+          break
+        case 'toggle-theme':
+          toggleTheme()
           break
       }
     })
-  }, [doLogin, doLogout, repo, startIn])
+  }, [doLogin, doLogout, newSession, openRepo])
 
   // Refetch the session sidebar whenever a turn finishes (a new/updated transcript).
   useEffect(() => {
     if (!state.busy) setSidebarKey((k) => k + 1)
   }, [state.busy])
-
-  const send = useCallback(
-    async (text: string, attachments: Attachment[]) => {
-      if (!repo || !text.trim()) return
-      recordUserTurn(text, attachments.map((a) => a.name ?? a.path))
-      await window.memcode.userTurn(text, attachments.length ? attachments : undefined)
-    },
-    [repo, recordUserTurn],
-  )
 
   return (
     <div className="app">
@@ -126,34 +161,40 @@ export default function App() {
         onPin={setPin}
         busy={state.busy}
         onSettings={() => setShowSettings(true)}
+        onToggleTheme={toggleTheme}
       />
 
       <div className="body">
-        {repo && (
-          <SessionSidebar
-            cwd={repo}
-            reloadKey={sidebarKey}
-            activeId={state.sessionId}
-            onResume={(id) => startIn(repo, id)}
-            onNew={() => startIn(repo)}
-          />
-        )}
+        <SessionSidebar
+          cwd={repo}
+          reloadKey={sidebarKey}
+          activeId={state.sessionId}
+          onOpenFolder={openRepo}
+          onResume={resumeSession}
+          onNew={newSession}
+        />
         <div className="content">
           <main className="main">
-            {!repo ? (
-              <Welcome onOpen={openRepo} recents={recents} onOpenRecent={startIn} loggedIn={status?.logged_in ?? false} />
+            {state.blocks.length === 0 ? (
+              <EmptyState
+                repo={repo}
+                onOpen={openRepo}
+                recents={recents}
+                onOpenRecent={selectRepo}
+                loggedIn={status?.logged_in ?? false}
+              />
             ) : (
               <Transcript blocks={state.blocks} />
             )}
           </main>
-          {repo && (
-            <Composer
-              disabled={state.exited}
-              busy={state.busy}
-              onSend={send}
-              onCancel={() => window.memcode.cancel()}
-            />
-          )}
+          <Composer
+            noRepo={!repo}
+            onOpen={openRepo}
+            disabled={state.exited}
+            busy={state.busy}
+            onSend={send}
+            onCancel={() => window.memcode.cancel()}
+          />
         </div>
         {state.todos.length > 0 && <PlanPanel todos={state.todos} />}
       </div>
@@ -200,6 +241,14 @@ export default function App() {
   )
 }
 
+function Wordmark() {
+  return (
+    <span className="wordmark">
+      <span className="wm-accent">mem</span>code
+    </span>
+  )
+}
+
 function Header(props: {
   repo: string | null
   onOpen: () => void
@@ -208,13 +257,14 @@ function Header(props: {
   onPin: (v: string) => void
   busy: boolean
   onSettings: () => void
+  onToggleTheme: () => void
 }) {
   const repoName = props.repo ? props.repo.split('/').pop() : null
   return (
     <header className="header">
-      <div className="brand">memcode</div>
-      <button className="repo-btn" onClick={props.onOpen} title={props.repo ?? ''}>
-        {repoName ? `▸ ${repoName}` : 'Open repo…'}
+      <Wordmark />
+      <button className="repo-btn" onClick={props.onOpen} title={props.repo ?? 'Open a folder'}>
+        {repoName ? `▸ ${repoName}` : 'Open folder…'}
       </button>
       <div className="spacer" />
       <select className="model" value={props.pin} onChange={(e) => props.onPin(e.target.value)} disabled={props.busy}>
@@ -225,6 +275,9 @@ function Header(props: {
           </option>
         ))}
       </select>
+      <button className="icon-btn" onClick={props.onToggleTheme} title="Toggle light / dark (⌘⇧L)">
+        ◐
+      </button>
       <button className="icon-btn" onClick={props.onSettings} title="Settings">
         ⚙
       </button>
@@ -232,44 +285,42 @@ function Header(props: {
   )
 }
 
-function MemcodeMark() {
-  return (
-    <svg className="mark" width="60" height="60" viewBox="0 0 60 60" fill="none" aria-hidden="true">
-      <rect x="3" y="3" width="54" height="54" rx="16" fill="#16171b" stroke="#2a2d34" strokeWidth="1.5" />
-      <path d="M20 24l7 6-7 6" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M32 38h9" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
-    </svg>
-  )
-}
-
-function Welcome(props: {
+function EmptyState(props: {
+  repo: string | null
   onOpen: () => void
   recents: string[]
   onOpenRecent: (dir: string) => void
   loggedIn: boolean
 }) {
   return (
-    <div className="welcome">
-      <MemcodeMark />
-      <h1>Let&apos;s build</h1>
-      <p className="welcome-sub">Open a repository to start a session. The agent runs locally against the code you point it at.</p>
-      <button className="primary" onClick={props.onOpen}>
-        Open a repository…
-      </button>
-      {props.recents.length > 0 && (
-        <div className="recents">
-          <div className="recents-title">Recent</div>
-          {props.recents.map((r) => (
-            <button key={r} className="recent-item" title={r} onClick={() => props.onOpenRecent(r)}>
-              <span className="recent-text">
-                <span className="recent-name">{r.split('/').pop()}</span>
-                <span className="recent-path">{r}</span>
-              </span>
-            </button>
-          ))}
-        </div>
+    <div className="empty">
+      <div className="watermark">
+        <span className="wm-accent">mem</span>code
+      </div>
+      {props.repo ? (
+        <p className="empty-tag">Tell me the goal — I&apos;ll search the repo, edit files, run tests, and explain as I go.</p>
+      ) : (
+        <>
+          <p className="empty-tag">Open a folder to start a session. The agent runs locally against the code you point it at.</p>
+          <button className="primary" onClick={props.onOpen}>
+            Open a folder…
+          </button>
+          {props.recents.length > 0 && (
+            <div className="recents">
+              <div className="recents-title">Recent</div>
+              {props.recents.map((r) => (
+                <button key={r} className="recent-item" title={r} onClick={() => props.onOpenRecent(r)}>
+                  <span className="recent-text">
+                    <span className="recent-name">{r.split('/').pop()}</span>
+                    <span className="recent-path">{r}</span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+          {!props.loggedIn && <p className="hint">Not signed in — open Settings to log in or set a BYOK key.</p>}
+        </>
       )}
-      {!props.loggedIn && <p className="hint">Not signed in — open Settings to log in or set a BYOK key.</p>}
     </div>
   )
 }
@@ -377,6 +428,8 @@ function PlanPanel({ todos }: { todos: { text: string; status: string }[] }) {
 }
 
 function Composer(props: {
+  noRepo: boolean
+  onOpen: () => void
   disabled: boolean
   busy: boolean
   onSend: (text: string, attachments: Attachment[]) => void
@@ -417,8 +470,9 @@ function Composer(props: {
   return (
     <div className="composer-wrap">
       <div
-        className={`composer ${dragging ? 'dragging' : ''}`}
+        className={`composer ${dragging ? 'dragging' : ''} ${props.noRepo ? 'disabled' : ''}`}
         onDragOver={(e) => {
+          if (props.noRepo) return
           e.preventDefault()
           setDragging(true)
         }}
@@ -440,9 +494,15 @@ function Composer(props: {
         <textarea
           ref={taRef}
           className="input"
-          placeholder={dragging ? 'Drop files to attach…' : 'Ask memcode to build, fix, or explain…'}
+          placeholder={
+            props.noRepo
+              ? 'Open a folder to start a session…'
+              : dragging
+                ? 'Drop files to attach…'
+                : 'Ask memcode to build, fix, or explain…'
+          }
           value={text}
-          disabled={props.disabled}
+          disabled={props.disabled || props.noRepo}
           rows={1}
           onChange={(e) => {
             setText(e.target.value)
@@ -456,8 +516,12 @@ function Composer(props: {
           <span className="attach-btn" title="Drag files onto the composer to attach">
             +
           </span>
-          <span className="composer-hint">⌘↵ to send</span>
-          {props.busy ? (
+          <span className="composer-hint">{props.noRepo ? 'No folder open' : '⌘↵ to send'}</span>
+          {props.noRepo ? (
+            <button className="send-btn" onClick={props.onOpen} title="Open a folder">
+              ↑
+            </button>
+          ) : props.busy ? (
             <button className="stop-btn" onClick={props.onCancel} title="Stop">
               ■
             </button>

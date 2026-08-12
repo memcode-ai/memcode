@@ -1,25 +1,77 @@
+/* ── Theme tokens ───────────────────────────────────────────
+   Light is the base palette on :root. Dark is redefined twice:
+   under the OS media query (when the user hasn't forced light) and
+   under an explicit [data-theme="dark"] so the in-app toggle wins. */
 :root {
-  /* Layered dark palette — not flat black. Surfaces step up as they come forward. */
+  --bg: #f4f5f8;
+  --panel: #ffffff;
+  --elevated: #ffffff;
+  --raised: #eceef3;
+  --border: #e2e4ea;
+  --border-soft: #edeef2;
+  --text: #191b20;
+  --muted: #5e626b;
+  --faint: #9aa0aa;
+  --accent: #3f51ff;
+  --accent-hover: #3040e8;
+  --accent-fg: #ffffff;
+  --accent-soft: rgba(63, 81, 255, 0.12);
+  --add: #17924f;
+  --del: #d43644;
+  --warn: #b07d08;
+  --code-bg: #f3f4f7;
+  --ring: rgba(63, 81, 255, 0.18);
+  --shadow: 0 18px 48px rgba(20, 25, 55, 0.16);
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", Roboto, sans-serif;
+  --serif: ui-serif, "Iowan Old Style", "Palatino Linotype", Georgia, "Times New Roman", serif;
+  --radius: 12px;
+  --radius-lg: 16px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0c0d0f;
+    --panel: #141518;
+    --elevated: #1b1d22;
+    --raised: #24272e;
+    --border: #26292f;
+    --border-soft: #1d1f24;
+    --text: #ededee;
+    --muted: #8c8f97;
+    --faint: #5c5f67;
+    --accent: #7c8cff;
+    --accent-hover: #8f9dff;
+    --accent-fg: #0b0c10;
+    --accent-soft: rgba(124, 140, 255, 0.14);
+    --add: #56c98a;
+    --del: #f0616d;
+    --warn: #e0af68;
+    --code-bg: #0a0b0d;
+    --ring: rgba(124, 140, 255, 0.22);
+    --shadow: 0 18px 48px rgba(0, 0, 0, 0.5);
+  }
+}
+:root[data-theme="dark"] {
   --bg: #0c0d0f;
   --panel: #141518;
   --elevated: #1b1d22;
-  --raised: #22252b;
-  --border: #24272e;
-  --border-soft: #1c1e23;
+  --raised: #24272e;
+  --border: #26292f;
+  --border-soft: #1d1f24;
   --text: #ededee;
   --muted: #8c8f97;
   --faint: #5c5f67;
   --accent: #7c8cff;
   --accent-hover: #8f9dff;
   --accent-fg: #0b0c10;
+  --accent-soft: rgba(124, 140, 255, 0.14);
   --add: #56c98a;
   --del: #f0616d;
   --warn: #e0af68;
-  --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
-  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", Roboto, sans-serif;
-  --radius: 12px;
-  --radius-lg: 16px;
-  --shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+  --code-bg: #0a0b0d;
+  --ring: rgba(124, 140, 255, 0.22);
+  --shadow: 0 18px 48px rgba(0, 0, 0, 0.5);
 }
 
 * {
@@ -55,7 +107,7 @@ button {
   align-items: center;
   gap: 10px;
   height: 46px;
-  padding: 0 12px 0 84px; /* room for macOS traffic lights */
+  padding: 0 12px 0 84px;
   background: var(--panel);
   border-bottom: 1px solid var(--border-soft);
   -webkit-app-region: drag;
@@ -64,11 +116,14 @@ button {
 .header select {
   -webkit-app-region: no-drag;
 }
-.brand {
-  font-weight: 650;
-  letter-spacing: -0.02em;
-  font-size: 14.5px;
+.wordmark {
+  font-weight: 750;
+  letter-spacing: -0.035em;
+  font-size: 16px;
   color: var(--text);
+}
+.wm-accent {
+  color: var(--accent);
 }
 .repo-btn {
   display: inline-flex;
@@ -88,8 +143,7 @@ button {
   transition: border-color 0.12s, background 0.12s;
 }
 .repo-btn:hover {
-  border-color: var(--raised);
-  background: var(--raised);
+  border-color: var(--accent);
 }
 .spacer {
   flex: 1;
@@ -110,7 +164,7 @@ button {
   background-repeat: no-repeat;
 }
 .model:hover {
-  border-color: var(--raised);
+  border-color: var(--accent);
 }
 .icon-btn {
   display: inline-flex;
@@ -122,13 +176,13 @@ button {
   color: var(--muted);
   border: none;
   border-radius: 8px;
-  font-size: 16px;
+  font-size: 15px;
   cursor: pointer;
   transition: background 0.12s, color 0.12s;
 }
 .icon-btn:hover {
   color: var(--text);
-  background: var(--elevated);
+  background: var(--raised);
 }
 
 /* ── Body layout ────────────────────────────────────────── */
@@ -149,34 +203,36 @@ button {
   min-width: 0;
 }
 
-/* ── Welcome / empty state ──────────────────────────────── */
-.welcome {
+/* ── Empty state ────────────────────────────────────────── */
+.empty {
   min-height: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 0 24px 8vh;
+  padding: 0 24px 6vh;
   text-align: center;
 }
-.mark {
-  color: var(--text);
-  margin-bottom: 22px;
-  filter: drop-shadow(0 6px 20px rgba(124, 140, 255, 0.25));
+.watermark {
+  font-family: var(--serif);
+  font-weight: 800;
+  font-size: clamp(46px, 7vw, 76px);
+  letter-spacing: -0.03em;
+  line-height: 1;
+  margin-bottom: 18px;
+  text-transform: uppercase;
 }
-.welcome h1 {
-  font-size: 30px;
-  font-weight: 650;
-  letter-spacing: -0.025em;
-  margin: 0 0 8px;
+.watermark .wm-accent {
+  color: var(--accent);
 }
-.welcome-sub {
+.empty-tag {
   color: var(--muted);
+  font-size: 15px;
   line-height: 1.55;
-  max-width: 400px;
+  max-width: 440px;
   margin: 0 0 22px;
 }
-.welcome .primary {
+.empty .primary {
   padding: 9px 18px;
   font-size: 14px;
 }
@@ -206,7 +262,7 @@ button {
   width: 100%;
   text-align: left;
   background: var(--panel);
-  border: 1px solid var(--border-soft);
+  border: 1px solid var(--border);
   border-radius: 10px;
   padding: 9px 12px;
   margin-bottom: 6px;
@@ -215,20 +271,7 @@ button {
   transition: border-color 0.12s, background 0.12s;
 }
 .recent-item:hover {
-  border-color: var(--border);
-  background: var(--elevated);
-}
-.recent-item::before {
-  content: "";
-  width: 16px;
-  height: 16px;
-  flex-shrink: 0;
-  background: currentColor;
-  opacity: 0.55;
-  -webkit-mask: no-repeat center / contain
-    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z'/></svg>");
-  mask: no-repeat center / contain
-    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z'/></svg>");
+  border-color: var(--accent);
 }
 .recent-text {
   display: flex;
@@ -266,7 +309,7 @@ button {
 .msg.user {
   align-self: flex-end;
   max-width: 82%;
-  background: var(--elevated);
+  background: var(--accent-soft);
   border: 1px solid var(--border);
   border-radius: 14px 14px 4px 14px;
   padding: 10px 15px;
@@ -275,8 +318,8 @@ button {
   padding: 0 2px;
 }
 .msg.error {
-  background: rgba(240, 97, 109, 0.08);
-  border: 1px solid rgba(240, 97, 109, 0.28);
+  background: color-mix(in srgb, var(--del) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--del) 30%, transparent);
   color: var(--del);
   font-family: var(--mono);
   font-size: 12.5px;
@@ -348,7 +391,7 @@ button {
   font-size: 12.5px;
 }
 .diff-head:hover {
-  background: var(--elevated);
+  background: var(--raised);
 }
 .diff-glyph {
   color: var(--accent);
@@ -370,7 +413,7 @@ button {
   margin: 0;
   padding: 8px 0;
   overflow-x: auto;
-  background: #0a0b0d;
+  background: var(--code-bg);
   font-family: var(--mono);
   font-size: 12px;
   line-height: 1.5;
@@ -381,11 +424,11 @@ button {
   white-space: pre;
 }
 .dl.add {
-  background: rgba(86, 201, 138, 0.12);
+  background: color-mix(in srgb, var(--add) 14%, transparent);
   color: var(--add);
 }
 .dl.del {
-  background: rgba(240, 97, 109, 0.12);
+  background: color-mix(in srgb, var(--del) 14%, transparent);
   color: var(--del);
 }
 .dl.hunk {
@@ -459,8 +502,7 @@ button {
   transition: border-color 0.12s, background 0.12s;
 }
 .sidebar-new:hover {
-  border-color: var(--raised);
-  background: var(--raised);
+  border-color: var(--accent);
 }
 .sidebar-new .plus {
   font-size: 15px;
@@ -498,10 +540,10 @@ button {
   color: var(--text);
 }
 .sidebar-item:hover:not(:disabled) {
-  background: var(--elevated);
+  background: var(--raised);
 }
 .sidebar-item.active {
-  background: var(--elevated);
+  background: var(--accent-soft);
   border-color: var(--border);
 }
 .sidebar-item:disabled {
@@ -530,21 +572,25 @@ button {
   background: var(--elevated);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  padding: 6px 6px 6px 6px;
+  padding: 6px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
   transition: border-color 0.12s, box-shadow 0.12s;
 }
 .composer:focus-within {
-  border-color: var(--raised);
-  box-shadow: 0 0 0 3px rgba(124, 140, 255, 0.1);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--ring);
 }
 .composer.dragging {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(124, 140, 255, 0.18);
+  box-shadow: 0 0 0 3px var(--ring);
+}
+.composer.disabled {
+  opacity: 0.75;
 }
 .input {
   width: 100%;
   resize: none;
-  min-height: 48px;
+  min-height: 46px;
   max-height: 240px;
   background: transparent;
   color: var(--text);
@@ -564,7 +610,7 @@ button {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 2px 4px 2px 4px;
+  padding: 2px 4px;
 }
 .attach-btn {
   display: inline-flex;
@@ -577,11 +623,7 @@ button {
   border: none;
   color: var(--muted);
   font-size: 18px;
-  cursor: pointer;
-}
-.attach-btn:hover {
-  background: var(--raised);
-  color: var(--text);
+  cursor: default;
 }
 .composer-hint {
   color: var(--faint);
@@ -624,7 +666,7 @@ button {
   cursor: pointer;
 }
 .stop-btn:hover {
-  background: rgba(240, 97, 109, 0.12);
+  background: color-mix(in srgb, var(--del) 12%, transparent);
 }
 
 /* Chips */
@@ -688,15 +730,14 @@ button {
   transition: border-color 0.12s, background 0.12s;
 }
 .ghost:hover {
-  border-color: var(--raised);
-  background: var(--raised);
+  border-color: var(--accent);
 }
 
 /* ── Dialogs ────────────────────────────────────────────── */
 .overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.55);
+  background: rgba(10, 12, 20, 0.45);
   backdrop-filter: blur(3px);
   display: flex;
   align-items: center;
@@ -730,7 +771,7 @@ button {
 .cmd {
   width: 100%;
   min-height: 40px;
-  background: #0a0b0d;
+  background: var(--code-bg);
   color: var(--text);
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -867,7 +908,7 @@ button {
   cursor: default;
 }
 .wizard-opt.recommended {
-  border-color: rgba(86, 201, 138, 0.5);
+  border-color: color-mix(in srgb, var(--add) 50%, transparent);
 }
 .wo-title {
   font-weight: 600;
@@ -944,7 +985,7 @@ button {
   }
 }
 
-/* Scrollbars — thin, on-theme */
+/* Scrollbars */
 ::-webkit-scrollbar {
   width: 10px;
   height: 10px;
@@ -956,7 +997,7 @@ button {
   background-clip: padding-box;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #2c2f36;
+  background: var(--faint);
   background-clip: padding-box;
 }
 ::-webkit-scrollbar-track {
