@@ -65,9 +65,9 @@ var advancedCommands = map[string]bool{
 	"init": true, "index": true,
 	// power-user / diagnostic / internal
 	"acceptance": true, "approve": true, "capabilities": true, "claims": true,
-	"context": true, "eval": true, "explore": true, "jobs": true, "learn": true,
-	"map": true, "objective": true, "producers": true, "session": true,
-	"sources": true, "todos": true, "why": true,
+	"context": true, "eval": true, "explore": true, "gateway": true, "jobs": true,
+	"learn": true, "map": true, "objective": true, "producers": true,
+	"session": true, "sources": true, "todos": true, "why": true,
 }
 
 // hideAdvanced marks the advanced commands Hidden. Called from Execute (after every
