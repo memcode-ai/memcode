@@ -167,6 +167,12 @@ func (s *Session) Submit(ctx context.Context, st *ChatState, line string) {
 		return
 	}
 	dec := input.Parse(line, s.root)
+	// Merge any attachments armed for this turn (stream-json user_turn attachments)
+	// into the parsed bundle, then disarm — they flow through the same native path.
+	if len(s.pendingAtts) > 0 {
+		dec.Bundle.Attachments = append(dec.Bundle.Attachments, s.pendingAtts...)
+		s.pendingAtts = nil
+	}
 	// Did the user explicitly authorize changing tests/specs/behavior this turn? If so,
 	// editing tests is the WORK; if not, weakening a test is gated as a self-heal cheat.
 	s.testEditIntent = userIntendsTestChange(dec.Bundle.Text)
@@ -210,7 +216,9 @@ func (s *Session) Submit(ctx context.Context, st *ChatState, line string) {
 	}
 	s.turnHighRisk = highRiskTurn(dec.Bundle.Text) // high-blast-radius surface → escalate the backend
 
-	s.printf("  ↳ %s — %s\n", dec.Route, dec.Reason)
+	if !s.structured {
+		s.printf("  ↳ %s — %s\n", dec.Route, dec.Reason)
+	}
 	if s.observer != nil {
 		s.observer.Routed(dec.Route, dec.Reason)
 		s.observer.Mood(reading)
@@ -307,6 +315,7 @@ func (s *Session) runTurn(ctx context.Context, st *ChatState, b input.Bundle) {
 	defer func() {
 		if s.bgCtx.Err() == nil {
 			s.persistTranscript(st)
+			s.maybeGenerateTitle() // one-shot, off-goroutine; names the session for the sidebar/`session recent`
 		}
 	}()
 	s.lastErr = nil // fresh turn; set below if the loop returns a terminal error

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/memcode-ai/memcode/internal/agent/input"
 	"github.com/memcode-ai/memcode/internal/atomicfile"
 	"github.com/memcode-ai/memcode/internal/wire"
 )
@@ -151,6 +152,24 @@ func ResumableSessions(root string) []string {
 // history instead of minting a fresh session. Set it from the cmd layer (or a
 // slash command) before the front-end starts the chat; StartChat consumes it.
 func (s *Session) SetResume(id string) { s.resumeID = id }
+
+// ResumeSession resolves a user reference (id, unique prefix, or ""/"latest" for
+// the newest session) to a concrete id and arms the next StartChat to re-enter
+// it. Used by the stream-json protocol's initialize.resume field, so a desktop
+// client can reopen a prior thread over the same transport.
+func (s *Session) ResumeSession(ref string) error {
+	id, err := ResolveSession(s.root, ref)
+	if err != nil {
+		return err
+	}
+	s.resumeID = id
+	return nil
+}
+
+// AttachNext arms the next Submit with these attachments (merged into that turn's
+// bundle, then cleared). The stream-json protocol uses this to carry user_turn
+// attachments into the existing native-attachment path.
+func (s *Session) AttachNext(atts []input.Attachment) { s.pendingAtts = atts }
 
 // ForkSession copies srcID's saved transcript (and its checkpoints) to a fresh
 // session id and returns it — the original session is untouched. Fork-from-disk is

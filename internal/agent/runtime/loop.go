@@ -479,7 +479,9 @@ func (s *Session) runLoop(ctx context.Context, sys promptSpec, messages *[]wire.
 			if steers := s.steerDrain(); len(steers) > 0 {
 				note := buildSteerNote(steers)
 				*messages = append(*messages, wire.Message{Role: "user", Blocks: []wire.Block{{Type: "text", Text: note}}})
-				s.printf("%s\n", metaStyle.Render("  ↳ steering — folding your note into this task"))
+				if !s.structured {
+					s.printf("%s\n", metaStyle.Render("  ↳ steering — folding your note into this task"))
+				}
 				// Log the steer to the CANONICAL log: it's real user input that shaped the
 				// work. Without this, a mid-turn correction ("actually make it TLS 1.3 only")
 				// was absent from events.jsonl, so focus/orientation/recall lost the refinement.
@@ -1196,7 +1198,7 @@ func (s *Session) complete(ctx context.Context, purpose llm.Purpose, req wire.Re
 		// final answer) — print it once and re-announce only when routing actually shifts
 		// mid-turn (e.g. a cheap-lane gather that absorbs to the strong tier). s.turn.servedLine is reset
 		// at the top of each user turn (runLoop), so every turn still re-announces.
-		if line != s.turn.servedLine {
+		if line != s.turn.servedLine && !s.structured {
 			s.turn.servedLine = line
 			// Interactive chat wants the trailing blank before the next prompt;
 			// headless Run() (liveChat == nil) is one-shot, so no trailing blank.
@@ -1205,6 +1207,9 @@ func (s *Session) complete(ctx context.Context, purpose llm.Purpose, req wire.Re
 			} else {
 				s.printf("%s\n\n", metaStyle.Render(line))
 			}
+		}
+		if s.structured {
+			s.notifyTokens(committedOut + resp.OutputTokens)
 		}
 	}
 	if err == nil {

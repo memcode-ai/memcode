@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/memcode-ai/memcode/internal/agent/runtime"
 	"github.com/memcode-ai/memcode/internal/sessionlog"
 	"github.com/memcode-ai/memcode/internal/store"
 )
@@ -23,7 +24,7 @@ var sessionListCmd = &cobra.Command{
 	Short:   "List recent agent sessions (newest first)",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
-		st, _, err := openProject(ctx)
+		st, cfg, err := openProject(ctx)
 		if err != nil {
 			return err
 		}
@@ -33,6 +34,35 @@ var sessionListCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+
+		if asJSON, _ := cmd.Flags().GetBool("json"); asJSON {
+			// A resumable session is one with a saved transcript on disk; the
+			// GUI sidebar enables "resume" only for those.
+			resumable := map[string]bool{}
+			for _, id := range runtime.ResumableSessions(cfg.Root) {
+				resumable[id] = true
+			}
+			out := make([]sessionRecentJSON, 0, len(sessions))
+			for i := len(sessions) - 1; i >= 0; i-- { // newest first
+				s := sessions[i]
+				title := runtime.TitleFor(cfg.Root, s.id)
+				if title == "" {
+					title = s.task
+				}
+				out = append(out, sessionRecentJSON{
+					ID:           s.id,
+					Title:        title,
+					Task:         s.task,
+					Mode:         s.mode,
+					Model:        s.model,
+					FilesChanged: len(s.filesChanged),
+					Iterations:   s.iterations,
+					Resumable:    resumable[s.id],
+				})
+			}
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(out)
+		}
+
 		if len(sessions) == 0 {
 			fmt.Println("No agent sessions yet. Run `memcode agent \"<task>\"`.")
 			return nil
@@ -43,6 +73,17 @@ var sessionListCmd = &cobra.Command{
 		}
 		return nil
 	},
+}
+
+type sessionRecentJSON struct {
+	ID           string `json:"id"`
+	Title        string `json:"title"`
+	Task         string `json:"task"`
+	Mode         string `json:"mode"`
+	Model        string `json:"model"`
+	FilesChanged int    `json:"files_changed"`
+	Iterations   int    `json:"iterations"`
+	Resumable    bool   `json:"resumable"`
 }
 
 var sessionShowCmd = &cobra.Command{
@@ -387,6 +428,7 @@ func clipCLI(s string, max int) string {
 }
 
 func init() {
+	sessionListCmd.Flags().Bool("json", false, "emit sessions as JSON (for a GUI sidebar)")
 	sessionCmd.AddCommand(sessionListCmd, sessionShowCmd, sessionRecapCmd,
 		sessionRecentCmd, sessionSearchCmd, sessionCommitsCmd, sessionSidequestsCmd)
 	rootCmd.AddCommand(sessionCmd)

@@ -17,14 +17,26 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"regexp"
 	"strconv"
 	"sync"
 
 	"github.com/memcode-ai/memcode/catalog"
+	"github.com/memcode-ai/memcode/internal/agent/input"
 	"github.com/memcode-ai/memcode/internal/agent/permissions"
 	"github.com/memcode-ai/memcode/internal/agent/runtime"
 	"github.com/memcode-ai/memcode/internal/wire"
 )
+
+// ansiEscape matches SGR color/style escape sequences so the structured client
+// receives clean assistant text even if a styled string reaches the output seam.
+var ansiEscape = regexp.MustCompile("\x1b\\[[0-9;]*m")
+
+// turnReq is one queued user turn: prompt text plus resolved attachments.
+type turnReq struct {
+	text string
+	atts []input.Attachment
+}
 
 type driver struct {
 	sess *runtime.Session
@@ -72,64 +84,71 @@ func Run(ctx context.Context, sess *runtime.Session, in io.Reader, out io.Writer
 		ask:  make(chan askReply, 1),
 	}
 
-	// Bind the runtime seams to the protocol (the same hooks the TUI uses).
+	// Structured client: suppress terminal chrome (route echo, served-by, tool
+	// markers) — the client gets those as events, not scraped text.
+	sess.SetStructured(true)
+	// Bind the runtime seams to the protocol (the same hooks the TUI uses). Strip
+	// any residual ANSI styling so the client receives clean assistant text.
 	sess.SetOutput(writerFunc(func(p []byte) (int, error) {
-		d.emit("", wire.MsgAssistantDelta, wire.AssistantDeltaData{Text: string(p)})
+		clean := ansiEscape.ReplaceAllString(string(p), "")
+		if clean != "" {
+			d.emit("", wire.MsgAssistantDelta, wire.AssistantDeltaData{Text: clean})
+		}
 		return len(p), nil
 	}))
 	sess.SetApprover(d.approve)
 	sess.SetAsker(d.askUser)
 	sess.SetObserver(d)
 
-	d.emit("", wire.MsgInitialized, wire.InitializedData{
-		SessionID: sess.SessionID(), Protocol: wire.StreamJSONVersion,
-	})
+	sc := bufio.NewScanner(in)
+	sc.Buffer(make([]byte, 1<<20), 1<<20)
+
+	// Read the FIRST message before StartChat. An `initialize` may carry `resume`,
+	// which must be applied before the session starts (StartChat re-enters the saved
+	// transcript, so a late resume would be a no-op). Mode/pin apply here too. A
+	// non-initialize first line is stashed and handled after the fresh start.
+	cwd := ""
+	var pending *wire.Envelope
+	if sc.Scan() {
+		var env wire.Envelope
+		if json.Unmarshal(sc.Bytes(), &env) == nil {
+			if env.Type == wire.MsgInitialize {
+				cwd = d.applyInitialize(env)
+			} else {
+				e := env
+				pending = &e
+			}
+		}
+	}
 
 	st := sess.StartChat(ctx)
 	defer sess.EndChat(ctx)
 
+	// Announce readiness AFTER StartChat so the session id reflects a resume.
+	d.emit("", wire.MsgInitialized, wire.InitializedData{
+		SessionID: sess.SessionID(), Protocol: wire.StreamJSONVersion,
+	})
+
 	// turn-runner: executes user turns sequentially so a long turn never blocks the
 	// stdin reader (which must keep servicing permission/ask responses + cancels).
-	turns := make(chan string, 16)
+	turns := make(chan turnReq, 16)
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		for text := range turns {
-			d.runTurn(ctx, st, text)
+		for req := range turns {
+			d.runTurn(ctx, st, req)
 		}
 	}()
 
-	sc := bufio.NewScanner(in)
-	sc.Buffer(make([]byte, 1<<20), 1<<20)
-	for sc.Scan() {
-		var env wire.Envelope
-		if json.Unmarshal(sc.Bytes(), &env) != nil {
-			continue // skip a malformed line rather than killing the session
-		}
+	handle := func(env wire.Envelope) {
 		switch env.Type {
 		case wire.MsgInitialize:
-			var in wire.InitializeData
-			_ = json.Unmarshal(env.Data, &in)
-			switch permissions.Mode(in.Mode) {
-			case permissions.ModeAsk, permissions.ModeAuto, permissions.ModeAllowAll:
-				sess.SetMode(permissions.Mode(in.Mode))
-			}
-			// A model pin rides the handshake (headless clients have no /model
-			// picker). The window comes from the SDK catalog — the same source the
-			// picker's list is built from. An unknown label is skipped, not sent:
-			// the gateway would silently serve Automatic anyway, so surface it on
-			// stderr (the diagnostic lane) instead of pinning a lie.
-			if in.Pin != "" {
-				if m, ok := catalog.LookupModel(in.Pin); ok {
-					sess.SetPin(in.Pin, m.Window)
-				} else {
-					fmt.Fprintf(os.Stderr, "protocol: unknown model pin %q — staying on Automatic\n", in.Pin)
-				}
-			}
+			// A late initialize can still adjust mode/pin (resume is ignored post-start).
+			d.applyInitialize(env)
 		case wire.MsgUserTurn:
 			var u wire.UserTurnData
-			if json.Unmarshal(env.Data, &u) == nil && u.Text != "" {
-				turns <- u.Text
+			if json.Unmarshal(env.Data, &u) == nil && (u.Text != "" || len(u.Attachments) > 0) {
+				turns <- turnReq{text: u.Text, atts: resolveAttachments(u.Attachments, cwd)}
 			}
 		case wire.MsgPermissionResponse:
 			var r wire.PermissionResponseData
@@ -147,18 +166,87 @@ func Run(ctx context.Context, sess *runtime.Session, in io.Reader, out io.Writer
 				default:
 				}
 			}
+		case wire.MsgSetModel:
+			// The GUI model picker changed mid-session — re-pin the live session.
+			var m wire.SetModelData
+			if json.Unmarshal(env.Data, &m) == nil {
+				d.applyPin(m.Pin)
+			}
 		case wire.MsgCancel:
 			d.cancelTurn()
 		}
+	}
+
+	if pending != nil {
+		handle(*pending)
+	}
+	for sc.Scan() {
+		var env wire.Envelope
+		if json.Unmarshal(sc.Bytes(), &env) != nil {
+			continue // skip a malformed line rather than killing the session
+		}
+		handle(env)
 	}
 	close(turns)
 	<-done
 	return sc.Err()
 }
 
+// applyInitialize applies an initialize message — permission mode, model pin, and
+// resume — and returns the client's cwd (for resolving relative attachment paths).
+// Resume is only meaningful before StartChat; a later call adjusts mode/pin only.
+func (d *driver) applyInitialize(env wire.Envelope) string {
+	var in wire.InitializeData
+	_ = json.Unmarshal(env.Data, &in)
+	switch permissions.Mode(in.Mode) {
+	case permissions.ModeAsk, permissions.ModeAuto, permissions.ModeAllowAll:
+		d.sess.SetMode(permissions.Mode(in.Mode))
+	}
+	// A model pin rides the handshake (headless clients have no /model picker). The
+	// window comes from the SDK catalog — the same source the picker's list is built
+	// from. An unknown label is skipped, not sent: the gateway would silently serve
+	// Automatic anyway, so surface it on stderr instead of pinning a lie.
+	d.applyPin(in.Pin)
+	if in.Resume != "" {
+		if err := d.sess.ResumeSession(in.Resume); err != nil {
+			fmt.Fprintf(os.Stderr, "protocol: could not resume %q: %v — starting fresh\n", in.Resume, err)
+		}
+	}
+	return in.Cwd
+}
+
+// applyPin resolves a model pin (id/label) via the SDK catalog and pins it live.
+// "" clears to Automatic. Unknown labels are surfaced on stderr, not pinned (the
+// gateway would silently serve Automatic anyway). Shared by initialize and the
+// mid-session set_model command.
+func (d *driver) applyPin(pin string) {
+	if pin == "" {
+		d.sess.SetPin("", 0) // Automatic
+		return
+	}
+	if m, ok := catalog.LookupModel(pin); ok {
+		d.sess.SetPin(pin, m.Window)
+	} else {
+		fmt.Fprintf(os.Stderr, "protocol: unknown model pin %q — staying on Automatic\n", pin)
+	}
+}
+
+// resolveAttachments turns wire attachments (file paths from a GUI client) into
+// the runtime's native input.Attachment via the same resolver the TUI uses for
+// dragged/pasted files.
+func resolveAttachments(in []wire.Attachment, cwd string) []input.Attachment {
+	var out []input.Attachment
+	for _, a := range in {
+		if att, ok := input.Resolve(a.Path, cwd, "drag_drop"); ok {
+			out = append(out, att)
+		}
+	}
+	return out
+}
+
 // runTurn executes one turn under a cancelable context (so MsgCancel can interrupt it)
 // and emits a result/error envelope when it finishes.
-func (d *driver) runTurn(ctx context.Context, st *runtime.ChatState, text string) {
+func (d *driver) runTurn(ctx context.Context, st *runtime.ChatState, req turnReq) {
 	turnCtx, cancel := context.WithCancel(ctx)
 	d.cancelMu.Lock()
 	d.turnSeq++
@@ -166,7 +254,10 @@ func (d *driver) runTurn(ctx context.Context, st *runtime.ChatState, text string
 	d.cancel = cancel
 	d.cancelMu.Unlock()
 
-	d.sess.Submit(turnCtx, st, text)
+	if len(req.atts) > 0 {
+		d.sess.AttachNext(req.atts)
+	}
+	d.sess.Submit(turnCtx, st, req.text)
 
 	// Capture completion BEFORE our own cancel(): otherwise turnCtx.Err() always reads
 	// context.Canceled and every result reports Completed:false even on success. The turn

@@ -418,7 +418,11 @@ func (s *Session) exploreTool(ctx context.Context, input json.RawMessage) toolRe
 		status += " · " + res.ServedBy // who ran this scout — cheap lane (minimax) or an Anthropic fallback
 	}
 	s.toolLine(true, "Explore", scope, status, false)
-	s.printf("%s\n", metaStyle.Render("   "+strings.TrimSpace(q)))
+	if s.structured {
+		s.emitToolOutput("Explore", strings.TrimSpace(q))
+	} else {
+		s.printf("%s\n", metaStyle.Render("   "+strings.TrimSpace(q)))
+	}
 	return textResult(s.spillReport("explore-"+scope, s.redactor.Redact(res.Text)))
 }
 
@@ -1327,8 +1331,10 @@ func (s *Session) editFile(ctx context.Context, input json.RawMessage) toolResul
 	s.toolLine(true, verb, res.Path, "", false)
 	if res.Created {
 		renderNewFile(s.out, newContent, res.Path, s.diffWidth())
+		s.emitDiff(res.Path, newContent, true)
 	} else if safeDiff != "" {
 		renderDiff(s.out, safeDiff, res.Path, s.diffWidth())
+		s.emitDiff(res.Path, safeDiff, false)
 	}
 	if safeDiff == "" {
 		safeDiff = "(applied; no git diff available)"
@@ -1477,6 +1483,7 @@ func (s *Session) applyPatch(ctx context.Context, input json.RawMessage) toolRes
 		s.toolLine(true, verb, res.Path, "", false)
 		if d := s.redactor.Redact(res.Diff); d != "" {
 			renderDiff(s.out, d, res.Path, s.diffWidth())
+			s.emitDiff(res.Path, d, res.Created)
 		}
 		fmt.Fprintf(&b, "  %s %s\n", verb, res.Path)
 	}

@@ -2,6 +2,7 @@ package protocol
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -15,6 +16,7 @@ import (
 	"github.com/memcode-ai/memcode/internal/agent/runtime"
 	"github.com/memcode-ai/memcode/internal/llm"
 	"github.com/memcode-ai/memcode/internal/store"
+	"github.com/memcode-ai/memcode/internal/todos"
 	"github.com/memcode-ai/memcode/internal/wire"
 )
 
@@ -168,5 +170,70 @@ func TestInitializePinsTheSession(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// The runtime's optional diff/tool observer seams and the plan hook must surface as
+// the structured protocol events a desktop/SDK client renders — with the runtime's
+// internal todo statuses mapped to the wire vocabulary (active -> in_progress).
+func TestObserverEmitsStructuredEvents(t *testing.T) {
+	var buf bytes.Buffer
+	d := &driver{out: json.NewEncoder(&buf)}
+
+	d.Todos(todos.List{{Title: "build the thing", Status: todos.StatusActive}})
+	d.EmitDiff("main.go", "go", "@@ -1 +1 @@\n-old\n+new", 1, 1, false)
+	d.EmitTool("Write", "main.go", "done", false)
+	d.EmitToolOutput("Write", "updated main.go")
+
+	var sawTodos, sawDiff, sawToolCall, sawToolResult, sawToolOutput bool
+	sc := bufio.NewScanner(&buf)
+	for sc.Scan() {
+		var env wire.Envelope
+		if err := json.Unmarshal(sc.Bytes(), &env); err != nil {
+			t.Fatalf("non-JSON on protocol stdout: %q", sc.Text())
+		}
+		switch env.Type {
+		case wire.MsgTodos:
+			var td wire.TodosData
+			_ = json.Unmarshal(env.Data, &td)
+			if len(td.Items) != 1 || td.Items[0].Status != "in_progress" || td.Items[0].Text != "build the thing" {
+				t.Errorf("todos event = %+v, want one in_progress item", td.Items)
+			}
+			sawTodos = true
+		case wire.MsgDiff:
+			var dd wire.DiffData
+			_ = json.Unmarshal(env.Data, &dd)
+			if dd.Path != "main.go" || dd.Added != 1 || dd.Removed != 1 {
+				t.Errorf("diff event = %+v, want main.go +1/-1", dd)
+			}
+			sawDiff = true
+		case wire.MsgToolCall:
+			var tc wire.ToolCallData
+			_ = json.Unmarshal(env.Data, &tc)
+			if tc.Name != "Write" || tc.Target != "main.go" {
+				t.Errorf("tool_call event = %+v, want Write(main.go)", tc)
+			}
+			sawToolCall = true
+		case wire.MsgToolResult:
+			var tr wire.ToolResultData
+			_ = json.Unmarshal(env.Data, &tr)
+			if tr.Output != "" {
+				if tr.Output != "updated main.go" {
+					t.Errorf("tool_result output = %q, want preview text", tr.Output)
+				}
+				sawToolOutput = true
+				break
+			}
+			if tr.Status != "ok" {
+				t.Errorf("tool_result status = %q, want ok", tr.Status)
+			}
+			if tr.Detail != "done" {
+				t.Errorf("tool_result detail = %q, want done", tr.Detail)
+			}
+			sawToolResult = true
+		}
+	}
+	if !sawTodos || !sawDiff || !sawToolCall || !sawToolResult || !sawToolOutput {
+		t.Errorf("missing events: todos=%v diff=%v tool_call=%v tool_result=%v tool_output=%v", sawTodos, sawDiff, sawToolCall, sawToolResult, sawToolOutput)
 	}
 }
