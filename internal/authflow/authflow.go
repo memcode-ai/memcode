@@ -10,6 +10,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"html"
 	"io"
 	"net"
 	"net/http"
@@ -253,19 +254,47 @@ func StripGlobalEnvToken() (bool, error) {
 	return true, nil
 }
 
+// callbackWordmark is the hosted memcode wordmark (the matrix glyph mark from
+// the marketing site). Referenced by absolute URL rather than embedded: the
+// browser rendering this page just completed OAuth against memcode.ai, so it
+// has connectivity, and a 300KB PNG has no business inflating the binary. If
+// the fetch fails the alt text still reads "memcode".
+const callbackWordmark = "https://memcode.ai/logo-wordmark.png"
+
 func writeCallbackPage(w http.ResponseWriter, ok bool, errMsg string) {
-	w.Header().Set("Content-Type", "text/html")
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if !ok {
 		w.WriteHeader(http.StatusBadRequest)
 	}
-	body := `<html><body style="font-family:system-ui;display:flex;justify-content:center;align-items:center;height:100vh;margin:0;background:#0a0a0a;color:#fafafa"><div style="text-align:center">`
+
+	var inner string
 	if ok {
-		body += `<h2>Authenticated</h2><p style="color:#888">You can close this tab and return to your terminal.</p>`
+		inner = `<h1>Authenticated</h1><p class="sub">You can close this tab and return to your terminal.</p>`
 	} else {
-		body += fmt.Sprintf(`<h2>Authentication failed</h2><p style="color:#f87171">%s</p><p style="color:#888">Close this tab and try again.</p>`, errMsg)
+		inner = fmt.Sprintf(
+			`<h1>Authentication failed</h1><p class="err">%s</p><p class="sub">Close this tab and try again.</p>`,
+			html.EscapeString(errMsg),
+		)
 	}
-	body += `</div></body></html>`
-	io.WriteString(w, body)
+
+	page := `<!doctype html><html lang="en"><head><meta charset="utf-8">` +
+		`<meta name="viewport" content="width=device-width,initial-scale=1"><title>memcode</title><style>` +
+		`html,body{height:100%}` +
+		`body{margin:0;background:#0a0a0a;color:#fafafa;` +
+		`font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;` +
+		`display:flex;align-items:center;justify-content:center}` +
+		`.wrap{text-align:center;padding:24px;animation:fade .5s ease both}` +
+		`.mark{width:200px;max-width:56vw;height:auto;display:block;margin:0 auto 40px;opacity:.95}` +
+		`h1{margin:0 0 10px;font-size:28px;font-weight:600;letter-spacing:-.02em}` +
+		`.sub{margin:0;color:#8a8a8a;font-size:15px}` +
+		`.err{margin:0 0 6px;color:#f87171;font-size:15px}` +
+		`@keyframes fade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}` +
+		`</style></head><body><div class="wrap">` +
+		`<img class="mark" src="` + callbackWordmark + `" alt="memcode">` +
+		inner +
+		`</div></body></html>`
+
+	io.WriteString(w, page)
 }
 
 // envOr returns os.Getenv(key) or fallback if empty.
