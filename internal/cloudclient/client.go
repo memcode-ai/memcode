@@ -1,10 +1,10 @@
-// Package client is the CLI's HTTP client for the memcode gateway's
+// Package cloudclient is the CLI's HTTP client for the memcode gateway's
 // SIDE-CHANNEL surfaces: /v1/advisor, /v1/websearch, /v1/webfetch, and the
 // /v1/byok key-management routes. The TURN wire lives elsewhere — the shared
 // providers/memcode transport (OpenAI-compat + the memcode extensions). Every
 // call here rides requestWithRetry (Cloud Run cold-start 5xx / 429 / transient
 // net errors), with SetRetryNotify surfacing "⊙ retrying…" in the TUI.
-package client
+package cloudclient
 
 import (
 	"bytes"

@@ -1,4 +1,4 @@
-package client
+package cloudclient
 
 // The side-channel retry contract: every advisor/websearch/byok call rides
 // requestWithRetry — a Cloud Run cold-start 5xx retries (with the notify
