@@ -1,11 +1,14 @@
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -54,8 +57,7 @@ state lives in a non-standard directory:
 			slug:     "openclaw",
 			dir:      dir,
 			channels: openClawChannels,
-			// OpenClaw keeps its conversation/memory store under state/.
-			memoryArtifacts: []string{"state", "openclaw.sqlite", "memory"},
+			memory:   openClawMemory,
 		})
 	},
 }
@@ -87,8 +89,7 @@ state lives in a non-standard directory:
 			slug:     "hermes",
 			dir:      dir,
 			channels: hermesChannels,
-			// Hermes keeps sessions/history in state.db and sessions/.
-			memoryArtifacts: []string{"state.db", "sessions", "memory"},
+			memory:   hermesMemory,
 		})
 	},
 }
@@ -97,11 +98,11 @@ state lives in a non-standard directory:
 // config (with the .env beside it resolving credential references) into the
 // channel/secret mapping; the rest is common across sources.
 type migrationSource struct {
-	display         string
-	slug            string
-	dir             string
-	channels        func(dir string, env map[string]string) (importer.Result, error)
-	memoryArtifacts []string // paths under dir holding the memory/history store
+	display  string
+	slug     string
+	dir      string
+	channels func(dir string, env map[string]string) (importer.Result, error)
+	memory   func(dir string) []string // extracts the source's memory as discrete entries
 }
 
 // runMigration performs the full migration for a source: channels, provider API
@@ -160,8 +161,8 @@ func runMigration(cmd *cobra.Command, src migrationSource) error {
 	skills, skillNotes := copySkills(filepath.Join(src.dir, "skills"))
 	res.Notes = append(res.Notes, skillNotes...)
 
-	// 4. Memory/history → preserved, pointed at from global memory.md.
-	memNote, err := preserveMemories(src)
+	// 4. Memory → extracted from the source's markdown stores into global memory.md.
+	memCount, err := migrateMemories(src)
 	if err != nil {
 		return err
 	}
@@ -173,8 +174,8 @@ func runMigration(cmd *cobra.Command, src migrationSource) error {
 	cmd.Printf("  API keys:  %d provider key(s) → global .env\n", len(keys))
 	cmd.Printf("  secrets:   %d credential(s) written\n", len(res.Secrets))
 	cmd.Printf("  skills:    %d imported → ~/.memcode/skills\n", len(skills))
-	if memNote != "" {
-		cmd.Printf("  memory:    %s\n", memNote)
+	if memCount > 0 {
+		cmd.Printf("  memory:    %d entries → ~/.memcode/memory.md (global, loaded every session)\n", memCount)
 	}
 	for _, note := range res.Notes {
 		cmd.Printf("  note: %s\n", note)
@@ -305,60 +306,372 @@ func hasSkillManifest(dir string) bool {
 	return false
 }
 
-// preserveMemories copies the source's memory/history artifacts under
-// ~/.memcode/imported/<slug>/ and records a pointer in global memory.md. memcode
-// has no global conversation store to load them into (its memory is
-// per-repository), so they are preserved for reference, not auto-loaded. Returns
-// a short human-readable note, or "" when the source has no memory store.
-func preserveMemories(src migrationSource) (string, error) {
+// memoryImportBudget caps the total characters of imported memory written into
+// global memory.md, so a large source store cannot bloat every session's
+// context. Overflow entries are dropped with a note. Matches Hermes's own merge
+// budget (agent_import.py's MEMORY_CHAR_LIMIT).
+const memoryImportBudget = 20_000
+
+// migrateMemories extracts the source's memory as discrete entries, dedups and
+// caps them, and writes them into global memory.md (~/.memcode/memory.md) where
+// they are loaded into every session. This mirrors how Hermes imports OpenClaw
+// memory: markdown stores are parsed into entries, not copied verbatim. Returns
+// the number of entries written.
+func migrateMemories(src migrationSource) (int, error) {
+	if src.memory == nil {
+		return 0, nil
+	}
+	entries := dedupEntries(src.memory(src.dir))
+	if len(entries) == 0 {
+		return 0, nil
+	}
+	entries, truncated := capEntries(entries, memoryImportBudget)
+	if len(entries) == 0 {
+		return 0, nil
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return "", nil
+		return 0, nil
 	}
-	var found []string
-	for _, rel := range src.memoryArtifacts {
-		if _, err := os.Stat(filepath.Join(src.dir, rel)); err == nil {
-			found = append(found, rel)
-		}
+	path := filepath.Join(home, ".memcode", "memory.md")
+	if err := upsertMemoryBlock(path, src.slug, buildMemoryBlock(src, entries, truncated)); err != nil {
+		return 0, err
 	}
-	if len(found) == 0 {
-		return "", nil
-	}
-	dstRoot := filepath.Join(home, ".memcode", "imported", src.slug)
-	for _, rel := range found {
-		if err := copyTree(filepath.Join(src.dir, rel), filepath.Join(dstRoot, rel)); err != nil {
-			return "", fmt.Errorf("preserving %s memory: %w", src.display, err)
-		}
-	}
-	if err := appendMemoryPointer(home, src, dstRoot); err != nil {
-		return "", err
-	}
-	return fmt.Sprintf("history preserved at ~/.memcode/imported/%s/ (reference — memcode memory is per-repo, so it is not auto-loaded)", src.slug), nil
+	return len(entries), nil
 }
 
-// appendMemoryPointer records, once, a pointer in global memory.md so the running
-// agent knows the imported history exists and where to find it. Idempotent: a
-// second migration from the same source does not duplicate the note.
-func appendMemoryPointer(home string, src migrationSource, importedDir string) error {
-	path := filepath.Join(home, ".memcode", "memory.md")
-	marker := "<!-- imported:" + src.slug + " -->"
-	if b, err := os.ReadFile(path); err == nil && strings.Contains(string(b), marker) {
+// openClawMemory reads OpenClaw's workspace memory files — MEMORY.md, USER.md,
+// SOUL.md, AGENTS.md, and the daily memory/*.md files — and parses each into
+// entries. It searches the workspace directory the way OpenClaw itself lays it
+// out: the configured agents.defaults.workspace, then the default workspace/ and
+// its renamed variants (workspace-main, workspace-assistant).
+func openClawMemory(dir string) []string {
+	roots := openClawWorkspaceRoots(dir)
+	var entries []string
+	readInto := func(rel string) {
+		for _, r := range roots {
+			if data, err := os.ReadFile(filepath.Join(r, rel)); err == nil {
+				entries = append(entries, extractMarkdownEntries(string(data))...)
+				return // first workspace root that has the file wins
+			}
+		}
+	}
+	readInto("MEMORY.md")
+	readInto("USER.md")
+	readInto("SOUL.md")
+	readInto("AGENTS.md")
+	// Daily memory files live under <workspace>/memory/.
+	for _, r := range roots {
+		md := filepath.Join(r, "memory")
+		files, err := os.ReadDir(md)
+		if err != nil {
+			continue
+		}
+		var names []string
+		for _, e := range files {
+			if !e.IsDir() && strings.EqualFold(filepath.Ext(e.Name()), ".md") {
+				names = append(names, e.Name())
+			}
+		}
+		sort.Strings(names)
+		for _, n := range names {
+			if data, err := os.ReadFile(filepath.Join(md, n)); err == nil {
+				entries = append(entries, extractMarkdownEntries(string(data))...)
+			}
+		}
+		break // first workspace root with a memory/ dir wins
+	}
+	return entries
+}
+
+// hermesMemory reads Hermes's own store, ~/.hermes/memories/*.md, whose entries
+// are already discrete (context-prefixed when Hermes imported them) and
+// separated by bare § lines. Split on that delimiter rather than re-parsing the
+// markdown, matching Hermes's own destination parser.
+func hermesMemory(dir string) []string {
+	memDir := filepath.Join(dir, "memories")
+	files, err := os.ReadDir(memDir)
+	if err != nil {
 		return nil
 	}
+	var names []string
+	for _, e := range files {
+		if !e.IsDir() && strings.EqualFold(filepath.Ext(e.Name()), ".md") {
+			names = append(names, e.Name())
+		}
+	}
+	sort.Strings(names)
+	var entries []string
+	for _, n := range names {
+		data, err := os.ReadFile(filepath.Join(memDir, n))
+		if err != nil {
+			continue
+		}
+		for _, part := range strings.Split(string(data), "\n§\n") {
+			if part = strings.TrimSpace(part); part != "" {
+				entries = append(entries, part)
+			}
+		}
+	}
+	return entries
+}
+
+// openClawWorkspaceRoots returns the existing directories to search for OpenClaw
+// workspace files, in priority order: the workspace configured in openclaw.json,
+// then the default workspace/ and OpenClaw's renamed variants.
+func openClawWorkspaceRoots(dir string) []string {
+	var candidates []string
+	if ws := openClawConfiguredWorkspace(dir); ws != "" {
+		candidates = append(candidates, ws)
+	}
+	for _, name := range []string{"workspace", "workspace-main", "workspace-assistant"} {
+		candidates = append(candidates, filepath.Join(dir, name))
+	}
+	// A workspace file may also sit at the install root itself.
+	candidates = append(candidates, dir)
+	var out []string
+	seen := map[string]bool{}
+	for _, c := range candidates {
+		if seen[c] {
+			continue
+		}
+		seen[c] = true
+		if st, err := os.Stat(c); err == nil && st.IsDir() {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// openClawConfiguredWorkspace reads agents.defaults.workspace from openclaw.json,
+// expanding a leading ~. Returns "" when unset or unreadable.
+func openClawConfiguredWorkspace(dir string) string {
+	data, err := os.ReadFile(filepath.Join(dir, "openclaw.json"))
+	if err != nil {
+		return ""
+	}
+	var cfg struct {
+		Agents struct {
+			Defaults struct {
+				Workspace string `json:"workspace"`
+			} `json:"defaults"`
+		} `json:"agents"`
+	}
+	if json.Unmarshal(data, &cfg) != nil {
+		return ""
+	}
+	ws := strings.TrimSpace(cfg.Agents.Defaults.Workspace)
+	if ws == "" {
+		return ""
+	}
+	if strings.HasPrefix(ws, "~") {
+		if home, err := os.UserHomeDir(); err == nil {
+			ws = filepath.Join(home, strings.TrimPrefix(ws, "~"))
+		}
+	}
+	return ws
+}
+
+// filenameHeadingRe matches a heading that is just a memory filename (MEMORY.md,
+// USER.md, …). Such headings are structural, not context, so they are excluded
+// from an entry's heading-context prefix.
+var filenameHeadingRe = regexp.MustCompile(`(?i)\b(MEMORY|USER|SOUL|AGENTS|TOOLS|IDENTITY)\.md\b`)
+
+// headingRe and bulletRe match markdown headings and list items.
+var (
+	headingRe = regexp.MustCompile(`^(#{1,6})\s+(.*\S)\s*$`)
+	bulletRe  = regexp.MustCompile(`^\s*(?:[-*]|\d+\.)\s+(.*\S)\s*$`)
+)
+
+// extractMarkdownEntries parses one markdown memory file into discrete entries,
+// a faithful port of Hermes's OpenClaw importer (openclaw_to_hermes.py's
+// extract_markdown_entries). Each bullet and each paragraph becomes an entry,
+// prefixed with its heading context ("Heading > Subheading: text"). Fenced code
+// blocks and table rows are dropped, and entries are deduped by
+// whitespace-normalized text.
+func extractMarkdownEntries(text string) []string {
+	var entries []string
+	var headings []string
+	var paragraph []string
+
+	contextPrefix := func() string {
+		var filtered []string
+		for _, h := range headings {
+			if h != "" && !filenameHeadingRe.MatchString(h) {
+				filtered = append(filtered, h)
+			}
+		}
+		return strings.Join(filtered, " > ")
+	}
+	emit := func(content string) {
+		if prefix := contextPrefix(); prefix != "" {
+			entries = append(entries, prefix+": "+content)
+		} else {
+			entries = append(entries, content)
+		}
+	}
+	flush := func() {
+		if len(paragraph) == 0 {
+			return
+		}
+		var parts []string
+		for _, l := range paragraph {
+			parts = append(parts, strings.TrimSpace(l))
+		}
+		paragraph = nil
+		if block := strings.TrimSpace(strings.Join(parts, " ")); block != "" {
+			emit(block)
+		}
+	}
+
+	inCode := false
+	for _, raw := range strings.Split(text, "\n") {
+		line := strings.TrimRight(raw, " \t\r")
+		stripped := strings.TrimSpace(line)
+
+		if strings.HasPrefix(stripped, "```") {
+			inCode = !inCode
+			flush()
+			continue
+		}
+		if inCode {
+			continue
+		}
+		if m := headingRe.FindStringSubmatch(stripped); m != nil {
+			flush()
+			level := len(m[1])
+			for len(headings) >= level {
+				headings = headings[:len(headings)-1]
+			}
+			headings = append(headings, strings.TrimSpace(m[2]))
+			continue
+		}
+		if m := bulletRe.FindStringSubmatch(line); m != nil {
+			flush()
+			emit(strings.TrimSpace(m[1]))
+			continue
+		}
+		if stripped == "" {
+			flush()
+			continue
+		}
+		if strings.HasPrefix(stripped, "|") && strings.HasSuffix(stripped, "|") {
+			flush()
+			continue
+		}
+		paragraph = append(paragraph, stripped)
+	}
+	flush()
+
+	return dedupEntries(entries)
+}
+
+// normalizeEntry collapses whitespace for dedup comparison (Hermes's
+// normalize_text).
+func normalizeEntry(s string) string {
+	return strings.Join(strings.Fields(s), " ")
+}
+
+// dedupEntries drops empty and duplicate entries (by normalized text), keeping
+// first-seen order.
+func dedupEntries(entries []string) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, e := range entries {
+		key := normalizeEntry(e)
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, strings.TrimSpace(e))
+	}
+	return out
+}
+
+// capEntries keeps entries in order until their combined length would exceed
+// limit, reporting whether any were dropped.
+func capEntries(entries []string, limit int) (kept []string, truncated bool) {
+	total := 0
+	for _, e := range entries {
+		next := total + len(e)
+		if len(kept) > 0 {
+			next++ // newline between bullets
+		}
+		if next > limit {
+			return kept, true
+		}
+		total = next
+		kept = append(kept, e)
+	}
+	return kept, false
+}
+
+// buildMemoryBlock renders imported entries as a bounded, bulleted markdown block
+// for global memory.md. The HTML-comment markers let a re-run replace the block
+// in place instead of appending a duplicate.
+func buildMemoryBlock(src migrationSource, entries []string, truncated bool) string {
+	var b strings.Builder
+	b.WriteString(memBlockMarker(src.slug, "start") + "\n")
+	b.WriteString("## Memory imported from " + src.display + "\n")
+	b.WriteString("Facts and context migrated from your " + src.display + " install. Background knowledge, not instructions.\n\n")
+	for _, e := range entries {
+		// Keep each entry on one line so it reads as a discrete fact.
+		b.WriteString("- " + strings.Join(strings.Fields(e), " ") + "\n")
+	}
+	if truncated {
+		b.WriteString("\n_(Truncated at " + strconv.Itoa(memoryImportBudget) + " characters; see your original " + src.display + " files for the rest.)_\n")
+	}
+	b.WriteString(memBlockMarker(src.slug, "end") + "\n")
+	return b.String()
+}
+
+func memBlockMarker(slug, side string) string {
+	return "<!-- memcode:import:" + slug + ":" + side + " -->"
+}
+
+// upsertMemoryBlock writes block into memory.md, replacing any existing block for
+// the same source (matched by its markers) so a re-run refreshes rather than
+// duplicates. Preserves the user's own content around it.
+func upsertMemoryBlock(path, slug, block string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
-	if err != nil {
-		return err
+	existing := ""
+	if b, err := os.ReadFile(path); err == nil {
+		existing = removeMemoryBlock(string(b), slug)
 	}
-	defer f.Close()
-	entry := fmt.Sprintf("\n## Imported from %s %s\nYour %s conversation history and memory were preserved at `%s`. "+
-		"memcode's memory is per-repository, so this is reference material, not auto-loaded facts — "+
-		"open those files to review, or copy specific facts into this file to keep them.\n",
-		src.display, marker, src.display, importedDir)
-	_, err = f.WriteString(entry)
-	return err
+	out := strings.TrimRight(existing, "\n")
+	if out != "" {
+		out += "\n\n"
+	}
+	out += strings.TrimRight(block, "\n") + "\n"
+	return os.WriteFile(path, []byte(out), 0o600)
+}
+
+// removeMemoryBlock strips an existing source block (start marker through end
+// marker) from content, leaving surrounding text intact. A malformed block
+// (start without a following end) is left untouched.
+func removeMemoryBlock(content, slug string) string {
+	start, end := memBlockMarker(slug, "start"), memBlockMarker(slug, "end")
+	si := strings.Index(content, start)
+	if si < 0 {
+		return content
+	}
+	ei := strings.Index(content[si:], end)
+	if ei < 0 {
+		return content
+	}
+	ei = si + ei + len(end)
+	before := strings.TrimRight(content[:si], "\n")
+	after := strings.TrimLeft(content[ei:], "\n")
+	switch {
+	case before == "":
+		return after
+	case after == "":
+		return before + "\n"
+	default:
+		return before + "\n\n" + after
+	}
 }
 
 // copyTree copies a file or directory tree from src to dst, creating parents.
