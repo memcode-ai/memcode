@@ -1,8 +1,9 @@
 // Package importer migrates an existing OpenClaw configuration into memcode's
 // gateway config. OpenClaw is the large incumbent multi-channel gateway; letting
 // a user bring their channels over with one command is how you win a switch
-// without making them reconfigure everything. It reads OpenClaw's JSON5
-// openclaw.json, maps each supported channel's credentials to memcode's .env keys
+// without making them reconfigure everything. It reads OpenClaw's plain-JSON
+// openclaw.json (parsed with encoding/json, the same way OpenClaw and Hermes read
+// it), maps each supported channel's credentials to memcode's .env keys
 // and its allow-list to our channels.<name>.allow_from, and reports (never
 // silently drops) anything it can't carry.
 package importer
