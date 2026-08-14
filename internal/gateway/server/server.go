@@ -16,6 +16,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -26,6 +27,9 @@ import (
 	"github.com/memcode-ai/memcode/internal/channels"
 	"github.com/memcode-ai/memcode/internal/channels/discord"
 	"github.com/memcode-ai/memcode/internal/channels/email"
+	"github.com/memcode-ai/memcode/internal/channels/matrix"
+	"github.com/memcode-ai/memcode/internal/channels/mattermost"
+	signalch "github.com/memcode-ai/memcode/internal/channels/signal"
 	"github.com/memcode-ai/memcode/internal/channels/slack"
 	"github.com/memcode-ai/memcode/internal/channels/telegram"
 	"github.com/memcode-ai/memcode/internal/events"
@@ -564,7 +568,31 @@ func channelsFrom(settings gwconfig.Settings, gw *state.Store, mediaDir string, 
 		}
 		chs = append(chs, email.New(addr, pass, imapHost, smtpHost, poll, mediaDir))
 	}
+	if number := strings.TrimSpace(os.Getenv(gwconfig.EnvSignalNumber)); number != "" {
+		attDir := defaultSignalAttachments()
+		chs = append(chs, signalch.New(strings.TrimSpace(os.Getenv(gwconfig.EnvSignalCLIURL)), number, attDir, mediaDir))
+	}
+	if hs := strings.TrimSpace(os.Getenv(gwconfig.EnvMatrixHomeserver)); hs != "" {
+		if tok := strings.TrimSpace(os.Getenv(gwconfig.EnvMatrixToken)); tok != "" {
+			chs = append(chs, matrix.New(hs, tok, gw, mediaDir))
+		}
+	}
+	if mmURL := strings.TrimSpace(os.Getenv(gwconfig.EnvMattermostURL)); mmURL != "" {
+		if tok := strings.TrimSpace(os.Getenv(gwconfig.EnvMattermostToken)); tok != "" {
+			chs = append(chs, mattermost.New(mmURL, tok, mediaDir))
+		}
+	}
 	return chs
+}
+
+// defaultSignalAttachments is where signal-cli keeps received attachments on
+// this machine (the daemon and the gateway share a host by design).
+func defaultSignalAttachments() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".local", "share", "signal-cli", "attachments")
 }
 
 // startWebhooks mounts each configured inbound trigger on an HTTP server and

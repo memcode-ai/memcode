@@ -46,6 +46,14 @@ CREATE TABLE IF NOT EXISTS poll_offsets (
     offset_val INTEGER NOT NULL
 );
 
+-- String ack cursors for channels whose resume token isn't an integer
+-- (Matrix /sync since-token). Same contract as poll_offsets: advanced only
+-- after a durable Deliver, so a restart resumes instead of replaying.
+CREATE TABLE IF NOT EXISTS cursors (
+    channel TEXT PRIMARY KEY,
+    cursor  TEXT NOT NULL
+);
+
 -- Durable per-conversation selection: which persona and project this
 -- conversation is currently pointed at. /agent and /project update these; a task
 -- snapshots them at receipt, so changing them affects only subsequent tasks.
@@ -323,6 +331,31 @@ func (s *Store) SetOffset(ctx context.Context, channel string, offset int64) err
 		channel, offset)
 	if err != nil {
 		return fmt.Errorf("set offset: %w", err)
+	}
+	return nil
+}
+
+// Cursor returns the persisted string ack cursor for a channel ("" if none).
+func (s *Store) Cursor(ctx context.Context, channel string) (string, error) {
+	var v string
+	err := s.db.QueryRowContext(ctx, `SELECT cursor FROM cursors WHERE channel = ?`, channel).Scan(&v)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("read cursor: %w", err)
+	}
+	return v, nil
+}
+
+// SetCursor durably records a channel's string ack cursor.
+func (s *Store) SetCursor(ctx context.Context, channel, cursor string) error {
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO cursors (channel, cursor) VALUES (?, ?)
+		 ON CONFLICT(channel) DO UPDATE SET cursor = excluded.cursor`,
+		channel, cursor)
+	if err != nil {
+		return fmt.Errorf("set cursor: %w", err)
 	}
 	return nil
 }

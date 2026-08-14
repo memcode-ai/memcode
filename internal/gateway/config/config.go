@@ -40,6 +40,17 @@ const (
 	EnvEmailPassword = "EMAIL_PASSWORD"
 	EnvEmailIMAPHost = "EMAIL_IMAP_HOST"
 	EnvEmailSMTPHost = "EMAIL_SMTP_HOST"
+	// Signal: a signal-cli daemon in native HTTP mode owns the account (linked
+	// device via `signal-cli link`; use a dedicated number). The URL points at
+	// that daemon; the number is our own account (loop prevention).
+	EnvSignalNumber = "SIGNAL_NUMBER"
+	EnvSignalCLIURL = "SIGNAL_CLI_URL" // optional; default http://127.0.0.1:8080
+	// Matrix: any homeserver, access-token login. Plain rooms only (no E2EE).
+	EnvMatrixHomeserver = "MATRIX_HOMESERVER"
+	EnvMatrixToken      = "MATRIX_ACCESS_TOKEN"
+	// Mattermost: self-hosted server URL + a bot (or personal) access token.
+	EnvMattermostURL   = "MATTERMOST_URL"
+	EnvMattermostToken = "MATTERMOST_TOKEN"
 )
 
 // Settings is the NON-secret gateway configuration (gateway.yaml). A channel's
@@ -359,6 +370,15 @@ func EnabledChannels() []string {
 	if os.Getenv(EnvEmailAddress) != "" && os.Getenv(EnvEmailPassword) != "" &&
 		os.Getenv(EnvEmailIMAPHost) != "" && os.Getenv(EnvEmailSMTPHost) != "" {
 		names = append(names, "email")
+	}
+	if os.Getenv(EnvSignalNumber) != "" {
+		names = append(names, "signal")
+	}
+	if os.Getenv(EnvMatrixHomeserver) != "" && os.Getenv(EnvMatrixToken) != "" {
+		names = append(names, "matrix")
+	}
+	if os.Getenv(EnvMattermostURL) != "" && os.Getenv(EnvMattermostToken) != "" {
+		names = append(names, "mattermost")
 	}
 	return names
 }
