@@ -17,20 +17,18 @@ import (
 	"github.com/memcode-ai/memcode/internal/agent/permissions"
 	"github.com/memcode-ai/memcode/internal/channels"
 	"github.com/memcode-ai/memcode/internal/channels/telegram"
+	gwconfig "github.com/memcode-ai/memcode/internal/gateway/config"
 	"github.com/memcode-ai/memcode/internal/jobs"
 )
 
-// Config configures a gateway run.
-type Config struct {
-	Root string // project root the agent operates in
-}
-
 // Run starts every configured channel and blocks until ctx is cancelled,
-// returning ctx.Err(). It fails fast if no channel is configured.
-func Run(ctx context.Context, cfg Config, out io.Writer) error {
-	chs := enabledChannels()
+// returning ctx.Err(). It fails fast if no channel is configured. root is the
+// project the agent operates in; settings holds the non-secret gateway config
+// (bot tokens come from the environment, loaded from the global .env upstream).
+func Run(ctx context.Context, root string, settings gwconfig.Settings, out io.Writer) error {
+	chs := channelsFrom(settings)
 	if len(chs) == 0 {
-		return fmt.Errorf("no channels configured — set a bot token in the global .env (e.g. MEMCODE_TELEGRAM_BOT_TOKEN)")
+		return fmt.Errorf("no channels configured — run `memcode gateway setup` to add one")
 	}
 
 	byName := make(map[string]channels.Channel, len(chs))
@@ -51,16 +49,17 @@ func Run(ctx context.Context, cfg Config, out io.Writer) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case inb := <-inbound:
-			go handle(ctx, cfg.Root, byName[inb.Channel], inb, out)
+			go handle(ctx, root, byName[inb.Channel], inb, out)
 		}
 	}
 }
 
-// enabledChannels builds a channel per configured token. v1: Telegram only;
-// the environment is already populated from the global .env by the caller.
-func enabledChannels() []channels.Channel {
+// channelsFrom builds a live channel for each one whose secret is present in the
+// environment. settings carries the non-secret knobs a channel needs (unused by
+// Telegram, which needs only its token).
+func channelsFrom(settings gwconfig.Settings) []channels.Channel {
 	var chs []channels.Channel
-	if tok := strings.TrimSpace(os.Getenv("MEMCODE_TELEGRAM_BOT_TOKEN")); tok != "" {
+	if tok := strings.TrimSpace(os.Getenv(gwconfig.EnvTelegramToken)); tok != "" {
 		chs = append(chs, telegram.New(tok))
 	}
 	return chs
