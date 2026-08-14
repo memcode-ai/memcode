@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	yaml "go.yaml.in/yaml/v4"
 
@@ -47,6 +48,77 @@ type Settings struct {
 	Webhook   Webhook            `yaml:"webhook,omitempty"`
 	Channels  map[string]Channel `yaml:"channels,omitempty"`
 	Schedules []Schedule         `yaml:"schedules,omitempty"`
+	// Projects is the registry of working directories the gateway may execute
+	// against (added with `memcode project add`). A remote message may select
+	// among these; it can never manufacture an arbitrary filesystem root.
+	Projects map[string]Project `yaml:"projects,omitempty"`
+	// DefaultProject is the project id the gateway executes against when a task
+	// carries no explicit project (all of them, until conversations land).
+	DefaultProject string `yaml:"default_project,omitempty"`
+}
+
+// Project is a registered working directory. Path is the configured location;
+// the AUTHORITY is its canonicalized form (see ResolveProject), resolved at use
+// time so a symlink swap can't redirect execution. Registration (is this path
+// runnable at all?) is deliberately distinct from authorization (may THIS
+// principal/agent run against it?) — the initial trust model is that every
+// allow-listed gateway principal may execute against every enabled project; a
+// principal→agent→projects policy is a later primitive.
+type Project struct {
+	Path    string `yaml:"path"`
+	Enabled bool   `yaml:"enabled"`
+}
+
+// ResolveProject resolves a registered project id to its canonical filesystem
+// root, enforcing the registration boundary: only a registered + enabled project
+// resolves, and the returned root — not the raw config string — is the authority
+// a task executes against.
+func (s Settings) ResolveProject(id string) (string, error) {
+	p, ok := s.Projects[id]
+	if !ok {
+		return "", fmt.Errorf("unknown project %q — register it with `memcode project add`", id)
+	}
+	if !p.Enabled {
+		return "", fmt.Errorf("project %q is disabled", id)
+	}
+	root, err := CanonicalRoot(p.Path)
+	if err != nil {
+		return "", fmt.Errorf("project %q: %w", id, err)
+	}
+	return root, nil
+}
+
+// CanonicalRoot expands a leading ~ and resolves path to an absolute,
+// symlink-free directory. The resolved directory is the execution authority — a
+// task's root must equal it, so registration alone can't be tricked by a symlink
+// into executing elsewhere.
+func CanonicalRoot(path string) (string, error) {
+	if path == "" {
+		return "", fmt.Errorf("empty path")
+	}
+	if path == "~" || strings.HasPrefix(path, "~/") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+		path = filepath.Join(home, strings.TrimPrefix(path, "~"))
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	resolved, err := filepath.EvalSymlinks(abs)
+	if err != nil {
+		return "", fmt.Errorf("resolving %s: %w", abs, err)
+	}
+	info, err := os.Stat(resolved)
+	if err != nil {
+		return "", err
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("%s is not a directory", resolved)
+	}
+	return resolved, nil
 }
 
 // Schedule is a time-triggered task: the gateway runs Task on the given cadence

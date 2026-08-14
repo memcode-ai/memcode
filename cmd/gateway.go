@@ -41,14 +41,25 @@ result is posted back to the channel it came from. Runs until interrupted.`,
 		if len(gwconfig.EnabledChannels()) == 0 {
 			return fmt.Errorf("no channels configured — run `memcode gateway setup` first")
 		}
-		st, cfg, err := openProject(ctx)
-		if err != nil {
-			return err
+		// Resolve the default project the gateway executes against. If one is
+		// registered, use its canonical (symlink-resolved) root; otherwise fall back
+		// to the current repo so `memcode gateway` in a project still works.
+		var root string
+		if settings.DefaultProject != "" {
+			if root, err = settings.ResolveProject(settings.DefaultProject); err != nil {
+				return err
+			}
+		} else {
+			st, cfg, e := openProject(ctx)
+			if e != nil {
+				return e
+			}
+			st.Close()
+			root = cfg.Root
 		}
-		st.Close() // the gateway's default project is resolved/initialized; its event log is global (below)
 
 		// Gateway telemetry is gateway-operational, so it goes to a global event
-		// store, never into the default project's .memcode.
+		// store, never into the project's .memcode.
 		gwDir, err := gwconfig.Dir()
 		if err != nil {
 			return err
@@ -59,8 +70,8 @@ result is posted back to the channel it came from. Runs until interrupted.`,
 		}
 		defer gwEvents.Close()
 
-		cmd.Printf("memcode gateway — %s (channels: %s)\n", cfg.Root, strings.Join(gwconfig.EnabledChannels(), ", "))
-		return gwserver.Run(ctx, cfg.Root, gwEvents, settings, cmd.OutOrStdout())
+		cmd.Printf("memcode gateway — %s (channels: %s)\n", root, strings.Join(gwconfig.EnabledChannels(), ", "))
+		return gwserver.Run(ctx, root, gwEvents, settings, cmd.OutOrStdout())
 	},
 }
 
