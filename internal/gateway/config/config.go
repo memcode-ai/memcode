@@ -51,6 +51,18 @@ const (
 	// Mattermost: self-hosted server URL + a bot (or personal) access token.
 	EnvMattermostURL   = "MATTERMOST_URL"
 	EnvMattermostToken = "MATTERMOST_TOKEN"
+	// SMS via Twilio. The webhook URL (signature input) is non-secret config:
+	// channels.sms.webhook_url in gateway.yaml.
+	EnvTwilioAccountSID = "TWILIO_ACCOUNT_SID"
+	EnvTwilioAuthToken  = "TWILIO_AUTH_TOKEN"
+	EnvTwilioFromNumber = "TWILIO_FROM_NUMBER"
+	// Microsoft Teams (Bot Framework / Azure bot registration).
+	EnvTeamsAppID       = "TEAMS_APP_ID"
+	EnvTeamsAppPassword = "TEAMS_APP_PASSWORD"
+	EnvTeamsTenantID    = "TEAMS_TENANT_ID"
+	// Google Chat: path to the app's service-account JSON key. The verification
+	// audience (project number) is non-secret: channels.googlechat.audience.
+	EnvGoogleChatSAKey = "GOOGLE_CHAT_SA_KEY"
 )
 
 // Settings is the NON-secret gateway configuration (gateway.yaml). A channel's
@@ -208,6 +220,13 @@ type Channel struct {
 	// Poll (email) is the mailbox poll cadence as a Go duration ("15s", "1m").
 	// Empty uses the adapter default.
 	Poll string `yaml:"poll,omitempty"`
+	// WebhookURL (sms) is the EXACT public URL Twilio posts to — the signature
+	// input, which a proxied server can't reliably reconstruct. Without it the
+	// SMS webhook rejects everything (fail closed).
+	WebhookURL string `yaml:"webhook_url,omitempty"`
+	// Audience (googlechat) is the app's project number — the JWT audience
+	// inbound Chat events are verified against.
+	Audience string `yaml:"audience,omitempty"`
 }
 
 // Get returns the settings for a channel (a zero Channel if unset), so callers
@@ -379,6 +398,15 @@ func EnabledChannels() []string {
 	}
 	if os.Getenv(EnvMattermostURL) != "" && os.Getenv(EnvMattermostToken) != "" {
 		names = append(names, "mattermost")
+	}
+	if os.Getenv(EnvTwilioAccountSID) != "" && os.Getenv(EnvTwilioAuthToken) != "" && os.Getenv(EnvTwilioFromNumber) != "" {
+		names = append(names, "sms")
+	}
+	if os.Getenv(EnvTeamsAppID) != "" && os.Getenv(EnvTeamsAppPassword) != "" && os.Getenv(EnvTeamsTenantID) != "" {
+		names = append(names, "msteams")
+	}
+	if os.Getenv(EnvGoogleChatSAKey) != "" {
+		names = append(names, "googlechat")
 	}
 	return names
 }

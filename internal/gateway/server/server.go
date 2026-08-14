@@ -38,6 +38,7 @@ import (
 	"github.com/memcode-ai/memcode/internal/jobs"
 	"github.com/memcode-ai/memcode/internal/store"
 	githubtrigger "github.com/memcode-ai/memcode/internal/triggers/github"
+	"github.com/memcode-ai/memcode/internal/triggers/sms"
 	"github.com/memcode-ai/memcode/internal/triggers/whatsapp"
 )
 
@@ -620,6 +621,24 @@ func startWebhooks(ctx context.Context, settings gwconfig.Settings, rt *runtime,
 			rt.byName[wc.Name()] = wc
 			mux.Handle("/webhook/whatsapp", wc.Handler(rt))
 			fmt.Fprintf(out, "gateway: whatsapp webhook on /webhook/whatsapp\n")
+			mounted = true
+		}
+	}
+
+	// SMS (Twilio) rides the same mux; it is also a valid github.reply_to target,
+	// so it registers in byName before GitHub validates its route.
+	tsid := strings.TrimSpace(os.Getenv(gwconfig.EnvTwilioAccountSID))
+	ttok := strings.TrimSpace(os.Getenv(gwconfig.EnvTwilioAuthToken))
+	tfrom := strings.TrimSpace(os.Getenv(gwconfig.EnvTwilioFromNumber))
+	if tsid != "" && ttok != "" && tfrom != "" {
+		hook := strings.TrimSpace(settings.Get("sms").WebhookURL)
+		if hook == "" {
+			fmt.Fprintf(out, "gateway: sms inactive: set channels.sms.webhook_url (the exact public URL) so inbound signatures can be verified\n")
+		} else {
+			sc := sms.New(tsid, ttok, tfrom, hook, rt.mediaDir)
+			rt.byName[sc.Name()] = sc
+			mux.Handle("/webhook/sms", sc.Handler(rt))
+			fmt.Fprintf(out, "gateway: sms webhook on POST /webhook/sms\n")
 			mounted = true
 		}
 	}
