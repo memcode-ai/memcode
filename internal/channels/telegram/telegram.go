@@ -14,7 +14,9 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
+	"unicode/utf16"
 
 	"github.com/memcode-ai/memcode/internal/channels"
 )
@@ -58,19 +60,35 @@ func New(token string, store OffsetStore) *Channel {
 // Name returns the adapter identifier.
 func (c *Channel) Name() string { return "telegram" }
 
-// update mirrors the fields we use from a Telegram Update.
+// update mirrors the fields we use from a Telegram Update. Named sub-types (not
+// anonymous structs) so they're straightforward to build in tests.
 type update struct {
-	UpdateID int64 `json:"update_id"`
-	Message  *struct {
-		From *struct {
-			ID       int64  `json:"id"`
-			Username string `json:"username"`
-		} `json:"from"`
-		Chat *struct {
-			ID int64 `json:"id"`
-		} `json:"chat"`
-		Text string `json:"text"`
-	} `json:"message"`
+	UpdateID int64      `json:"update_id"`
+	Message  *tgMessage `json:"message"`
+}
+
+type tgMessage struct {
+	From           *tgUser    `json:"from"`
+	Chat           *tgChat    `json:"chat"`
+	Text           string     `json:"text"`
+	Entities       []tgEntity `json:"entities"`
+	ReplyToMessage *tgMessage `json:"reply_to_message"`
+}
+
+type tgUser struct {
+	ID       int64  `json:"id"`
+	Username string `json:"username"`
+}
+
+type tgChat struct {
+	ID   int64  `json:"id"`
+	Type string `json:"type"` // "private" for a DM; "group"/"supergroup"/… otherwise
+}
+
+type tgEntity struct {
+	Type   string `json:"type"` // "mention", "bot_command", …
+	Offset int    `json:"offset"`
+	Length int    `json:"length"`
 }
 
 // Start long-polls getUpdates and forwards each text message as an Inbound until
@@ -78,6 +96,11 @@ type update struct {
 // so a restart resumes where it left off. Transient errors back off with jitter
 // rather than returning, so a flaky network never takes the gateway down.
 func (c *Channel) Start(ctx context.Context, inbound chan<- channels.Inbound) error {
+	// Learn our own id and username so we can detect being addressed in a group.
+	// If getMe fails the bot still serves DMs; group messages just won't be seen
+	// as mentions (so they won't trigger unless respond_to_all) — the safe default.
+	botID, botUsername := c.getMe(ctx)
+
 	var offset int64
 	if c.store != nil {
 		if v, err := c.store.Offset(ctx, "telegram"); err == nil {
@@ -108,7 +131,7 @@ func (c *Channel) Start(ctx context.Context, inbound chan<- channels.Inbound) er
 		backoff = time.Second // recovered — reset the ladder
 		for _, u := range ups {
 			offset = u.UpdateID + 1 // ack: next poll starts past this update
-			if inb, ok := toInbound(u); ok {
+			if inb, ok := toInbound(u, botID, botUsername); ok {
 				select {
 				case inbound <- inb:
 				case <-ctx.Done():
@@ -132,8 +155,9 @@ func jitter(d time.Duration) time.Duration {
 }
 
 // toInbound converts a Telegram update to a normalized Inbound, or ok=false if
-// it carries no usable text message.
-func toInbound(u update) (channels.Inbound, bool) {
+// it carries no usable text message. botID/botUsername identify this bot so a
+// group message can be recognized as addressed to it.
+func toInbound(u update, botID int64, botUsername string) (channels.Inbound, bool) {
 	if u.Message == nil || u.Message.Chat == nil || u.Message.Text == "" {
 		return channels.Inbound{}, false
 	}
@@ -150,7 +174,72 @@ func toInbound(u update) (channels.Inbound, bool) {
 		Principal:    principal,
 		Text:         u.Message.Text,
 		MessageID:    strconv.FormatInt(u.UpdateID, 10),
+		IsDirect:     u.Message.Chat.Type == "private",
+		Mentioned:    mentionsBot(u, botID, botUsername),
 	}, true
+}
+
+// mentionsBot reports whether the message addresses this bot: a reply to one of
+// its messages, a @mention entity for its username, or a /command@botusername.
+// Entity text is sliced with UTF-16 offsets (Telegram's unit), not bytes.
+func mentionsBot(u update, botID int64, botUsername string) bool {
+	m := u.Message
+	if botID != 0 && m.ReplyToMessage != nil && m.ReplyToMessage.From != nil && m.ReplyToMessage.From.ID == botID {
+		return true
+	}
+	if botUsername == "" {
+		return false
+	}
+	want := "@" + strings.ToLower(botUsername)
+	for _, e := range m.Entities {
+		switch e.Type {
+		case "mention":
+			if strings.ToLower(entityText(m.Text, e.Offset, e.Length)) == want {
+				return true
+			}
+		case "bot_command":
+			if strings.Contains(strings.ToLower(entityText(m.Text, e.Offset, e.Length)), want) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// entityText extracts the substring a Telegram entity covers. Offsets/lengths are
+// in UTF-16 code units, so we encode to UTF-16 before slicing.
+func entityText(text string, offset, length int) string {
+	u := utf16.Encode([]rune(text))
+	if offset < 0 || length < 0 || offset+length > len(u) {
+		return ""
+	}
+	return string(utf16.Decode(u[offset : offset+length]))
+}
+
+// getMe fetches this bot's id and username. On any error it returns zero values,
+// and the caller degrades safely (DMs still work; group mentions won't match).
+func (c *Channel) getMe(ctx context.Context) (int64, string) {
+	endpoint := fmt.Sprintf("%s/bot%s/getMe", c.base, c.token)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return 0, ""
+	}
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return 0, ""
+	}
+	defer resp.Body.Close()
+	var out struct {
+		OK     bool `json:"ok"`
+		Result struct {
+			ID       int64  `json:"id"`
+			Username string `json:"username"`
+		} `json:"result"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil || !out.OK {
+		return 0, ""
+	}
+	return out.Result.ID, out.Result.Username
 }
 
 func (c *Channel) getUpdates(ctx context.Context, offset int64) ([]update, error) {

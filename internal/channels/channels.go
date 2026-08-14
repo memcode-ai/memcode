@@ -25,6 +25,14 @@ type Inbound struct {
 	// router's per-channel allow-list doesn't apply. Chat messages leave this
 	// false and are gated by the allow-list; a signed GitHub delivery sets it.
 	Trusted bool
+	// IsDirect is true for a 1:1 direct message. A DM always triggers the agent;
+	// a message in a group/channel triggers only when the bot is addressed (see
+	// Mentioned) or the channel is configured to respond to all.
+	IsDirect bool
+	// Mentioned is true when the bot was explicitly addressed — @mentioned, or
+	// replied-to — so a group message meant for it triggers even without
+	// respond_to_all. Detected structurally by each adapter, never by substring.
+	Mentioned bool
 }
 
 // Outbound is a reply to post back to a conversation.

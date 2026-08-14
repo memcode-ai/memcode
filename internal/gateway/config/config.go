@@ -56,11 +56,16 @@ type Webhook struct {
 
 // Channel is a channel's non-secret configuration.
 type Channel struct {
-	// AllowFrom is the set of principals (ids or @handles) permitted to drive the
-	// agent through this channel; "*" allows anyone on the channel. Empty means
-	// no one is allowed (unless the global AllowAll is set). Secrets never live
-	// here — bot tokens are in the .env.
+	// AllowFrom is the set of stable user ids permitted to drive the agent through
+	// this channel; "*" allows anyone on the channel. Empty means no one is
+	// allowed (unless the global AllowAll is set). Use stable ids, not @handles —
+	// authorization is on ids. Secrets never live here; bot tokens are in the .env.
 	AllowFrom []string `yaml:"allow_from,omitempty"`
+	// RespondToAll makes the bot act on every message in a group/channel it can
+	// see. Default false: in a group the bot only acts when it is mentioned, so it
+	// doesn't spawn a paid agent job for ordinary chatter. Direct messages always
+	// trigger regardless of this setting.
+	RespondToAll bool `yaml:"respond_to_all,omitempty"`
 	// ReplyTo (GitHub) routes an autonomous result to a chat conversation, e.g.
 	// "telegram:123456".
 	ReplyTo string `yaml:"reply_to,omitempty"`

@@ -26,7 +26,7 @@ func TestToInbound(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, ok := toInbound(tt.me)
+			got, ok := toInbound(tt.me, "BOT")
 			if ok != tt.wantOK {
 				t.Fatalf("ok = %v, want %v", ok, tt.wantOK)
 			}
@@ -38,5 +38,27 @@ func TestToInbound(t *testing.T) {
 				t.Errorf("got %+v, want %+v", got, want)
 			}
 		})
+	}
+}
+
+func TestGatingSignals(t *testing.T) {
+	// DM (channel_type im) → IsDirect.
+	dm := &slackevents.MessageEvent{User: "U7", Channel: "D1", Text: "hi", TimeStamp: "1", ChannelType: "im"}
+	if inb, _ := toInbound(dm, "BOT"); !inb.IsDirect || inb.Mentioned {
+		t.Errorf("DM: IsDirect=%v Mentioned=%v, want true/false", inb.IsDirect, inb.Mentioned)
+	}
+	// Channel message, no mention → not direct, not mentioned.
+	plain := &slackevents.MessageEvent{User: "U7", Channel: "C1", Text: "hello team", TimeStamp: "2", ChannelType: "channel"}
+	if inb, _ := toInbound(plain, "BOT"); inb.IsDirect || inb.Mentioned {
+		t.Errorf("channel plain: IsDirect=%v Mentioned=%v, want false/false", inb.IsDirect, inb.Mentioned)
+	}
+	// Channel message mentioning the bot → mentioned.
+	mentioned := &slackevents.MessageEvent{User: "U7", Channel: "C1", Text: "<@BOT> do it", TimeStamp: "3", ChannelType: "channel"}
+	if inb, _ := toInbound(mentioned, "BOT"); !inb.Mentioned {
+		t.Error("channel mention not detected")
+	}
+	// Unknown bot id → can't detect a mention (safe: won't trigger in a channel).
+	if inb, _ := toInbound(mentioned, ""); inb.Mentioned {
+		t.Error("mention should not be detected without a known bot id")
 	}
 }

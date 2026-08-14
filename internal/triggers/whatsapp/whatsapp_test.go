@@ -48,7 +48,7 @@ func TestToInbounds(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("want 2 text messages, got %d: %+v", len(got), got)
 	}
-	want := channels.Inbound{Channel: "whatsapp", Conversation: "15551230000", Principal: "15551230000", Text: "do it", MessageID: "wamid.1"}
+	want := channels.Inbound{Channel: "whatsapp", Conversation: "15551230000", Principal: "15551230000", Text: "do it", MessageID: "wamid.1", IsDirect: true}
 	if got[0] != want {
 		t.Errorf("got %+v, want %+v", got[0], want)
 	}

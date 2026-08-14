@@ -196,6 +196,14 @@ func handle(ctx context.Context, root string, st *state.Store, settings gwconfig
 		fmt.Fprintf(out, "gateway: no route for channel %q — dropping message\n", inb.Channel)
 		return
 	}
+	// Trigger gate: in a group/channel the bot acts only when addressed (mentioned
+	// or replied-to), unless the channel is set to respond to all. A direct message
+	// always triggers. This keeps ordinary group chatter from spawning paid agent
+	// jobs. Checked before authz so ambient chatter doesn't even reach the
+	// allow-list. A Trusted webhook is always a trigger.
+	if !inb.Trusted && !inb.IsDirect && !inb.Mentioned && !settings.Get(inb.Channel).RespondToAll {
+		return
+	}
 	// Authorization: a chat message must come from an allow-listed principal (the
 	// gateway is default-deny). A Trusted inbound (a signature-verified webhook)
 	// skips this — its transport already authenticated the sender.

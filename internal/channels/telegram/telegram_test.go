@@ -29,28 +29,12 @@ func (f *fakeOffsetStore) SetOffset(ctx context.Context, channel string, offset 
 
 func TestToInbound(t *testing.T) {
 	mk := func(text string, chatID int64, hasChat bool, username string, fromID int64, hasFrom bool) update {
-		var u update
-		u.UpdateID = 1
-		u.Message = &struct {
-			From *struct {
-				ID       int64  `json:"id"`
-				Username string `json:"username"`
-			} `json:"from"`
-			Chat *struct {
-				ID int64 `json:"id"`
-			} `json:"chat"`
-			Text string `json:"text"`
-		}{Text: text}
+		u := update{UpdateID: 1, Message: &tgMessage{Text: text}}
 		if hasChat {
-			u.Message.Chat = &struct {
-				ID int64 `json:"id"`
-			}{ID: chatID}
+			u.Message.Chat = &tgChat{ID: chatID}
 		}
 		if hasFrom {
-			u.Message.From = &struct {
-				ID       int64  `json:"id"`
-				Username string `json:"username"`
-			}{ID: fromID, Username: username}
+			u.Message.From = &tgUser{ID: fromID, Username: username}
 		}
 		return u
 	}
@@ -72,7 +56,7 @@ func TestToInbound(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, ok := toInbound(tt.u)
+			got, ok := toInbound(tt.u, 0, "")
 			if ok != tt.wantOK {
 				t.Fatalf("ok = %v, want %v", ok, tt.wantOK)
 			}
@@ -190,5 +174,65 @@ func TestSend(t *testing.T) {
 	}
 	if gotChat != "42" || gotText != "yo" {
 		t.Errorf("server got chat=%q text=%q", gotChat, gotText)
+	}
+}
+
+func TestGatingSignals(t *testing.T) {
+	const botID = int64(555)
+	const botUser = "memcodebot"
+
+	// Private chat → IsDirect, no mention needed.
+	priv := update{UpdateID: 1, Message: &tgMessage{
+		Text: "do it", Chat: &tgChat{ID: 1, Type: "private"}, From: &tgUser{ID: 7},
+	}}
+	if inb, _ := toInbound(priv, botID, botUser); !inb.IsDirect || inb.Mentioned {
+		t.Errorf("private: IsDirect=%v Mentioned=%v, want true/false", inb.IsDirect, inb.Mentioned)
+	}
+
+	// Group message, no mention → not direct, not mentioned.
+	plain := update{UpdateID: 2, Message: &tgMessage{
+		Text: "hi all", Chat: &tgChat{ID: -100, Type: "supergroup"}, From: &tgUser{ID: 7},
+	}}
+	if inb, _ := toInbound(plain, botID, botUser); inb.IsDirect || inb.Mentioned {
+		t.Errorf("group plain: IsDirect=%v Mentioned=%v, want false/false", inb.IsDirect, inb.Mentioned)
+	}
+
+	// Group @mention of the bot → mentioned (entity-based).
+	text := "@memcodebot do it"
+	mentioned := update{UpdateID: 3, Message: &tgMessage{
+		Text: text, Chat: &tgChat{ID: -100, Type: "supergroup"}, From: &tgUser{ID: 7},
+		Entities: []tgEntity{{Type: "mention", Offset: 0, Length: len([]rune("@memcodebot"))}},
+	}}
+	if inb, _ := toInbound(mentioned, botID, botUser); !inb.Mentioned {
+		t.Error("group @mention not detected")
+	}
+
+	// /command@botusername addressed to the bot → mentioned.
+	cmd := "/start@memcodebot"
+	command := update{UpdateID: 4, Message: &tgMessage{
+		Text: cmd, Chat: &tgChat{ID: -100, Type: "group"}, From: &tgUser{ID: 7},
+		Entities: []tgEntity{{Type: "bot_command", Offset: 0, Length: len([]rune(cmd))}},
+	}}
+	if inb, _ := toInbound(command, botID, botUser); !inb.Mentioned {
+		t.Error("/command@bot not detected")
+	}
+
+	// Reply to one of the bot's messages → mentioned.
+	reply := update{UpdateID: 5, Message: &tgMessage{
+		Text: "thanks", Chat: &tgChat{ID: -100, Type: "group"}, From: &tgUser{ID: 7},
+		ReplyToMessage: &tgMessage{From: &tgUser{ID: botID}},
+	}}
+	if inb, _ := toInbound(reply, botID, botUser); !inb.Mentioned {
+		t.Error("reply-to-bot not treated as a mention")
+	}
+
+	// A mention of a DIFFERENT bot must not trigger.
+	other := "@someoneelse hi"
+	othermention := update{UpdateID: 6, Message: &tgMessage{
+		Text: other, Chat: &tgChat{ID: -100, Type: "group"}, From: &tgUser{ID: 7},
+		Entities: []tgEntity{{Type: "mention", Offset: 0, Length: len([]rune("@someoneelse"))}},
+	}}
+	if inb, _ := toInbound(othermention, botID, botUser); inb.Mentioned {
+		t.Error("mention of another user should not count as addressing this bot")
 	}
 }

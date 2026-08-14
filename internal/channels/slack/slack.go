@@ -21,6 +21,7 @@ import (
 type Channel struct {
 	api    *slack.Client
 	client *socketmode.Client
+	botID  string // this bot's own user id (U…), for mention detection
 }
 
 // New builds a Slack channel from an app-level token (Socket Mode) and a bot
@@ -37,6 +38,12 @@ func (c *Channel) Name() string { return "slack" }
 // until ctx is cancelled. socketmode reconnects internally; RunContext only
 // returns on ctx cancellation or a fatal error.
 func (c *Channel) Start(ctx context.Context, inbound chan<- channels.Inbound) error {
+	// Learn our own user id so we can detect being @mentioned. If this fails the
+	// bot still serves DMs; group messages just won't be seen as mentions (so they
+	// won't trigger unless the channel is set to respond to all) — the safe default.
+	if resp, err := c.api.AuthTestContext(ctx); err == nil {
+		c.botID = resp.UserID
+	}
 	go func() {
 		for {
 			select {
@@ -60,7 +67,7 @@ func (c *Channel) Start(ctx context.Context, inbound chan<- channels.Inbound) er
 				if !ok {
 					continue
 				}
-				inb, ok := toInbound(me)
+				inb, ok := toInbound(me, c.botID)
 				if !ok {
 					continue
 				}
@@ -78,19 +85,25 @@ func (c *Channel) Start(ctx context.Context, inbound chan<- channels.Inbound) er
 // toInbound converts a Slack message event to a normalized Inbound. It skips bot
 // messages (including our own replies, which carry a bot id), message subtypes
 // (edits/joins/etc.), and empty or userless messages.
-func toInbound(me *slackevents.MessageEvent) (channels.Inbound, bool) {
+func toInbound(me *slackevents.MessageEvent, botID string) (channels.Inbound, bool) {
 	if me == nil || me.BotID != "" || me.SubType != "" {
 		return channels.Inbound{}, false
 	}
 	if me.User == "" || strings.TrimSpace(me.Text) == "" {
 		return channels.Inbound{}, false
 	}
+	// A 1:1 DM is channel_type "im". In a channel the bot acts only when its user
+	// id appears as a mention token (<@BOTID>) — structural, not a name substring.
+	isDirect := me.ChannelType == "im"
+	mentioned := botID != "" && strings.Contains(me.Text, "<@"+botID+">")
 	return channels.Inbound{
 		Channel:      "slack",
 		Conversation: me.Channel,
 		Principal:    me.User,
 		Text:         me.Text,
 		MessageID:    me.TimeStamp, // Slack's per-message ts, unique within a channel
+		IsDirect:     isDirect,
+		Mentioned:    mentioned,
 	}, true
 }
 

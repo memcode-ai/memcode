@@ -172,6 +172,7 @@ func toInbounds(body []byte) []channels.Inbound {
 					Principal:    m.From,
 					Text:         m.Text.Body,
 					MessageID:    m.ID,
+					IsDirect:     true, // WhatsApp Cloud messages are 1:1 with the sender
 				})
 			}
 		}

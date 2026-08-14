@@ -9,8 +9,11 @@ import (
 )
 
 func msg(content, chanID, authorID, username string, bot bool) *discordgo.MessageCreate {
+	// A guild message by default (GuildID set) so the parse tests aren't also
+	// exercising DM detection; gating is covered separately below.
 	return &discordgo.MessageCreate{Message: &discordgo.Message{
 		ID:        "m1",
+		GuildID:   "g1",
 		ChannelID: chanID,
 		Content:   content,
 		Author:    &discordgo.User{ID: authorID, Username: username, Bot: bot},
@@ -48,5 +51,37 @@ func TestToInbound(t *testing.T) {
 				t.Errorf("got %+v, want %+v", got, want)
 			}
 		})
+	}
+}
+
+func TestGatingSignals(t *testing.T) {
+	const self = "botself"
+
+	// DM (no guild) → IsDirect, not gated on mention.
+	dm := &discordgo.MessageCreate{Message: &discordgo.Message{
+		ID: "m1", ChannelID: "c1", Content: "hi", Author: &discordgo.User{ID: "u7"},
+	}}
+	if inb, _ := toInbound(dm, self); !inb.IsDirect || inb.Mentioned {
+		t.Errorf("DM: IsDirect=%v Mentioned=%v, want true/false", inb.IsDirect, inb.Mentioned)
+	}
+
+	// Guild message, no mention → not direct, not mentioned.
+	plain := msg("hello", "c1", "u7", "", false)
+	if inb, _ := toInbound(plain, self); inb.IsDirect || inb.Mentioned {
+		t.Errorf("guild plain: IsDirect=%v Mentioned=%v, want false/false", inb.IsDirect, inb.Mentioned)
+	}
+
+	// Guild message mentioning the bot → mentioned.
+	mentioned := msg("hey do it", "c1", "u7", "", false)
+	mentioned.Mentions = []*discordgo.User{{ID: self}}
+	if inb, _ := toInbound(mentioned, self); !inb.Mentioned {
+		t.Error("guild mention not detected")
+	}
+
+	// Guild reply to one of the bot's messages → mentioned.
+	reply := msg("thanks", "c1", "u7", "", false)
+	reply.ReferencedMessage = &discordgo.Message{Author: &discordgo.User{ID: self}}
+	if inb, _ := toInbound(reply, self); !inb.Mentioned {
+		t.Error("reply-to-bot not treated as a mention")
 	}
 }

@@ -81,6 +81,20 @@ func toInbound(m *discordgo.MessageCreate, selfID string) (channels.Inbound, boo
 	if strings.TrimSpace(m.Content) == "" {
 		return channels.Inbound{}, false
 	}
+	// A message with no guild is a DM. In a guild the bot only acts when addressed:
+	// mentioned in the mentions array, or a reply to one of its own messages.
+	// Detection is structural (ids), never substring.
+	isDirect := m.GuildID == ""
+	mentioned := false
+	for _, u := range m.Mentions {
+		if u != nil && u.ID == selfID {
+			mentioned = true
+			break
+		}
+	}
+	if !mentioned && m.ReferencedMessage != nil && m.ReferencedMessage.Author != nil && m.ReferencedMessage.Author.ID == selfID {
+		mentioned = true
+	}
 	// Principal is the stable user id (snowflake), never the mutable username, so
 	// the allow-list authorizes on a stable identity.
 	return channels.Inbound{
@@ -89,6 +103,8 @@ func toInbound(m *discordgo.MessageCreate, selfID string) (channels.Inbound, boo
 		Principal:    m.Author.ID,
 		Text:         m.Content,
 		MessageID:    m.ID,
+		IsDirect:     isDirect,
+		Mentioned:    mentioned,
 	}, true
 }
 
