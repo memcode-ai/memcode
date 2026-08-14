@@ -72,7 +72,7 @@ func jwksServer(t *testing.T, key *rsa.PrivateKey, kid string) *httptest.Server 
 func testChannel(t *testing.T, jwks *httptest.Server) *Channel {
 	t.Helper()
 	c := New(nil, testAudience, "")
-	c.jwksURL = jwks.URL
+	c.verify.JWKSURL = jwks.URL
 	return c
 }
 

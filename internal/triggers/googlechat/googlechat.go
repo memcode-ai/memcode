@@ -12,14 +12,9 @@ package googlechat
 import (
 	"bytes"
 	"context"
-	"crypto"
-	"crypto/rsa"
-	"crypto/sha256"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
-	"math/big"
 	"net/http"
 	"strings"
 	"sync"
@@ -29,6 +24,7 @@ import (
 	"golang.org/x/oauth2/google"
 
 	"github.com/memcode-ai/memcode/internal/channels"
+	"github.com/memcode-ai/memcode/internal/webjwt"
 )
 
 const defaultAPIBase = "https://chat.googleapis.com"
@@ -55,32 +51,33 @@ type Channel struct {
 	mediaDir  string // media spool; "" disables inbound attachment downloads
 	client    *http.Client
 
-	apiBase string // Chat REST base; overridable in tests
-	jwksURL string // Google cert endpoint; overridable in tests
+	apiBase string           // Chat REST base; overridable in tests
+	verify  *webjwt.Verifier // the shared inbound-JWT verifier; tests point its JWKSURL at a fake
 
 	// tokenSource authenticates outbound REST calls (and attachment downloads).
 	// Defaulted lazily from the service-account key; tests inject a
 	// oauth2.StaticTokenSource instead.
 	tokenSource oauth2.TokenSource
 	tsMu        sync.Mutex
-
-	// keys caches Google's JWKS by kid; refreshed at most once per request when
-	// an unknown kid appears (Google rotates keys).
-	keys   map[string]*rsa.PublicKey
-	keysMu sync.Mutex
 }
 
 // New builds a Google Chat channel from the service-account key JSON, the
 // expected JWT audience (the app's project number), and the gateway media
 // spool directory ("" disables attachment downloads).
 func New(saKeyJSON []byte, audience, mediaDir string) *Channel {
+	client := &http.Client{Timeout: 30 * time.Second}
 	return &Channel{
 		saKeyJSON: saKeyJSON,
 		audience:  audience,
 		mediaDir:  mediaDir,
-		client:    &http.Client{Timeout: 30 * time.Second},
+		client:    client,
 		apiBase:   defaultAPIBase,
-		jwksURL:   defaultJWKSURL,
+		verify: &webjwt.Verifier{
+			JWKSURL:  defaultJWKSURL,
+			Issuer:   chatIssuer,
+			Audience: audience,
+			Client:   client,
+		},
 	}
 }
 
@@ -101,7 +98,7 @@ func (c *Channel) Handler(sink channels.Sink) http.Handler {
 		// valid one we cannot tell Google from an internet stranger, so nothing
 		// is parsed, let alone delivered.
 		token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-		if !ok || !c.verifyJWT(r.Context(), token) {
+		if !ok || c.verify.Verify(r.Context(), token) != nil {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
@@ -302,124 +299,4 @@ func (c *Channel) source(ctx context.Context) (oauth2.TokenSource, error) {
 	}
 	c.tokenSource = cfg.TokenSource(context.Background())
 	return c.tokenSource, nil
-}
-
-// --- inbound JWT verification (stdlib JWKS, no new module deps) ---
-
-// verifyJWT checks a Google-signed RS256 bearer: signature against Google's
-// published JWKS, issuer chat@system.gserviceaccount.com, audience equal to
-// the app's project number, and unexpired.
-func (c *Channel) verifyJWT(ctx context.Context, token string) bool {
-	if c.audience == "" {
-		return false // no configured audience can never verify — reject, don't trust
-	}
-	parts := strings.Split(token, ".")
-	if len(parts) != 3 {
-		return false
-	}
-	headerRaw, err := base64.RawURLEncoding.DecodeString(parts[0])
-	if err != nil {
-		return false
-	}
-	var header struct {
-		Alg string `json:"alg"`
-		Kid string `json:"kid"`
-	}
-	if err := json.Unmarshal(headerRaw, &header); err != nil || header.Alg != "RS256" {
-		return false
-	}
-	claimsRaw, err := base64.RawURLEncoding.DecodeString(parts[1])
-	if err != nil {
-		return false
-	}
-	var claims struct {
-		Iss string `json:"iss"`
-		Aud string `json:"aud"`
-		Exp int64  `json:"exp"`
-	}
-	if err := json.Unmarshal(claimsRaw, &claims); err != nil {
-		return false
-	}
-	if claims.Iss != chatIssuer || claims.Aud != c.audience || time.Now().Unix() >= claims.Exp {
-		return false
-	}
-	sig, err := base64.RawURLEncoding.DecodeString(parts[2])
-	if err != nil {
-		return false
-	}
-	pub, err := c.publicKey(ctx, header.Kid)
-	if err != nil {
-		return false
-	}
-	sum := sha256.Sum256([]byte(parts[0] + "." + parts[1]))
-	return rsa.VerifyPKCS1v15(pub, crypto.SHA256, sum[:], sig) == nil
-}
-
-// publicKey resolves a kid from the JWKS cache, refreshing from Google at most
-// once per lookup when the kid is unknown (key rotation).
-func (c *Channel) publicKey(ctx context.Context, kid string) (*rsa.PublicKey, error) {
-	c.keysMu.Lock()
-	defer c.keysMu.Unlock()
-	if pub, ok := c.keys[kid]; ok {
-		return pub, nil
-	}
-	keys, err := c.fetchJWKS(ctx)
-	if err != nil {
-		return nil, err
-	}
-	c.keys = keys
-	if pub, ok := c.keys[kid]; ok {
-		return pub, nil
-	}
-	return nil, fmt.Errorf("googlechat jwt: unknown key id %q", kid)
-}
-
-// fetchJWKS pulls Google's cert set and parses the RSA keys (n/e per RFC 7517).
-func (c *Channel) fetchJWKS(ctx context.Context) (map[string]*rsa.PublicKey, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.jwksURL, nil)
-	if err != nil {
-		return nil, err
-	}
-	resp, err := c.client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode/100 != 2 {
-		return nil, fmt.Errorf("googlechat jwks: status %d", resp.StatusCode)
-	}
-	var doc struct {
-		Keys []struct {
-			Kty string `json:"kty"`
-			Kid string `json:"kid"`
-			N   string `json:"n"`
-			E   string `json:"e"`
-		} `json:"keys"`
-	}
-	if err := json.NewDecoder(io.LimitReader(resp.Body, maxBody)).Decode(&doc); err != nil {
-		return nil, err
-	}
-	out := make(map[string]*rsa.PublicKey, len(doc.Keys))
-	for _, k := range doc.Keys {
-		if k.Kty != "RSA" || k.Kid == "" {
-			continue
-		}
-		nb, err := base64.RawURLEncoding.DecodeString(k.N)
-		if err != nil {
-			continue
-		}
-		eb, err := base64.RawURLEncoding.DecodeString(k.E)
-		if err != nil || len(eb) == 0 || len(eb) > 8 {
-			continue
-		}
-		e := 0
-		for _, b := range eb {
-			e = e<<8 | int(b)
-		}
-		if e <= 1 {
-			continue
-		}
-		out[k.Kid] = &rsa.PublicKey{N: new(big.Int).SetBytes(nb), E: e}
-	}
-	return out, nil
 }

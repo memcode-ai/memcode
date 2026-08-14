@@ -195,3 +195,18 @@ func TestSendUsesThread(t *testing.T) {
 		t.Errorf("subject wrong:\n%s", sentRaw)
 	}
 }
+
+// Threading headers are injection-proof even if a hostile Message-ID slipped
+// past inbound parsing.
+func TestComposeReplyStripsCRLF(t *testing.T) {
+	th := threadInfo{last: "<m9@b.com>\r\nBcc: victim@x.com", subject: "hi"}
+	raw := string(composeReply("bot@x.com", "tim@b.com", th, "ok"))
+	// The CRLF is stripped, so "Bcc:" can only survive INSIDE the In-Reply-To
+	// value (inert) — never as its own header line.
+	if strings.Contains(raw, "\r\nBcc:") {
+		t.Fatalf("injected header line survived:\n%s", raw)
+	}
+	if !strings.Contains(raw, "In-Reply-To: <m9@b.com>Bcc: victim@x.com\r\n") {
+		t.Fatalf("strip changed more than line breaks:\n%s", raw)
+	}
+}

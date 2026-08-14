@@ -107,6 +107,9 @@ func (c *Channel) verifySignature(header string, form url.Values) bool {
 	var b strings.Builder
 	b.WriteString(c.webhookURL)
 	for _, k := range keys {
+		// form.Get takes the FIRST value only. Twilio never sends duplicate
+		// keys; if one ever appeared, the computed signature would mismatch and
+		// the request would be rejected — fail closed, not a bypass.
 		b.WriteString(k)
 		b.WriteString(form.Get(k))
 	}

@@ -11,21 +11,18 @@ package msteams
 import (
 	"bytes"
 	"context"
-	"crypto/rsa"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"math/big"
 	"net/http"
 	"net/url"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/memcode-ai/memcode/internal/channels"
+	"github.com/memcode-ai/memcode/internal/webjwt"
 )
 
 // botFrameworkIssuer is the issuer every Bot Framework connector token carries.
@@ -54,15 +51,9 @@ type Channel struct {
 	appPassword string
 	tenantID    string
 	mediaDir    string // media spool; "" disables inbound media downloads
-	metadataURL string // Bot Framework OpenID metadata; overridable in tests
 	tokenBase   string // Azure AD token endpoint base; overridable in tests
 	client      *http.Client
-
-	// keysMu guards the JWKS cache. Keys are fetched lazily and refreshed at
-	// most once per request when an unknown kid arrives (Microsoft rotates
-	// signing keys), so a flood of bad tokens can't hammer the metadata host.
-	keysMu sync.Mutex
-	keys   map[string]*rsa.PublicKey
+	verify      *webjwt.Verifier // the shared inbound-JWT verifier; tests point its MetadataURL at a fake
 
 	// tokMu guards the cached outbound bearer; refreshed ~60s before expiry so
 	// an in-flight Send never races the token's edge.
@@ -75,14 +66,20 @@ type Channel struct {
 // the AAD tenant the bot is registered in. mediaDir is the gateway media spool
 // inbound attachments are downloaded into; "" disables media handling.
 func New(appID, appPassword, tenantID, mediaDir string) *Channel {
+	client := &http.Client{Timeout: 30 * time.Second}
 	return &Channel{
 		appID:       appID,
 		appPassword: appPassword,
 		tenantID:    tenantID,
 		mediaDir:    mediaDir,
-		metadataURL: defaultMetadataURL,
 		tokenBase:   defaultTokenBase,
-		client:      &http.Client{Timeout: 30 * time.Second},
+		client:      client,
+		verify: &webjwt.Verifier{
+			MetadataURL: defaultMetadataURL,
+			Issuer:      botFrameworkIssuer,
+			Audience:    appID,
+			Client:      client,
+		},
 	}
 }
 
@@ -129,7 +126,7 @@ func (c *Channel) Handler(sink channels.Sink) http.Handler {
 			return
 		}
 		raw, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-		if !ok || c.validateJWT(r.Context(), raw) != nil {
+		if !ok || c.verify.Verify(r.Context(), raw) != nil {
 			// Unauthenticated caller: nothing is delivered. 401, not 503 — a
 			// forged request must not be invited to retry.
 			http.Error(w, "invalid token", http.StatusUnauthorized)
@@ -262,122 +259,6 @@ func (c *Channel) fetch(ctx context.Context, u, bearer string) (*http.Response, 
 		req.Header.Set("Authorization", "Bearer "+bearer)
 	}
 	return c.client.Do(req)
-}
-
-// validateJWT verifies an inbound Bot Framework token: RS256 signature against
-// the published JWKS, the Bot Framework issuer, our app id as audience, and an
-// unexpired lifetime. An unknown kid triggers at most ONE JWKS refresh for
-// this request — key rotation is handled, a forged-kid flood is not amplified.
-func (c *Channel) validateJWT(ctx context.Context, raw string) error {
-	refreshed := false
-	keyfunc := func(t *jwt.Token) (any, error) {
-		kid, _ := t.Header["kid"].(string)
-		if kid == "" {
-			return nil, errors.New("token missing kid")
-		}
-		if k := c.cachedKey(kid); k != nil {
-			return k, nil
-		}
-		if !refreshed {
-			refreshed = true
-			if err := c.refreshKeys(ctx); err != nil {
-				return nil, err
-			}
-			if k := c.cachedKey(kid); k != nil {
-				return k, nil
-			}
-		}
-		return nil, fmt.Errorf("unknown signing key %q", kid)
-	}
-	_, err := jwt.Parse(raw, keyfunc,
-		jwt.WithValidMethods([]string{"RS256"}),
-		jwt.WithIssuer(botFrameworkIssuer),
-		jwt.WithAudience(c.appID),
-		jwt.WithExpirationRequired(),
-	)
-	return err
-}
-
-func (c *Channel) cachedKey(kid string) *rsa.PublicKey {
-	c.keysMu.Lock()
-	defer c.keysMu.Unlock()
-	return c.keys[kid]
-}
-
-// refreshKeys fetches the OpenID metadata, follows jwks_uri, and replaces the
-// key cache. Replacing (not merging) means revoked keys actually leave.
-func (c *Channel) refreshKeys(ctx context.Context) error {
-	var meta struct {
-		JWKSURI string `json:"jwks_uri"`
-	}
-	if err := c.getJSON(ctx, c.metadataURL, &meta); err != nil {
-		return fmt.Errorf("openid metadata: %w", err)
-	}
-	if meta.JWKSURI == "" {
-		return errors.New("openid metadata has no jwks_uri")
-	}
-	var set struct {
-		Keys []struct {
-			Kty string `json:"kty"`
-			Kid string `json:"kid"`
-			N   string `json:"n"`
-			E   string `json:"e"`
-		} `json:"keys"`
-	}
-	if err := c.getJSON(ctx, meta.JWKSURI, &set); err != nil {
-		return fmt.Errorf("jwks fetch: %w", err)
-	}
-	keys := make(map[string]*rsa.PublicKey, len(set.Keys))
-	for _, k := range set.Keys {
-		if k.Kty != "RSA" || k.Kid == "" {
-			continue
-		}
-		pub, err := rsaFromJWK(k.N, k.E)
-		if err != nil {
-			continue // one malformed key must not poison the whole set
-		}
-		keys[k.Kid] = pub
-	}
-	if len(keys) == 0 {
-		return errors.New("jwks contained no usable rsa keys")
-	}
-	c.keysMu.Lock()
-	c.keys = keys
-	c.keysMu.Unlock()
-	return nil
-}
-
-// rsaFromJWK builds an RSA public key from base64url modulus and exponent.
-func rsaFromJWK(n64, e64 string) (*rsa.PublicKey, error) {
-	nb, err := base64.RawURLEncoding.DecodeString(n64)
-	if err != nil {
-		return nil, err
-	}
-	eb, err := base64.RawURLEncoding.DecodeString(e64)
-	if err != nil {
-		return nil, err
-	}
-	e := new(big.Int).SetBytes(eb)
-	if !e.IsInt64() || e.Int64() <= 0 {
-		return nil, errors.New("bad rsa exponent")
-	}
-	return &rsa.PublicKey{N: new(big.Int).SetBytes(nb), E: int(e.Int64())}, nil
-}
-
-func (c *Channel) getJSON(ctx context.Context, u string, v any) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
-	if err != nil {
-		return err
-	}
-	resp, err := c.client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode/100 != 2 {
-		return fmt.Errorf("get %s: status %d", u, resp.StatusCode)
-	}
-	return json.NewDecoder(io.LimitReader(resp.Body, maxBody)).Decode(v)
 }
 
 // token returns a valid outbound connector bearer, minting one via the Azure

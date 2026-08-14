@@ -37,7 +37,7 @@ func (s *recordingSink) Deliver(_ context.Context, inb channels.Inbound) error {
 }
 
 // jwksServer serves a fake Bot Framework OpenID config + JWKS for key. Returns
-// the metadata URL to plug into Channel.metadataURL.
+// the metadata URL to plug into the verifier.
 func jwksServer(t *testing.T, kid string, key *rsa.PrivateKey) string {
 	t.Helper()
 	mux := http.NewServeMux()
@@ -80,7 +80,7 @@ func signToken(t *testing.T, key *rsa.PrivateKey, kid, iss, aud string) string {
 func newTestChannel(t *testing.T, metadataURL string) *Channel {
 	t.Helper()
 	c := New(testAppID, "secret", "tenant", "")
-	c.metadataURL = metadataURL
+	c.verify.MetadataURL = metadataURL
 	return c
 }
 

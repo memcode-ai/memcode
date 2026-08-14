@@ -20,6 +20,7 @@
 package email
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"strings"
@@ -200,7 +201,7 @@ func (c *Channel) toInbound(msg parsedMessage, uidValidity uint32, uid imap.UID)
 func (c *Channel) spoolAttachments(msg parsedMessage) []channels.Attachment {
 	var out []channels.Attachment
 	for _, a := range msg.attachments {
-		att, err := channels.SaveToSpool(c.mediaDir, strings.NewReader(string(a.data)), a.mime, a.name)
+		att, err := channels.SaveToSpool(c.mediaDir, bytes.NewReader(a.data), a.mime, a.name)
 		if err != nil {
 			continue
 		}

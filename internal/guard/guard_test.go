@@ -89,6 +89,9 @@ var vendorSDKs = map[string]string{
 	"github.com/emersion/go-imap":            modulePrefix + "/internal/channels/email",
 	"github.com/bwmarrin/discordgo":          modulePrefix + "/internal/channels/discord",
 	"github.com/slack-go/slack":              modulePrefix + "/internal/channels/slack",
+	"github.com/golang-jwt/jwt":              modulePrefix + "/internal/webjwt",
+	"github.com/gorilla/websocket":           modulePrefix + "/internal/channels/mattermost",
+	"golang.org/x/oauth2":                    modulePrefix + "/internal/triggers/googlechat",
 }
 
 func directImports(t *testing.T, pkg string) []string {

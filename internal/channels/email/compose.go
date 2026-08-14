@@ -22,14 +22,17 @@ func composeReply(from, to string, th threadInfo, body string) []byte {
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "From: %s\r\n", from)
-	fmt.Fprintf(&b, "To: %s\r\n", to)
+	fmt.Fprintf(&b, "To: %s\r\n", stripCRLF(to))
 	fmt.Fprintf(&b, "Subject: %s\r\n", mime.QEncoding.Encode("utf-8", subject))
 	fmt.Fprintf(&b, "Date: %s\r\n", time.Now().Format(time.RFC1123Z))
 	fmt.Fprintf(&b, "Message-Id: %s\r\n", newMessageID(from))
-	if th.last != "" {
-		fmt.Fprintf(&b, "In-Reply-To: %s\r\n", th.last)
+	// Threading ids came from inbound mail. mail.ReadMessage already rejects
+	// CRLF-bearing headers, but strip line breaks anyway (defense in depth): a
+	// Message-ID must never be able to smuggle extra headers into our reply.
+	if last := stripCRLF(th.last); last != "" {
+		fmt.Fprintf(&b, "In-Reply-To: %s\r\n", last)
 	}
-	if refs := threadReferences(th); refs != "" {
+	if refs := stripCRLF(threadReferences(th)); refs != "" {
 		fmt.Fprintf(&b, "References: %s\r\n", refs)
 	}
 	b.WriteString("MIME-Version: 1.0\r\n")
@@ -40,6 +43,18 @@ func composeReply(from, to string, th threadInfo, body string) []byte {
 	b.WriteString(strings.ReplaceAll(strings.ReplaceAll(body, "\r\n", "\n"), "\n", "\r\n"))
 	b.WriteString("\r\n")
 	return []byte(b.String())
+}
+
+// stripCRLF removes line breaks from a header value (header-injection guard).
+// mail.ReadMessage already rejects CRLF-bearing inbound headers; this is the
+// cheap second layer so no future caller can regress it.
+func stripCRLF(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r == '\r' || r == '\n' {
+			return -1
+		}
+		return r
+	}, s)
 }
 
 func threadReferences(th threadInfo) string {
