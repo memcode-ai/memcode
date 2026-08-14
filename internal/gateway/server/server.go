@@ -16,7 +16,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -70,10 +69,17 @@ type runtime struct {
 }
 
 // Run starts every configured surface, then drains the durable inbox until ctx is
-// cancelled. root is the project the agent operates in; mainStore is the project's
-// event log (for gateway_* events); settings holds the non-secret gateway config.
+// cancelled. root is the default project the agent operates in; mainStore is the
+// gateway's (global) event log; settings holds the non-secret gateway config. The
+// gateway's OWN durable state — inbox and singleton lock — lives at the global
+// config dir, NOT under root/.memcode: it is gateway-operational, and a global
+// singleton is what lets one daemon own single-consumer bot tokens.
 func Run(ctx context.Context, root string, mainStore store.Store, settings gwconfig.Settings, out io.Writer) error {
-	gw, err := state.Open(ctx, filepath.Join(root, ".memcode"))
+	stateDir, err := gwconfig.Dir()
+	if err != nil {
+		return err
+	}
+	gw, err := state.Open(ctx, stateDir)
 	if err != nil {
 		return fmt.Errorf("opening gateway state: %w", err)
 	}

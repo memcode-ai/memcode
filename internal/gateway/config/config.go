@@ -117,9 +117,12 @@ func (s Settings) Allowed(channel, principal string) bool {
 	return false
 }
 
-// Path returns the gateway settings file: $XDG_CONFIG_HOME/memcode/gateway.yaml
-// or ~/.config/memcode/gateway.yaml.
-func Path() (string, error) {
+// Dir returns the global memcode config directory: $XDG_CONFIG_HOME/memcode or
+// ~/.config/memcode. Per machine, not per project — the home for gateway.yaml,
+// the global .env, and the gateway's OWN operational state (durable inbox,
+// singleton lock, event log). A gateway therefore never writes its operational
+// state into a repo's .memcode.
+func Dir() (string, error) {
 	dir := os.Getenv("XDG_CONFIG_HOME")
 	if dir == "" {
 		home, err := os.UserHomeDir()
@@ -128,7 +131,17 @@ func Path() (string, error) {
 		}
 		dir = filepath.Join(home, ".config")
 	}
-	return filepath.Join(dir, "memcode", "gateway.yaml"), nil
+	return filepath.Join(dir, "memcode"), nil
+}
+
+// Path returns the gateway settings file inside Dir():
+// $XDG_CONFIG_HOME/memcode/gateway.yaml or ~/.config/memcode/gateway.yaml.
+func Path() (string, error) {
+	dir, err := Dir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "gateway.yaml"), nil
 }
 
 // Load reads gateway.yaml, returning zero Settings if the file does not exist.

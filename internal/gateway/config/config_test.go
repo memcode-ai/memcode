@@ -1,9 +1,30 @@
 package config
 
 import (
+	"path/filepath"
 	"reflect"
 	"testing"
 )
+
+func TestDirAndPath(t *testing.T) {
+	// XDG_CONFIG_HOME wins and both the gateway config and its operational state
+	// resolve under the same global dir (never a repo).
+	t.Setenv("XDG_CONFIG_HOME", "/tmp/xdg")
+	dir, err := Dir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dir != "/tmp/xdg/memcode" {
+		t.Errorf("Dir() = %q, want /tmp/xdg/memcode", dir)
+	}
+	p, err := Path()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(dir, "gateway.yaml"); p != want {
+		t.Errorf("Path() = %q, want %q (inside Dir)", p, want)
+	}
+}
 
 func TestAllowed(t *testing.T) {
 	s := Settings{Channels: map[string]Channel{

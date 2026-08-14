@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -13,6 +14,7 @@ import (
 	gwconfig "github.com/memcode-ai/memcode/internal/gateway/config"
 	gwserver "github.com/memcode-ai/memcode/internal/gateway/server"
 	"github.com/memcode-ai/memcode/internal/provider"
+	"github.com/memcode-ai/memcode/internal/store"
 )
 
 // gatewayCmd runs memcode as a long-lived gateway: the same binary that runs the
@@ -43,10 +45,22 @@ result is posted back to the channel it came from. Runs until interrupted.`,
 		if err != nil {
 			return err
 		}
-		defer st.Close()
+		st.Close() // the gateway's default project is resolved/initialized; its event log is global (below)
+
+		// Gateway telemetry is gateway-operational, so it goes to a global event
+		// store, never into the default project's .memcode.
+		gwDir, err := gwconfig.Dir()
+		if err != nil {
+			return err
+		}
+		gwEvents, err := store.Open(ctx, filepath.Join(gwDir, "gateway-events.db"))
+		if err != nil {
+			return err
+		}
+		defer gwEvents.Close()
 
 		cmd.Printf("memcode gateway — %s (channels: %s)\n", cfg.Root, strings.Join(gwconfig.EnabledChannels(), ", "))
-		return gwserver.Run(ctx, cfg.Root, st, settings, cmd.OutOrStdout())
+		return gwserver.Run(ctx, cfg.Root, gwEvents, settings, cmd.OutOrStdout())
 	},
 }
 
