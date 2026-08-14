@@ -133,12 +133,18 @@ func startWebhooks(ctx context.Context, settings gwconfig.Settings, byName map[s
 	// business verification is an external state the gateway can't observe.
 	token := strings.TrimSpace(os.Getenv(gwconfig.EnvWhatsAppToken))
 	verify := strings.TrimSpace(os.Getenv(gwconfig.EnvWhatsAppVerify))
+	appSecret := strings.TrimSpace(os.Getenv(gwconfig.EnvWhatsAppSecret))
 	pn := strings.TrimSpace(settings.Get("whatsapp").PhoneNumberID)
 	if pn != "" && token != "" && verify != "" {
-		if !settings.Get("whatsapp").Active {
+		switch {
+		case !settings.Get("whatsapp").Active:
 			fmt.Fprintf(out, "gateway: whatsapp configured but inactive (set whatsapp.active: true after Meta verification)\n")
-		} else {
-			wc := whatsapp.New(pn, token, verify)
+		case appSecret == "":
+			// Refuse to accept unauthenticated inbound: without the app secret we
+			// can't verify a POST really came from Meta.
+			fmt.Fprintf(out, "gateway: whatsapp inactive: set %s (Meta app secret) to verify inbound messages\n", gwconfig.EnvWhatsAppSecret)
+		default:
+			wc := whatsapp.New(pn, token, verify, appSecret)
 			byName[wc.Name()] = wc
 			mux.Handle("/webhook/whatsapp", wc.Handler(inbound))
 			fmt.Fprintf(out, "gateway: whatsapp webhook on /webhook/whatsapp\n")

@@ -12,10 +12,14 @@ package whatsapp
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/memcode-ai/memcode/internal/channels"
@@ -33,16 +37,20 @@ type Channel struct {
 	phoneNumberID string
 	accessToken   string
 	verifyToken   string
+	appSecret     string // Meta app secret; verifies inbound POST signatures
 	base          string // Graph API base; overridable in tests
 	client        *http.Client
 }
 
-// New builds a WhatsApp channel from the phone number id and its tokens.
-func New(phoneNumberID, accessToken, verifyToken string) *Channel {
+// New builds a WhatsApp channel from the phone number id and its tokens. appSecret
+// is the Meta app secret used to verify inbound message signatures; it must be
+// non-empty for the handler to accept POSTed messages.
+func New(phoneNumberID, accessToken, verifyToken, appSecret string) *Channel {
 	return &Channel{
 		phoneNumberID: phoneNumberID,
 		accessToken:   accessToken,
 		verifyToken:   verifyToken,
+		appSecret:     appSecret,
 		base:          defaultBase,
 		client:        &http.Client{Timeout: 30 * time.Second},
 	}
@@ -70,6 +78,13 @@ func (c *Channel) Handler(inbound chan<- channels.Inbound) http.Handler {
 				http.Error(w, "read error", http.StatusBadRequest)
 				return
 			}
+			// Meta signs the raw body with the app secret. Without a configured
+			// secret we cannot authenticate the sender, so we reject rather than
+			// trust an unsigned POST.
+			if !verifySignature(c.appSecret, r.Header.Get("X-Hub-Signature-256"), body) {
+				http.Error(w, "bad signature", http.StatusUnauthorized)
+				return
+			}
 			for _, inb := range toInbounds(body) {
 				select {
 				case inbound <- inb:
@@ -83,6 +98,25 @@ func (c *Channel) Handler(inbound chan<- channels.Inbound) http.Handler {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		}
 	})
+}
+
+// verifySignature checks Meta's "sha256=<hex>" HMAC header (app secret over the
+// raw body). An empty secret can never verify — an unsigned inbound is rejected.
+func verifySignature(secret, header string, body []byte) bool {
+	if secret == "" {
+		return false
+	}
+	want, ok := strings.CutPrefix(header, "sha256=")
+	if !ok {
+		return false
+	}
+	wantMAC, err := hex.DecodeString(want)
+	if err != nil {
+		return false
+	}
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write(body)
+	return hmac.Equal(wantMAC, mac.Sum(nil))
 }
 
 // verifyChallenge implements Meta's subscription handshake: echo hub.challenge

@@ -31,6 +31,7 @@ const (
 	EnvGitHubSecret   = "GITHUB_WEBHOOK_SECRET"
 	EnvWhatsAppToken  = "WHATSAPP_ACCESS_TOKEN"
 	EnvWhatsAppVerify = "WHATSAPP_VERIFY_TOKEN"
+	EnvWhatsAppSecret = "WHATSAPP_APP_SECRET" // Meta app secret — signs inbound POSTs
 )
 
 // Settings is the NON-secret gateway configuration (gateway.yaml). A channel's

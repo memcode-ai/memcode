@@ -106,6 +106,7 @@ var gatewaySetupCmd = &cobra.Command{
 				}
 				secrets[gwconfig.EnvWhatsAppToken] = secret(cmd, "Access token: ")
 				secrets[gwconfig.EnvWhatsAppVerify] = secret(cmd, "Webhook verify token: ")
+				secrets[gwconfig.EnvWhatsAppSecret] = secret(cmd, "App secret (verifies inbound; required to activate): ")
 				wa.AllowFrom = allowList(in, cmd)
 				settings.Channels["whatsapp"] = wa
 			default:

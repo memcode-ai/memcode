@@ -2,6 +2,9 @@ package whatsapp
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -66,7 +69,7 @@ func TestSend(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := New("PN123", "TOKEN", "vt")
+	c := New("PN123", "TOKEN", "vt", "sekret")
 	c.base = srv.URL
 	if err := c.Send(context.Background(), "15551230000", channels.Outbound{Text: "yo"}); err != nil {
 		t.Fatalf("Send: %v", err)
@@ -83,12 +86,56 @@ func TestSend(t *testing.T) {
 }
 
 func TestHandlerGET(t *testing.T) {
-	c := New("PN", "tok", "vt")
+	c := New("PN", "tok", "vt", "sekret")
 	h := c.Handler(make(chan channels.Inbound, 1))
 	req := httptest.NewRequest(http.MethodGet, "/webhook/whatsapp?hub.mode=subscribe&hub.verify_token=vt&hub.challenge=99", nil)
 	rr := httptest.NewRecorder()
 	h.ServeHTTP(rr, req)
 	if rr.Code != http.StatusOK || rr.Body.String() != "99" {
 		t.Errorf("GET verify: code %d body %q", rr.Code, rr.Body.String())
+	}
+}
+
+func TestHandlerPOSTSignature(t *testing.T) {
+	const secret = "sekret"
+	c := New("PN", "tok", "vt", secret)
+	inbound := make(chan channels.Inbound, 1)
+	h := c.Handler(inbound)
+
+	body := `{"entry":[{"changes":[{"value":{"messages":[{"id":"wamid.9","from":"15550001111","type":"text","text":{"body":"hi"}}]}}]}]}`
+	sign := func(s string) string {
+		mac := hmac.New(sha256.New, []byte(secret))
+		mac.Write([]byte(body))
+		return "sha256=" + hex.EncodeToString(mac.Sum(nil))
+	}
+	post := func(sig string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, "/webhook/whatsapp", strings.NewReader(body))
+		req.Header.Set("X-Hub-Signature-256", sig)
+		rr := httptest.NewRecorder()
+		h.ServeHTTP(rr, req)
+		return rr
+	}
+
+	// Bad signature → 401, nothing forwarded.
+	if rr := post("sha256=00"); rr.Code != http.StatusUnauthorized {
+		t.Fatalf("bad sig: got %d", rr.Code)
+	}
+	select {
+	case <-inbound:
+		t.Fatal("unsigned message was forwarded")
+	default:
+	}
+
+	// Valid signature → 200 and the message is forwarded.
+	if rr := post(sign(body)); rr.Code != http.StatusOK {
+		t.Fatalf("good sig: got %d", rr.Code)
+	}
+	select {
+	case inb := <-inbound:
+		if inb.MessageID != "wamid.9" || inb.Conversation != "15550001111" {
+			t.Errorf("forwarded %+v", inb)
+		}
+	default:
+		t.Fatal("signed message not forwarded")
 	}
 }
