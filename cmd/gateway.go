@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/memcode-ai/memcode/internal/authflow"
 	gwconfig "github.com/memcode-ai/memcode/internal/gateway/config"
+	"github.com/memcode-ai/memcode/internal/gateway/importer"
 	gwserver "github.com/memcode-ai/memcode/internal/gateway/server"
 	"github.com/memcode-ai/memcode/internal/provider"
 )
@@ -131,6 +133,99 @@ var gatewaySetupCmd = &cobra.Command{
 	},
 }
 
+// gatewayImportCmd migrates an existing OpenClaw configuration into memcode's
+// gateway config — bring your channels over with one command instead of
+// reconfiguring each by hand.
+var gatewayImportCmd = &cobra.Command{
+	Use:   "import [openclaw.json]",
+	Short: "Import channels from an existing OpenClaw config",
+	Args:  cobra.MaximumNArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		provider.LoadDotEnv() // so env-referenced credentials resolve
+
+		arg := ""
+		if len(args) == 1 {
+			arg = args[0]
+		}
+		path, searched := openClawConfigPath(arg)
+		if path == "" {
+			return fmt.Errorf("no OpenClaw config found (looked in: %s); pass its path explicitly", strings.Join(searched, ", "))
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		res, err := importer.FromOpenClaw(data, os.Getenv)
+		if err != nil {
+			return err
+		}
+
+		// Merge into the existing gateway config: set each imported channel's
+		// allow-list, preserving any per-channel settings already present.
+		cur, err := gwconfig.Load()
+		if err != nil {
+			return err
+		}
+		if cur.Channels == nil {
+			cur.Channels = map[string]gwconfig.Channel{}
+		}
+		var imported []string
+		for name, ch := range res.Settings.Channels {
+			existing := cur.Channels[name]
+			existing.AllowFrom = ch.AllowFrom
+			cur.Channels[name] = existing
+			imported = append(imported, name)
+		}
+		if err := gwconfig.Save(cur); err != nil {
+			return err
+		}
+		if len(res.Secrets) > 0 {
+			if err := authflow.SetGlobalEnv(res.Secrets); err != nil {
+				return err
+			}
+		}
+
+		cmd.Printf("Imported from %s\n", path)
+		if len(imported) > 0 {
+			cmd.Printf("Channels: %s\n", strings.Join(imported, ", "))
+		}
+		cmd.Printf("Credentials written to the global .env: %d\n", len(res.Secrets))
+		for _, note := range res.Notes {
+			cmd.Printf("  note: %s\n", note)
+		}
+		cmd.Println("Review with `memcode gateway setup`, then run `memcode gateway`.")
+		return nil
+	},
+}
+
+// openClawConfigPath resolves the OpenClaw config to import: an explicit arg, then
+// OpenClaw's own default locations. Returns the found path (or "") and the list
+// of locations searched.
+func openClawConfigPath(arg string) (string, []string) {
+	if arg != "" {
+		return arg, []string{arg}
+	}
+	var candidates []string
+	if p := os.Getenv("OPENCLAW_CONFIG_PATH"); p != "" {
+		candidates = append(candidates, p)
+	}
+	if d := os.Getenv("OPENCLAW_STATE_DIR"); d != "" {
+		candidates = append(candidates, filepath.Join(d, "openclaw.json"))
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		candidates = append(candidates,
+			filepath.Join(home, ".openclaw", "openclaw.json"),
+			filepath.Join(home, ".clawdbot", "openclaw.json"), // legacy
+		)
+	}
+	for _, c := range candidates {
+		if _, err := os.Stat(c); err == nil {
+			return c, candidates
+		}
+	}
+	return "", candidates
+}
+
 // allowList prompts for the principals allowed to drive the agent through this
 // channel. The gateway is default-deny, so an empty answer means no one can use
 // the channel yet; "*" allows anyone who can reach it.
@@ -170,5 +265,6 @@ func secret(cmd *cobra.Command, label string) string {
 
 func init() {
 	gatewayCmd.AddCommand(gatewaySetupCmd)
+	gatewayCmd.AddCommand(gatewayImportCmd)
 	rootCmd.AddCommand(gatewayCmd)
 }
