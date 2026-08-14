@@ -20,31 +20,37 @@ import (
 )
 
 // The migration commands are deliberately source-specific — `memcode claw` for
-// OpenClaw, `memcode hermes` for Hermes — rather than one command that guesses.
-// A user who moved from OpenClaw to Hermes still has ~/.openclaw lying around;
-// auto-detecting between two installs would silently import the stale one. Naming
-// the source is the whole point: no cleverness, no collisions.
+// OpenClaw, `memcode hermes` for Hermes — each a namespace holding a `migrate`
+// subcommand (mirroring Hermes's own `hermes claw migrate`), rather than one
+// command that guesses. A user who moved from OpenClaw to Hermes still has
+// ~/.openclaw lying around; auto-detecting between two installs would silently
+// import the stale one. Naming the source is the whole point: no cleverness, no
+// collisions. The namespace also leaves room for future per-source subcommands.
 //
-// Each migrates the full install, not just channels: gateway channels (tokens +
-// allow-lists), provider API keys, skills, and the conversation/memory store.
-// memcode's memory is per-repository, so an assistant's global memory has no
-// native home; it is preserved under ~/.memcode/imported/<source>/ and pointed at
-// from global memory.md rather than dropped.
+// migrate moves the full install, not just channels: gateway channels (tokens +
+// allow-lists), provider API keys, skills, and long-term memory (read from the
+// source's markdown stores into memcode's global ~/.memcode/memory.md, loaded
+// every session).
 
 var clawCmd = &cobra.Command{
 	Use:   "claw",
+	Short: "OpenClaw migration tools (see `memcode claw migrate`)",
+}
+
+var clawMigrateCmd = &cobra.Command{
+	Use:   "migrate [path]",
 	Short: "Migrate an OpenClaw install into memcode (channels, keys, skills, memory)",
 	Long: `Migrate an existing OpenClaw install into memcode.
 
-Run it with no arguments — it reads OpenClaw's own default location:
+Run it with no arguments and it reads OpenClaw's own default location:
 
-  memcode claw
+  memcode claw migrate
 
-It brings over your gateway channels, provider API keys, and skills, and
-preserves your conversation history. Point it elsewhere only if your OpenClaw
-state lives in a non-standard directory:
+It brings over your gateway channels, provider API keys, skills, and long-term
+memory. Point it elsewhere only if your OpenClaw state lives in a non-standard
+directory:
 
-  memcode claw /path/to/.openclaw`,
+  memcode claw migrate /path/to/.openclaw`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		provider.LoadDotEnv() // so env-referenced channel credentials resolve
@@ -64,18 +70,23 @@ state lives in a non-standard directory:
 
 var hermesCmd = &cobra.Command{
 	Use:   "hermes",
+	Short: "Hermes migration tools (see `memcode hermes migrate`)",
+}
+
+var hermesMigrateCmd = &cobra.Command{
+	Use:   "migrate [path]",
 	Short: "Migrate a Hermes install into memcode (channels, keys, skills, memory)",
 	Long: `Migrate an existing Hermes install into memcode.
 
-Run it with no arguments — it reads Hermes's own default location:
+Run it with no arguments and it reads Hermes's own default location:
 
-  memcode hermes
+  memcode hermes migrate
 
-It brings over your gateway channels, provider API keys, and skills, and
-preserves your conversation history. Point it elsewhere only if your Hermes
-state lives in a non-standard directory:
+It brings over your gateway channels, provider API keys, skills, and long-term
+memory. Point it elsewhere only if your Hermes state lives in a non-standard
+directory:
 
-  memcode hermes /path/to/.hermes`,
+  memcode hermes migrate /path/to/.hermes`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		provider.LoadDotEnv()
@@ -106,7 +117,7 @@ type migrationSource struct {
 }
 
 // runMigration performs the full migration for a source: channels, provider API
-// keys, skills, and memory preservation — reporting exactly what moved and what
+// keys, skills, and memory extraction — reporting exactly what moved and what
 // could not, never dropping anything silently.
 func runMigration(cmd *cobra.Command, src migrationSource) error {
 	// The .env beside the install is the canonical home for both channel bot
@@ -720,6 +731,8 @@ func copyFile(src, dst string, mode os.FileMode) error {
 }
 
 func init() {
+	clawCmd.AddCommand(clawMigrateCmd)
+	hermesCmd.AddCommand(hermesMigrateCmd)
 	rootCmd.AddCommand(clawCmd)
 	rootCmd.AddCommand(hermesCmd)
 }
