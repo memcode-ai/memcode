@@ -390,7 +390,7 @@ func (r *runtime) runJob(ctx context.Context, it state.Item) {
 	r.event(ctx, events.KindGatewayJobSpawned, eventPayload{Channel: it.Channel, Conversation: it.Conversation, PrincipalID: it.Principal, MessageID: it.MessageID, JobID: job.ID})
 	fmt.Fprintf(r.out, "gateway: [%s] job %s ← %q\n", it.Channel, job.ID, truncate(it.Text, 60))
 
-	reply := waitForJob(ctx, r.root, job.ID)
+	reply := waitForJob(ctx, root, job.ID) // poll under the SAME root the job spawned into, not the default
 	if strings.TrimSpace(reply) == "" {
 		reply = "Done."
 	}
