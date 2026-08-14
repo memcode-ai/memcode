@@ -398,7 +398,12 @@ func newTestSession(t *testing.T) *runtime.Session {
 		t.Fatalf("store.Open: %v", err)
 	}
 	t.Cleanup(func() { st.Close() })
-	return runtime.New(st, llm.NewRunner(fakeProvider{}), t.TempDir(), "fake-model", permissions.ModeAuto, io.Discard)
+	sess := runtime.New(st, llm.NewRunner(fakeProvider{}), t.TempDir(), "fake-model", permissions.ModeAuto, io.Discard)
+	// The tests drive frames by hand and never dispose the app state, so end
+	// the chat here — it joins the async learning loop, whose writes under the
+	// repo root otherwise race the TempDir cleanup (the CI flake).
+	t.Cleanup(func() { sess.EndChat(context.Background()) })
+	return sess
 }
 
 // stateCapture is a test-only root widget that wraps appWidget but captures a pointer to the

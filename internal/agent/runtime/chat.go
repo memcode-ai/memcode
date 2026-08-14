@@ -57,7 +57,11 @@ func (s *Session) StartChat(ctx context.Context) *ChatState {
 	case s.sessionID == "" || resumedMsgs == nil:
 		s.setSessionID(newSessionID())
 	}
-	s.bgCtx = ctx // long-lived: background jobs survive turns, die with the session
+	// Long-lived session scope: background jobs survive turns and die with the
+	// session. Cancellable so EndChat can actually END it — the turn-boundary
+	// transcript snapshot gates on this ctx, and without a real cancel a turn
+	// finishing after teardown would still write into the workspace.
+	s.bgCtx, s.bgCancel = context.WithCancel(ctx)
 	s.approvals = s.loadApprovals(ctx)
 	s.todos = nil // fresh session → fresh scratchpad
 	head := gitHead(ctx, s.root)
@@ -125,8 +129,14 @@ func (s *Session) StartChat(ctx context.Context) *ChatState {
 	}
 	// Post-session learning loop: distill lessons from finished sessions whose
 	// git fate is now known (corrected/rejected), and judge rule adherence.
-	// Async on the session-lived ctx — startup never waits on it.
-	go s.processOutcomes(ctx)
+	// Async — startup never waits on it — but joinable: EndChat cancels and
+	// waits, so its writes under the repo root never race whatever tears the
+	// workspace down next.
+	octx, ocancel := context.WithCancel(s.bgCtx)
+	s.outcomeCancel = ocancel
+	done := make(chan struct{})
+	s.outcomeDone = done
+	go func() { defer close(done); s.processOutcomes(octx) }()
 	// User session_start hooks: whatever they print becomes standing context
 	// (env facts, sprint notes — deterministic injection the user owns).
 	if out := s.runSessionHooks(ctx, hooks.SessionStart); out != "" {
@@ -499,6 +509,19 @@ func (s *Session) RunShellLine(ctx context.Context, line string) bool {
 // EndChat records the session-finished event and closes the episodic log.
 // Idempotent enough for one call.
 func (s *Session) EndChat(ctx context.Context) {
+	if s.bgCancel != nil {
+		s.bgCancel() // end the session scope: no further turn-boundary writes
+		s.bgCancel = nil
+	}
+	if s.outcomeCancel != nil {
+		s.outcomeCancel() // in-flight LLM judge calls abort on the cancel
+		select {
+		case <-s.outcomeDone:
+		case <-time.After(3 * time.Second): // bounded: never let learning stall a quit
+		}
+		s.outcomeCancel = nil
+		s.outcomeDone = nil
+	}
 	s.runSessionHooks(ctx, hooks.SessionEnd) // fire-and-forget (bounded by the per-hook timeout)
 	s.KillAllJobs()                          // reap background jobs so nothing (dev servers, watchers) orphans
 	s.closeMCP()                             // tear down MCP server connections (subprocesses / HTTP sessions)
