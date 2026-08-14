@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -13,6 +14,7 @@ import (
 	gwconfig "github.com/memcode-ai/memcode/internal/gateway/config"
 	gwserver "github.com/memcode-ai/memcode/internal/gateway/server"
 	"github.com/memcode-ai/memcode/internal/provider"
+	"github.com/memcode-ai/memcode/internal/store"
 )
 
 // gatewayCmd runs memcode as a long-lived gateway: the same binary that runs the
@@ -39,14 +41,37 @@ result is posted back to the channel it came from. Runs until interrupted.`,
 		if len(gwconfig.EnabledChannels()) == 0 {
 			return fmt.Errorf("no channels configured — run `memcode gateway setup` first")
 		}
-		st, cfg, err := openProject(ctx)
+		// Resolve the default project the gateway executes against. If one is
+		// registered, use its canonical (symlink-resolved) root; otherwise fall back
+		// to the current repo so `memcode gateway` in a project still works.
+		var root string
+		if settings.DefaultProject != "" {
+			if root, err = settings.ResolveProject(settings.DefaultProject); err != nil {
+				return err
+			}
+		} else {
+			st, cfg, e := openProject(ctx)
+			if e != nil {
+				return e
+			}
+			st.Close()
+			root = cfg.Root
+		}
+
+		// Gateway telemetry is gateway-operational, so it goes to a global event
+		// store, never into the project's .memcode.
+		gwDir, err := gwconfig.Dir()
 		if err != nil {
 			return err
 		}
-		defer st.Close()
+		gwEvents, err := store.Open(ctx, filepath.Join(gwDir, "gateway-events.db"))
+		if err != nil {
+			return err
+		}
+		defer gwEvents.Close()
 
-		cmd.Printf("memcode gateway — %s (channels: %s)\n", cfg.Root, strings.Join(gwconfig.EnabledChannels(), ", "))
-		return gwserver.Run(ctx, cfg.Root, st, settings, cmd.OutOrStdout())
+		cmd.Printf("memcode gateway — %s (channels: %s)\n", root, strings.Join(gwconfig.EnabledChannels(), ", "))
+		return gwserver.Run(ctx, root, gwEvents, settings, cmd.OutOrStdout())
 	},
 }
 

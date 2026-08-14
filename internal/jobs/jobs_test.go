@@ -251,3 +251,23 @@ func TestStopReconcilesAlreadyGoneProcess(t *testing.T) {
 		t.Fatalf("status = %q, want stopped", got.Status)
 	}
 }
+
+// TestGetIsRootScoped documents the invariant behind the gateway reply-polling
+// fix: a job's bookkeeping lives under the root it was spawned into, so a reader
+// (waitForJob) must poll the SAME root. Found under its own root, absent under
+// another — polling the wrong root would report "Lost track of the job" for any
+// task that ran in a non-default project.
+func TestGetIsRootScoped(t *testing.T) {
+	spawnRoot := t.TempDir()
+	otherRoot := t.TempDir()
+	job, err := Spawn(spawnRoot, "task", "auto", "", false, false, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Get(spawnRoot, job.ID); err != nil {
+		t.Errorf("job must be found under its spawn root: %v", err)
+	}
+	if _, err := Get(otherRoot, job.ID); err == nil {
+		t.Error("job must NOT resolve under a different root; the poller has to use the spawn root")
+	}
+}

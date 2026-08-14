@@ -61,6 +61,40 @@ func TestPendingAndDone(t *testing.T) {
 	}
 }
 
+func TestConversationSelection(t *testing.T) {
+	s := openTemp(t)
+	ctx := context.Background()
+
+	// Unset → empty (caller applies defaults).
+	if a, p, _ := s.Conversation(ctx, "telegram", "42"); a != "" || p != "" {
+		t.Errorf("unset conversation = (%q,%q), want empty", a, p)
+	}
+	// Setting agent then project upserts, each preserving the other.
+	if err := s.SetConversationAgent(ctx, "telegram", "42", "coder"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetConversationProject(ctx, "telegram", "42", "memcode"); err != nil {
+		t.Fatal(err)
+	}
+	a, p, _ := s.Conversation(ctx, "telegram", "42")
+	if a != "coder" || p != "memcode" {
+		t.Errorf("conversation = (%q,%q), want (coder,memcode)", a, p)
+	}
+}
+
+func TestInboxSnapshotsAgentAndProject(t *testing.T) {
+	s := openTemp(t)
+	ctx := context.Background()
+	it := Item{Channel: "telegram", MessageID: "1", Conversation: "c", Principal: "p", Text: "hi", Agent: "coder", Project: "memcode"}
+	if _, err := s.Accept(ctx, it, time.Unix(1000, 0)); err != nil {
+		t.Fatal(err)
+	}
+	pending, _ := s.Pending(ctx)
+	if len(pending) != 1 || pending[0].Agent != "coder" || pending[0].Project != "memcode" {
+		t.Fatalf("snapshot not persisted on the inbox item: %+v", pending)
+	}
+}
+
 func TestReplyQueueDurability(t *testing.T) {
 	s := openTemp(t)
 	ctx := context.Background()

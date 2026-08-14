@@ -16,7 +16,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -70,10 +69,17 @@ type runtime struct {
 }
 
 // Run starts every configured surface, then drains the durable inbox until ctx is
-// cancelled. root is the project the agent operates in; mainStore is the project's
-// event log (for gateway_* events); settings holds the non-secret gateway config.
+// cancelled. root is the default project the agent operates in; mainStore is the
+// gateway's (global) event log; settings holds the non-secret gateway config. The
+// gateway's OWN durable state — inbox and singleton lock — lives at the global
+// config dir, NOT under root/.memcode: it is gateway-operational, and a global
+// singleton is what lets one daemon own single-consumer bot tokens.
 func Run(ctx context.Context, root string, mainStore store.Store, settings gwconfig.Settings, out io.Writer) error {
-	gw, err := state.Open(ctx, filepath.Join(root, ".memcode"))
+	stateDir, err := gwconfig.Dir()
+	if err != nil {
+		return err
+	}
+	gw, err := state.Open(ctx, stateDir)
 	if err != nil {
 		return fmt.Errorf("opening gateway state: %w", err)
 	}
@@ -245,9 +251,18 @@ func (r *runtime) Deliver(ctx context.Context, inb channels.Inbound) error {
 		fmt.Fprintf(r.out, "gateway: %s message with no id — dropping\n", inb.Channel)
 		return nil
 	}
+	// A /agent or /project command re-points the conversation for its SUBSEQUENT
+	// tasks; it is control, not a task, so it is handled here and not enqueued.
+	if r.handleCommand(ctx, inb) {
+		return nil
+	}
+	// Snapshot the conversation's current persona + project at receipt, so a later
+	// /project changes only the NEXT task, never this queued one.
+	agent, project := r.resolveSelection(ctx, inb.Channel, inb.Conversation)
 	fresh, err := r.gw.Accept(ctx, state.Item{
 		Channel: inb.Channel, MessageID: inb.MessageID, Conversation: inb.Conversation,
 		Principal: inb.Principal, Text: inb.Text, Trusted: inb.Trusted,
+		Agent: agent, Project: project,
 	}, time.Now())
 	if err != nil {
 		return err // NOT durably recorded — adapter must not ack
@@ -341,8 +356,26 @@ func (r *runtime) runJob(ctx context.Context, it state.Item) {
 	// Continuity: a stable session id per conversation, so follow-up messages
 	// resume the same session (the child does resume-or-create on this id). Tier
 	// routes this channel to a stronger model when configured.
-	tier := r.settings.Get(it.Channel).Tier
-	job, err := jobs.Spawn(r.root, it.Text, string(permissions.ModeAuto), tier, false, true, conversationSession(it.Channel, it.Conversation))
+	cfg := r.settings.Get(it.Channel)
+	session := conversationSession(it.Channel, it.Conversation)
+	// Resolve the snapshotted project id to its canonical root. The registry is the
+	// authorization boundary: an id that no longer resolves falls back to the
+	// gateway default rather than executing somewhere unregistered.
+	root := r.root
+	if it.Project != "" {
+		if resolved, rerr := r.settings.ResolveProject(it.Project); rerr == nil {
+			root = resolved
+		} else {
+			fmt.Fprintf(r.out, "gateway: project %q for %s no longer resolves (%v); using default\n", it.Project, it.Channel, rerr)
+		}
+	}
+	// Compose the snapshotted persona's context and persist it keyed by session;
+	// the spawned child self-discovers it (no jobs.Spawn signature change). No
+	// persona → no supplemental context → the coding engine runs exactly as the CLI.
+	if err := writeContext(session, personaContext(it.Agent)); err != nil {
+		fmt.Fprintf(r.out, "gateway: composing context for %s: %v\n", it.Channel, err)
+	}
+	job, err := jobs.Spawn(root, it.Text, string(permissions.ModeAuto), cfg.Tier, false, true, session)
 	if err != nil {
 		// A spawn failure won't succeed on replay; record the error as the reply so
 		// it rides the same durable delivery path instead of being lost.
@@ -357,7 +390,7 @@ func (r *runtime) runJob(ctx context.Context, it state.Item) {
 	r.event(ctx, events.KindGatewayJobSpawned, eventPayload{Channel: it.Channel, Conversation: it.Conversation, PrincipalID: it.Principal, MessageID: it.MessageID, JobID: job.ID})
 	fmt.Fprintf(r.out, "gateway: [%s] job %s ← %q\n", it.Channel, job.ID, truncate(it.Text, 60))
 
-	reply := waitForJob(ctx, r.root, job.ID)
+	reply := waitForJob(ctx, root, job.ID) // poll under the SAME root the job spawned into, not the default
 	if strings.TrimSpace(reply) == "" {
 		reply = "Done."
 	}

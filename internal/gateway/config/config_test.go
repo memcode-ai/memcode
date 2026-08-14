@@ -1,9 +1,65 @@
 package config
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 )
+
+func TestDirAndPath(t *testing.T) {
+	// XDG_CONFIG_HOME wins and both the gateway config and its operational state
+	// resolve under the same global dir (never a repo).
+	t.Setenv("XDG_CONFIG_HOME", "/tmp/xdg")
+	dir, err := Dir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dir != "/tmp/xdg/memcode" {
+		t.Errorf("Dir() = %q, want /tmp/xdg/memcode", dir)
+	}
+	p, err := Path()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(dir, "gateway.yaml"); p != want {
+		t.Errorf("Path() = %q, want %q (inside Dir)", p, want)
+	}
+}
+
+func TestResolveProject(t *testing.T) {
+	real := t.TempDir()
+	// A registered path reached through a symlink must resolve to the real dir —
+	// the canonical root is the execution authority, not the config string.
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	s := Settings{Projects: map[string]Project{
+		"app":     {Path: link, Enabled: true},
+		"off":     {Path: real, Enabled: false},
+		"missing": {Path: filepath.Join(real, "nope"), Enabled: true},
+	}}
+
+	got, err := s.ResolveProject("app")
+	if err != nil {
+		t.Fatalf("ResolveProject(app): %v", err)
+	}
+	realResolved, _ := filepath.EvalSymlinks(real)
+	if got != realResolved {
+		t.Errorf("resolved root = %q, want canonical %q (symlink not resolved)", got, realResolved)
+	}
+
+	if _, err := s.ResolveProject("unregistered"); err == nil {
+		t.Error("an unregistered id must be refused (no arbitrary root reaches execution)")
+	}
+	if _, err := s.ResolveProject("off"); err == nil {
+		t.Error("a disabled project must be refused")
+	}
+	if _, err := s.ResolveProject("missing"); err == nil {
+		t.Error("a non-existent path must be refused")
+	}
+}
 
 func TestAllowed(t *testing.T) {
 	s := Settings{Channels: map[string]Channel{

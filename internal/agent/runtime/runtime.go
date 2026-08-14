@@ -148,6 +148,7 @@ type Session struct {
 	nudgedScripts     map[string]bool  // script slugs already nudged this session (nudge once, don't nag) — see scriptNudge
 	userMd            string           // user's MEMCODE.md instructions, loaded once per session, injected every turn
 	memoryMd          string           // durable memory (global + project memory.md), loaded once per session, injected every turn
+	supplemental      []ContextItem    // caller-supplied supplemental context (empty for the CLI/Desktop; set only by the agent runtime), injected every turn
 	editsAllowed      bool             // user said "don't ask again for edits" this session (scoped: edits only, not commands; never catastrophic)
 
 	lastCompactSummary string // most recent in-session compaction summary (the warm layer)
@@ -378,6 +379,13 @@ func (s *Session) diffWidth() int {
 // one Session, which must still mint a new id.)
 func (s *Session) SetSessionID(id string) { s.pinnedID = id }
 
+// SetContext supplies caller-provided supplemental context for the run (agent
+// runtime, API, CI). Injected every turn after project/user context, in the
+// engine's fixed Kind order. The CLI and Desktop never call this, so their
+// context is unchanged. Supplemental context is input for this run only — it does
+// not write project memory.
+func (s *Session) SetContext(items []ContextItem) { s.supplemental = items }
+
 func (s *Session) setSessionID(id string) {
 	s.sessionID = id
 	s.ckpt = checkpoint.New(s.root, id) // rewind points live per session id
@@ -448,6 +456,9 @@ func (s *Session) Run(ctx context.Context, task string) (Result, error) {
 	}
 	if s.memoryMd = s.userMemory(ctx); s.memoryMd != "" { // durable memory (global + project), facts not rules
 		sys = sys.withExtra(s.memoryMd)
+	}
+	if blk := supplementalBlock(s.supplemental); blk != "" { // caller-supplied context (agent runtime); empty for CLI
+		sys = sys.withExtra(blk)
 	}
 	if nudge := s.skillNudge(task); nudge != "" { // the task names an installed skill → point right at it
 		sys = sys.withExtra(nudge)

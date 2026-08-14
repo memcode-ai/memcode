@@ -32,6 +32,8 @@ CREATE TABLE IF NOT EXISTS inbox (
     trusted      INTEGER NOT NULL,
     status       TEXT NOT NULL,          -- 'pending' | 'replied' | 'done'
     reply        TEXT NOT NULL DEFAULT '', -- the job's result, held durably until delivered
+    agent        TEXT NOT NULL DEFAULT '', -- persona snapshot at receipt (immutable for this task)
+    project      TEXT NOT NULL DEFAULT '', -- project id snapshot at receipt (immutable for this task)
     received_at  TEXT NOT NULL,
     PRIMARY KEY (channel, message_id)
 );
@@ -40,6 +42,17 @@ CREATE INDEX IF NOT EXISTS idx_inbox_status ON inbox (status, received_at);
 CREATE TABLE IF NOT EXISTS poll_offsets (
     channel    TEXT PRIMARY KEY,
     offset_val INTEGER NOT NULL
+);
+
+-- Durable per-conversation selection: which persona and project this
+-- conversation is currently pointed at. /agent and /project update these; a task
+-- snapshots them at receipt, so changing them affects only subsequent tasks.
+CREATE TABLE IF NOT EXISTS conversations (
+    channel      TEXT NOT NULL,
+    conversation TEXT NOT NULL,
+    agent        TEXT NOT NULL DEFAULT '',
+    project      TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (channel, conversation)
 );
 `
 
@@ -54,6 +67,8 @@ type Item struct {
 	Text         string
 	Trusted      bool
 	Reply        string
+	Agent        string // persona snapshot at receipt
+	Project      string // project id snapshot at receipt
 }
 
 // Store is the gateway's durable state.
@@ -98,13 +113,18 @@ func Open(ctx context.Context, dir string) (*Store, error) {
 		releaseLock(lock)
 		return nil, fmt.Errorf("applying gateway schema: %w", err)
 	}
-	// Bring an inbox created before the reply column forward. A fresh table
-	// already has it, so ignore the duplicate-column error on the older shape.
-	if _, err := db.ExecContext(ctx, `ALTER TABLE inbox ADD COLUMN reply TEXT NOT NULL DEFAULT ''`); err != nil &&
-		!strings.Contains(err.Error(), "duplicate column") {
-		_ = db.Close()
-		releaseLock(lock)
-		return nil, fmt.Errorf("migrating inbox: %w", err)
+	// Bring an inbox created before these columns forward. A fresh table already
+	// has them, so ignore the duplicate-column error on the older shape.
+	for _, col := range []string{
+		`ALTER TABLE inbox ADD COLUMN reply TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE inbox ADD COLUMN agent TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE inbox ADD COLUMN project TEXT NOT NULL DEFAULT ''`,
+	} {
+		if _, err := db.ExecContext(ctx, col); err != nil && !strings.Contains(err.Error(), "duplicate column") {
+			_ = db.Close()
+			releaseLock(lock)
+			return nil, fmt.Errorf("migrating inbox: %w", err)
+		}
 	}
 	return &Store{db: db, lock: lock}, nil
 }
@@ -126,10 +146,10 @@ func (s *Store) Close() error {
 func (s *Store) Accept(ctx context.Context, it Item, now time.Time) (bool, error) {
 	res, err := s.db.ExecContext(ctx,
 		`INSERT OR IGNORE INTO inbox
-		   (channel, message_id, conversation, principal, text, trusted, status, received_at)
-		 VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)`,
+		   (channel, message_id, conversation, principal, text, trusted, status, agent, project, received_at)
+		 VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`,
 		it.Channel, it.MessageID, it.Conversation, it.Principal, it.Text, boolInt(it.Trusted),
-		now.UTC().Format(time.RFC3339Nano),
+		it.Agent, it.Project, now.UTC().Format(time.RFC3339Nano),
 	)
 	if err != nil {
 		return false, fmt.Errorf("accept inbound: %w", err)
@@ -145,7 +165,7 @@ func (s *Store) Accept(ctx context.Context, it Item, now time.Time) (bool, error
 // worker and, on startup, to replay anything a prior crash left unprocessed.
 func (s *Store) Pending(ctx context.Context) ([]Item, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT channel, message_id, conversation, principal, text, trusted
+		`SELECT channel, message_id, conversation, principal, text, trusted, agent, project
 		   FROM inbox WHERE status = 'pending' ORDER BY received_at`)
 	if err != nil {
 		return nil, fmt.Errorf("pending inbox: %w", err)
@@ -155,7 +175,7 @@ func (s *Store) Pending(ctx context.Context) ([]Item, error) {
 	for rows.Next() {
 		var it Item
 		var trusted int
-		if err := rows.Scan(&it.Channel, &it.MessageID, &it.Conversation, &it.Principal, &it.Text, &trusted); err != nil {
+		if err := rows.Scan(&it.Channel, &it.MessageID, &it.Conversation, &it.Principal, &it.Text, &trusted, &it.Agent, &it.Project); err != nil {
 			return nil, err
 		}
 		it.Trusted = trusted != 0
@@ -239,6 +259,41 @@ func (s *Store) SetOffset(ctx context.Context, channel string, offset int64) err
 		return fmt.Errorf("set offset: %w", err)
 	}
 	return nil
+}
+
+// Conversation returns the persona and project this conversation currently
+// points at (empty when unset — the caller applies channel/gateway defaults).
+func (s *Store) Conversation(ctx context.Context, channel, conversation string) (agent, project string, err error) {
+	err = s.db.QueryRowContext(ctx,
+		`SELECT agent, project FROM conversations WHERE channel = ? AND conversation = ?`,
+		channel, conversation).Scan(&agent, &project)
+	if err == sql.ErrNoRows {
+		return "", "", nil
+	}
+	if err != nil {
+		return "", "", fmt.Errorf("read conversation: %w", err)
+	}
+	return agent, project, nil
+}
+
+// SetConversationAgent points a conversation at a persona for its SUBSEQUENT
+// tasks (upsert, preserving the current project).
+func (s *Store) SetConversationAgent(ctx context.Context, channel, conversation, agent string) error {
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO conversations (channel, conversation, agent) VALUES (?, ?, ?)
+		 ON CONFLICT(channel, conversation) DO UPDATE SET agent = excluded.agent`,
+		channel, conversation, agent)
+	return err
+}
+
+// SetConversationProject points a conversation at a project for its SUBSEQUENT
+// tasks (upsert, preserving the current agent).
+func (s *Store) SetConversationProject(ctx context.Context, channel, conversation, project string) error {
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO conversations (channel, conversation, project) VALUES (?, ?, ?)
+		 ON CONFLICT(channel, conversation) DO UPDATE SET project = excluded.project`,
+		channel, conversation, project)
+	return err
 }
 
 func boolInt(b bool) int {
