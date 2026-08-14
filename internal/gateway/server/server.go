@@ -61,11 +61,22 @@ type runtime struct {
 	root      string
 	gw        *state.Store
 	mainStore store.Store // main .memcode event log; may be nil (events best-effort)
-	settings  gwconfig.Settings
+	mu        sync.RWMutex
+	settings  gwconfig.Settings // guarded by mu; hot-reloaded from gateway.yaml (see maybeReload)
 	byName    map[string]replySender
 	disp      *dispatcher
 	out       io.Writer
 	notify    chan struct{} // wakes the worker when a message is accepted
+}
+
+// cfg returns the current settings snapshot. Policy fields (allow-lists,
+// projects, agents, channel knobs) hot-reload when gateway.yaml changes — the
+// pairing flow depends on an approval taking effect without a restart. Channel
+// connections and schedules are wired at startup and do NOT hot-reload.
+func (r *runtime) cfg() gwconfig.Settings {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.settings
 }
 
 // Run starts every configured surface, then drains the durable inbox until ctx is
@@ -251,13 +262,20 @@ func (r *runtime) Deliver(ctx context.Context, inb channels.Inbound) error {
 	// Trigger gate: a group message runs only when the bot is addressed, unless the
 	// channel responds to all. A direct message always triggers; a Trusted webhook
 	// always triggers.
-	if !inb.Trusted && !inb.IsDirect && !inb.Mentioned && !r.settings.Get(inb.Channel).RespondToAll {
+	cfg := r.cfg()
+	if !inb.Trusted && !inb.IsDirect && !inb.Mentioned && !cfg.Get(inb.Channel).RespondToAll {
 		r.event(ctx, events.KindGatewayMessageDropped, eventPayload{Channel: inb.Channel, Conversation: inb.Conversation, MessageID: inb.MessageID, Reason: "not addressed"})
 		return nil
 	}
-	// Authorization: default-deny on stable id; a Trusted webhook skips this.
-	if !inb.Trusted && !r.settings.Allowed(inb.Channel, inb.Principal) {
-		fmt.Fprintf(r.out, "gateway: %s message from unauthorized principal %q — ignoring (add it to channels.%s.allow_from)\n", inb.Channel, inb.Principal, inb.Channel)
+	// Authorization: default-deny on stable id; a Trusted webhook skips this. An
+	// unknown DIRECT sender gets a pairing code instead of pure silence — the
+	// operator approves it with `memcode gateway pair approve`.
+	if !inb.Trusted && !cfg.Allowed(inb.Channel, inb.Principal) {
+		if inb.IsDirect {
+			r.offerPairing(ctx, inb)
+		} else {
+			fmt.Fprintf(r.out, "gateway: %s message from unauthorized principal %q — ignoring (add it to channels.%s.allow_from)\n", inb.Channel, inb.Principal, inb.Channel)
+		}
 		r.event(ctx, events.KindGatewayUnauthorized, eventPayload{Channel: inb.Channel, Conversation: inb.Conversation, PrincipalID: inb.Principal, MessageID: inb.MessageID})
 		return nil
 	}
@@ -329,7 +347,9 @@ func (r *runtime) runWorker(ctx context.Context) {
 	tick := time.NewTicker(2 * time.Second)
 	defer tick.Stop()
 
+	cfgMtime := r.maybeReload(time.Time{}) // baseline: settings as of startup
 	for {
+		cfgMtime = r.maybeReload(cfgMtime) // pairing approvals / policy edits land without a restart
 		items, err := r.gw.Pending(ctx)
 		if err != nil && ctx.Err() == nil {
 			fmt.Fprintf(r.out, "gateway: reading inbox: %v\n", err)
@@ -371,7 +391,8 @@ func (r *runtime) runJob(ctx context.Context, it state.Item) {
 	// Continuity: a stable session id per conversation, so follow-up messages
 	// resume the same session (the child does resume-or-create on this id). Tier
 	// routes this channel to a stronger model when configured.
-	cfg := r.settings.Get(it.Channel)
+	settings := r.cfg()
+	cfg := settings.Get(it.Channel)
 	session := conversationSession(it.Channel, it.Conversation, it.Agent)
 	// Resolve the snapshotted project id to its canonical root. The registry plus
 	// the channel's project policy is the authorization boundary: an id that no
@@ -382,7 +403,7 @@ func (r *runtime) runJob(ctx context.Context, it state.Item) {
 		// The channel's project policy is re-checked at execution, not only at
 		// snapshot: if it tightened while this task was queued, refuse — never
 		// "helpfully" run the task somewhere the channel wasn't pointed.
-		if !r.settings.ProjectAllowed(it.Channel, it.Project) {
+		if !settings.ProjectAllowed(it.Channel, it.Project) {
 			msg := fmt.Sprintf("Project %q is not allowed on this channel anymore; nothing was run.", it.Project)
 			if serr := r.gw.SetReplied(ctx, it.Channel, it.MessageID, msg); serr != nil {
 				fmt.Fprintf(r.out, "gateway: recording policy refusal for %s: %v\n", it.Channel, serr)
@@ -391,7 +412,7 @@ func (r *runtime) runJob(ctx context.Context, it state.Item) {
 			r.deliverReply(ctx, it, msg)
 			return
 		}
-		if resolved, rerr := r.settings.ResolveProject(it.Project); rerr == nil {
+		if resolved, rerr := settings.ResolveProject(it.Project); rerr == nil {
 			root = resolved
 		} else {
 			fmt.Fprintf(r.out, "gateway: project %q for %s no longer resolves (%v); using default\n", it.Project, it.Channel, rerr)

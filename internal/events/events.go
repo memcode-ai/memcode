@@ -88,6 +88,7 @@ const (
 	KindGatewayResultPosted    Kind = "gateway_result_posted"
 	KindGatewayMessageDropped  Kind = "gateway_message_dropped" // not a trigger (e.g. no mention in a group)
 	KindGatewayUnauthorized    Kind = "gateway_unauthorized"    // sender not allow-listed
+	KindGatewayPairingOffered  Kind = "gateway_pairing_offered" // unknown DM sender handed a pairing code
 )
 
 // Append records an event with a JSON-encodable payload and returns its id.

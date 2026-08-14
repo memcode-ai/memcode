@@ -54,7 +54,38 @@ CREATE TABLE IF NOT EXISTS conversations (
     project      TEXT NOT NULL DEFAULT '',
     PRIMARY KEY (channel, conversation)
 );
+
+-- Pending pairing requests: an unknown sender DM'd the bot and was handed a
+-- one-time code. The operator approves with the code (memcode gateway pair
+-- approve), which adds the principal to allow_from and deletes the row. One
+-- live request per (channel, principal), so a stranger can't mint codes by
+-- spamming.
+CREATE TABLE IF NOT EXISTS pairings (
+    code         TEXT PRIMARY KEY,
+    channel      TEXT NOT NULL,
+    principal    TEXT NOT NULL,
+    conversation TEXT NOT NULL DEFAULT '',
+    created_at   TEXT NOT NULL,
+    UNIQUE (channel, principal)
+);
 `
+
+// PairingTTL is how long a pairing code stays valid; PairingCap bounds how many
+// requests may be pending at once, so a flood of strangers can't grow the table
+// (or the operator's approval list) without bound.
+const (
+	PairingTTL = time.Hour
+	PairingCap = 25
+)
+
+// Pairing is one pending request from an unknown sender.
+type Pairing struct {
+	Code         string
+	Channel      string
+	Principal    string
+	Conversation string
+	CreatedAt    time.Time
+}
 
 // Item is one inbound message durably recorded for processing. Reply is set only
 // for items returned by PendingReplies (the job finished; the reply awaits
@@ -127,6 +158,35 @@ func Open(ctx context.Context, dir string) (*Store, error) {
 		}
 	}
 	return &Store{db: db, lock: lock}, nil
+}
+
+// OpenShared opens the gateway state DB WITHOUT the singleton lock — for CLI
+// commands (pair list/approve/deny) that touch side tables while the daemon is
+// running. WAL + busy_timeout make the cross-process access safe. Never use this
+// to drive the inbox worker; the lock in Open exists to keep that single.
+func OpenShared(ctx context.Context, dir string) (*Store, error) {
+	path := filepath.Join(dir, "gateway.db")
+	if _, err := os.Stat(path); err != nil {
+		return nil, fmt.Errorf("no gateway state at %s — is the gateway set up?", path)
+	}
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		return nil, fmt.Errorf("opening %s: %w", path, err)
+	}
+	for _, pragma := range []string{
+		"PRAGMA busy_timeout=5000",
+		"PRAGMA journal_mode=WAL",
+	} {
+		if _, err := db.ExecContext(ctx, pragma); err != nil {
+			_ = db.Close()
+			return nil, fmt.Errorf("%s: %w", pragma, err)
+		}
+	}
+	if _, err := db.ExecContext(ctx, schema); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("applying gateway schema: %w", err)
+	}
+	return &Store{db: db}, nil
 }
 
 // Close closes the database and releases the project lock.
@@ -294,6 +354,87 @@ func (s *Store) SetConversationProject(ctx context.Context, channel, conversatio
 		 ON CONFLICT(channel, conversation) DO UPDATE SET project = excluded.project`,
 		channel, conversation, project)
 	return err
+}
+
+// CreatePairing records a pending pairing request for an unknown sender and
+// returns the live code. created reports whether THIS call minted it — the
+// caller sends the code to the sender only then, so repeat messages from the
+// same stranger don't re-trigger a reply. An expired request is replaced; a
+// distinct-principal request past PairingCap is refused.
+func (s *Store) CreatePairing(ctx context.Context, channel, principal, conversation, code string, now time.Time) (liveCode string, created bool, err error) {
+	cutoff := now.Add(-PairingTTL).UTC().Format(time.RFC3339Nano)
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM pairings WHERE created_at < ?`, cutoff); err != nil {
+		return "", false, fmt.Errorf("pruning pairings: %w", err)
+	}
+	var existing string
+	err = s.db.QueryRowContext(ctx,
+		`SELECT code FROM pairings WHERE channel = ? AND principal = ?`, channel, principal).Scan(&existing)
+	if err == nil {
+		return existing, false, nil
+	}
+	if err != sql.ErrNoRows {
+		return "", false, fmt.Errorf("read pairing: %w", err)
+	}
+	var n int
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM pairings`).Scan(&n); err != nil {
+		return "", false, err
+	}
+	if n >= PairingCap {
+		return "", false, fmt.Errorf("too many pending pairing requests (%d)", n)
+	}
+	if _, err := s.db.ExecContext(ctx,
+		`INSERT INTO pairings (code, channel, principal, conversation, created_at) VALUES (?, ?, ?, ?, ?)`,
+		code, channel, principal, conversation, now.UTC().Format(time.RFC3339Nano)); err != nil {
+		return "", false, fmt.Errorf("record pairing: %w", err)
+	}
+	return code, true, nil
+}
+
+// PendingPairings lists live (non-expired) pairing requests, oldest first.
+func (s *Store) PendingPairings(ctx context.Context, now time.Time) ([]Pairing, error) {
+	cutoff := now.Add(-PairingTTL).UTC().Format(time.RFC3339Nano)
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT code, channel, principal, conversation, created_at FROM pairings
+		  WHERE created_at >= ? ORDER BY created_at`, cutoff)
+	if err != nil {
+		return nil, fmt.Errorf("pending pairings: %w", err)
+	}
+	defer rows.Close()
+	var out []Pairing
+	for rows.Next() {
+		var p Pairing
+		var created string
+		if err := rows.Scan(&p.Code, &p.Channel, &p.Principal, &p.Conversation, &created); err != nil {
+			return nil, err
+		}
+		p.CreatedAt, _ = time.Parse(time.RFC3339Nano, created)
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+// TakePairing removes a pairing request by code (case-insensitive) and returns
+// it — the approve/deny consume step. A missing or expired code is an error.
+func (s *Store) TakePairing(ctx context.Context, code string, now time.Time) (Pairing, error) {
+	var p Pairing
+	var created string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT code, channel, principal, conversation, created_at FROM pairings WHERE code = ?`,
+		strings.ToUpper(strings.TrimSpace(code))).Scan(&p.Code, &p.Channel, &p.Principal, &p.Conversation, &created)
+	if err == sql.ErrNoRows {
+		return Pairing{}, fmt.Errorf("no pairing request with code %q", code)
+	}
+	if err != nil {
+		return Pairing{}, fmt.Errorf("read pairing: %w", err)
+	}
+	p.CreatedAt, _ = time.Parse(time.RFC3339Nano, created)
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM pairings WHERE code = ?`, p.Code); err != nil {
+		return Pairing{}, fmt.Errorf("consume pairing: %w", err)
+	}
+	if now.Sub(p.CreatedAt) > PairingTTL {
+		return Pairing{}, fmt.Errorf("pairing code %s expired — have them message the bot again", p.Code)
+	}
+	return p, nil
 }
 
 func boolInt(b bool) int {

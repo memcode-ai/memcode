@@ -2,10 +2,12 @@ package cmd
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -13,6 +15,7 @@ import (
 	"github.com/memcode-ai/memcode/internal/authflow"
 	gwconfig "github.com/memcode-ai/memcode/internal/gateway/config"
 	gwserver "github.com/memcode-ai/memcode/internal/gateway/server"
+	gwstate "github.com/memcode-ai/memcode/internal/gateway/state"
 	"github.com/memcode-ai/memcode/internal/provider"
 	"github.com/memcode-ai/memcode/internal/store"
 )
@@ -193,7 +196,104 @@ func secret(cmd *cobra.Command, label string) string {
 	return strings.TrimSpace(line)
 }
 
+// gatewayPairCmd manages pairing requests: an unknown sender who DMs the bot
+// gets a one-time code; these commands turn that code into an allow_from entry
+// (or throw it away). The running gateway picks the change up within seconds —
+// no restart.
+var gatewayPairCmd = &cobra.Command{
+	Use:   "pair",
+	Short: "List pending pairing requests from unknown senders",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		gw, err := openGatewayState(cmd.Context())
+		if err != nil {
+			return err
+		}
+		defer gw.Close()
+		pending, err := gw.PendingPairings(cmd.Context(), time.Now())
+		if err != nil {
+			return err
+		}
+		if len(pending) == 0 {
+			cmd.Println("No pending pairing requests.")
+			return nil
+		}
+		for _, p := range pending {
+			cmd.Printf("%s  %s user %s  (asked %s ago)\n", p.Code, p.Channel, p.Principal, time.Since(p.CreatedAt).Round(time.Minute))
+		}
+		cmd.Println("\nApprove one with `memcode gateway pair approve <code>`.")
+		return nil
+	},
+}
+
+var gatewayPairApproveCmd = &cobra.Command{
+	Use:   "approve <code>",
+	Short: "Approve a pairing request — adds the sender to the channel's allow list",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		gw, err := openGatewayState(cmd.Context())
+		if err != nil {
+			return err
+		}
+		defer gw.Close()
+		p, err := gw.TakePairing(cmd.Context(), args[0], time.Now())
+		if err != nil {
+			return err
+		}
+		settings, err := gwconfig.Load()
+		if err != nil {
+			return err
+		}
+		if settings.Channels == nil {
+			settings.Channels = map[string]gwconfig.Channel{}
+		}
+		ch := settings.Channels[p.Channel]
+		for _, id := range ch.AllowFrom {
+			if id == p.Principal {
+				cmd.Printf("%s user %s is already allowed.\n", p.Channel, p.Principal)
+				return nil
+			}
+		}
+		ch.AllowFrom = append(ch.AllowFrom, p.Principal)
+		settings.Channels[p.Channel] = ch
+		if err := gwconfig.Save(settings); err != nil {
+			return err
+		}
+		cmd.Printf("Approved %s user %s. The gateway picks this up within a few seconds.\n", p.Channel, p.Principal)
+		return nil
+	},
+}
+
+var gatewayPairDenyCmd = &cobra.Command{
+	Use:   "deny <code>",
+	Short: "Discard a pairing request",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		gw, err := openGatewayState(cmd.Context())
+		if err != nil {
+			return err
+		}
+		defer gw.Close()
+		p, err := gw.TakePairing(cmd.Context(), args[0], time.Now())
+		if err != nil {
+			return err
+		}
+		cmd.Printf("Denied %s user %s.\n", p.Channel, p.Principal)
+		return nil
+	},
+}
+
+// openGatewayState opens the gateway's state DB without the daemon's singleton
+// lock — the pair commands only touch the pairing table, safely cross-process.
+func openGatewayState(ctx context.Context) (*gwstate.Store, error) {
+	dir, err := gwconfig.Dir()
+	if err != nil {
+		return nil, err
+	}
+	return gwstate.OpenShared(ctx, dir)
+}
+
 func init() {
-	gatewayCmd.AddCommand(gatewaySetupCmd)
+	gatewayPairCmd.AddCommand(gatewayPairApproveCmd, gatewayPairDenyCmd)
+	gatewayCmd.AddCommand(gatewaySetupCmd, gatewayPairCmd)
 	rootCmd.AddCommand(gatewayCmd)
 }

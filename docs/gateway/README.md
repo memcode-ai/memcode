@@ -119,6 +119,23 @@ Two independent checks gate a chat message, matching what Hermes and OpenClaw do
 Signature-verified webhooks (GitHub) skip both — their HMAC already authenticates
 the sender.
 
+### Pairing
+
+You don't have to hand-collect user ids. When an unknown sender DMs the bot, it
+replies once with a one-time 6-character code (1h expiry, bounded pending set,
+repeats stay silent). The operator turns the code into an `allow_from` entry:
+
+```
+memcode gateway pair               # list pending requests
+memcode gateway pair approve K3QP7M
+memcode gateway pair deny K3QP7M
+```
+
+The running gateway hot-reloads gateway.yaml's POLICY fields (allow-lists,
+projects, agents, channel knobs) on change, so an approval takes effect within
+seconds — no restart. Channel connections and schedules are wired at startup and
+do not hot-reload.
+
 ## Import from OpenClaw
 
 Already running OpenClaw? Bring your channels over with one command:

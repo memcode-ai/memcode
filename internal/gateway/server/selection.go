@@ -26,7 +26,7 @@ func (r *runtime) handleCommand(ctx context.Context, inb channels.Inbound) bool 
 			break
 		}
 		id := fields[1]
-		if _, ok := r.settings.Agents[id]; !ok {
+		if _, ok := r.cfg().Agents[id]; !ok {
 			reply = fmt.Sprintf("Unknown agent %q. %s", id, r.agentList())
 			break
 		}
@@ -41,11 +41,11 @@ func (r *runtime) handleCommand(ctx context.Context, inb channels.Inbound) bool 
 			break
 		}
 		id := fields[1]
-		if _, err := r.settings.ResolveProject(id); err != nil { // registry is the authority
+		if _, err := r.cfg().ResolveProject(id); err != nil { // registry is the authority
 			reply = fmt.Sprintf("%v. %s", err, r.projectList())
 			break
 		}
-		if !r.settings.ProjectAllowed(inb.Channel, id) { // channel policy narrows the registry
+		if !r.cfg().ProjectAllowed(inb.Channel, id) { // channel policy narrows the registry
 			reply = fmt.Sprintf("Project %q is not allowed on this channel. %s", id, r.channelProjectList(inb.Channel))
 			break
 		}
@@ -69,8 +69,9 @@ func (r *runtime) handleCommand(ctx context.Context, inb channels.Inbound) bool 
 // selection made before the policy tightened) that is no longer allowed falls to
 // the first project the channel IS allowed, never through to the gateway default.
 func (r *runtime) resolveSelection(ctx context.Context, channel, conversation string) (agent, project string) {
-	agent = r.settings.Get(channel).Agent
-	project = r.settings.DefaultProject
+	cfg := r.cfg() // one snapshot: the allowed-check and the fallback index must agree
+	agent = cfg.Get(channel).Agent
+	project = cfg.DefaultProject
 	if a, p, err := r.gw.Conversation(ctx, channel, conversation); err == nil {
 		if a != "" {
 			agent = a
@@ -79,15 +80,15 @@ func (r *runtime) resolveSelection(ctx context.Context, channel, conversation st
 			project = p
 		}
 	}
-	if !r.settings.ProjectAllowed(channel, project) {
-		project = r.settings.Get(channel).Projects[0] // non-empty list, or Allowed would be true
+	if !cfg.ProjectAllowed(channel, project) {
+		project = cfg.Get(channel).Projects[0] // non-empty list, or Allowed would be true
 	}
 	return agent, project
 }
 
 func (r *runtime) agentList() string {
-	ids := make([]string, 0, len(r.settings.Agents))
-	for id := range r.settings.Agents {
+	ids := make([]string, 0, len(r.cfg().Agents))
+	for id := range r.cfg().Agents {
 		ids = append(ids, id)
 	}
 	return listOrNone("agents", ids)
@@ -96,7 +97,7 @@ func (r *runtime) agentList() string {
 // channelProjectList names the projects a channel may select: its configured
 // subset when one is set, else every registered project.
 func (r *runtime) channelProjectList(channel string) string {
-	if allowed := r.settings.Get(channel).Projects; len(allowed) > 0 {
+	if allowed := r.cfg().Get(channel).Projects; len(allowed) > 0 {
 		ids := append([]string(nil), allowed...)
 		return listOrNone("projects", ids)
 	}
@@ -104,8 +105,8 @@ func (r *runtime) channelProjectList(channel string) string {
 }
 
 func (r *runtime) projectList() string {
-	ids := make([]string, 0, len(r.settings.Projects))
-	for id := range r.settings.Projects {
+	ids := make([]string, 0, len(r.cfg().Projects))
+	for id := range r.cfg().Projects {
 		ids = append(ids, id)
 	}
 	return listOrNone("projects", ids)
