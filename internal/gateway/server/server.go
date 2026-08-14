@@ -76,12 +76,13 @@ func Run(ctx context.Context, root string, settings gwconfig.Settings, out io.Wr
 		return fmt.Errorf("no channels configured — run `memcode gateway setup` to add one")
 	}
 
+	d := newDispatcher(root, st, settings, byName, out)
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		case inb := <-inbound:
-			go handle(ctx, root, st, settings, byName[inb.Channel], inb, out)
+			d.submit(ctx, inb)
 		}
 	}
 }
