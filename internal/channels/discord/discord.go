@@ -94,10 +94,10 @@ func toInbound(m *discordgo.MessageCreate, selfID string) (channels.Inbound, boo
 	}, true
 }
 
-// Send posts a reply to a channel, splitting it to respect Discord's per-message
-// length limit.
+// Send posts a reply to a channel, splitting it with the shared chunker to
+// respect Discord's per-message length limit.
 func (c *Channel) Send(ctx context.Context, conversation string, msg channels.Outbound) error {
-	for _, part := range chunk(msg.Text, discordMaxMessage) {
+	for _, part := range channels.Chunk(msg.Text, discordMaxMessage) {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -106,35 +106,4 @@ func (c *Channel) Send(ctx context.Context, conversation string, msg channels.Ou
 		}
 	}
 	return nil
-}
-
-// chunk splits s into pieces of at most max runes, preferring to break at a
-// newline near the limit so code and paragraphs stay intact. An empty string
-// yields a single empty piece so a blank reply still sends something.
-func chunk(s string, max int) []string {
-	if max <= 0 {
-		return []string{s}
-	}
-	var parts []string
-	r := []rune(s)
-	for len(r) > max {
-		cut := max
-		// Prefer the last newline in the window so we don't split mid-line.
-		if nl := lastIndexRune(r[:max], '\n'); nl > max/2 {
-			cut = nl + 1
-		}
-		parts = append(parts, string(r[:cut]))
-		r = r[cut:]
-	}
-	parts = append(parts, string(r))
-	return parts
-}
-
-func lastIndexRune(r []rune, target rune) int {
-	for i := len(r) - 1; i >= 0; i-- {
-		if r[i] == target {
-			return i
-		}
-	}
-	return -1
 }

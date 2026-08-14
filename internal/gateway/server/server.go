@@ -54,7 +54,7 @@ func Run(ctx context.Context, root string, settings gwconfig.Settings, out io.Wr
 	// duplicate deliveries only ever arrive close in time to the original.
 	_ = st.PruneProcessed(ctx, time.Now().Add(-30*24*time.Hour))
 
-	chs := channelsFrom(settings, out)
+	chs := channelsFrom(settings, st, out)
 
 	byName := make(map[string]replySender, len(chs)+1)
 	inbound := make(chan channels.Inbound, 64)
@@ -90,10 +90,10 @@ func Run(ctx context.Context, root string, settings gwconfig.Settings, out io.Wr
 // environment. settings carries the non-secret knobs a channel needs (unused by
 // Telegram/Discord, which need only their token). A channel whose constructor
 // fails is logged and skipped, never fatal to the others.
-func channelsFrom(settings gwconfig.Settings, out io.Writer) []channels.Channel {
+func channelsFrom(settings gwconfig.Settings, st *state.Store, out io.Writer) []channels.Channel {
 	var chs []channels.Channel
 	if tok := strings.TrimSpace(os.Getenv(gwconfig.EnvTelegramToken)); tok != "" {
-		chs = append(chs, telegram.New(tok))
+		chs = append(chs, telegram.New(tok, st))
 	}
 	if tok := strings.TrimSpace(os.Getenv(gwconfig.EnvDiscordToken)); tok != "" {
 		if ch, err := discord.New(tok); err != nil {

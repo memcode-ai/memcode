@@ -1,7 +1,6 @@
 package discord
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/bwmarrin/discordgo"
@@ -49,38 +48,5 @@ func TestToInbound(t *testing.T) {
 				t.Errorf("got %+v, want %+v", got, want)
 			}
 		})
-	}
-}
-
-func TestChunk(t *testing.T) {
-	// Short strings pass through as one piece.
-	if got := chunk("hello", 2000); len(got) != 1 || got[0] != "hello" {
-		t.Fatalf("short: got %v", got)
-	}
-	// Empty string still yields one (empty) piece.
-	if got := chunk("", 2000); len(got) != 1 || got[0] != "" {
-		t.Fatalf("empty: got %v", got)
-	}
-	// Over-limit input splits into pieces each within the limit.
-	long := strings.Repeat("a", 4500)
-	parts := chunk(long, 2000)
-	if len(parts) != 3 {
-		t.Fatalf("want 3 parts, got %d", len(parts))
-	}
-	total := 0
-	for _, p := range parts {
-		if len([]rune(p)) > 2000 {
-			t.Errorf("part exceeds limit: %d", len([]rune(p)))
-		}
-		total += len([]rune(p))
-	}
-	if total != 4500 {
-		t.Errorf("lost content: total %d", total)
-	}
-	// Prefers a newline break near the limit over a hard cut.
-	withNL := strings.Repeat("x", 1500) + "\n" + strings.Repeat("y", 1500)
-	got := chunk(withNL, 2000)
-	if len(got) != 2 || !strings.HasSuffix(got[0], "\n") {
-		t.Errorf("newline break: got pieces %d, first ends nl=%v", len(got), strings.HasSuffix(got[0], "\n"))
 	}
 }
