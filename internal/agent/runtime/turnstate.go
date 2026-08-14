@@ -16,7 +16,8 @@ type turnState struct {
 	gather         *gatherState    // per-turn read-only-gathering budget + repetition tracker (gather.go)
 	editedPaths    map[string]bool // files edited this turn (for the completion gate)
 	servedLine     string          // last printed "⇄ served by …" line — dedup once/turn
-	interrupted    bool            // the user chose to stop this turn
+	interrupted    bool            // the user chose to STOP this turn (Esc / "No, stop") — end after this batch
+	redirected     bool            // the user denied an action and typed a redirection — skip the sibling tool calls but CONTINUE so the model reads the feedback and responds
 	firstBreak     string          // the FIRST broken-edit nudge this turn — the failure evidence for lesson distillation
 	lessonDone     bool            // a lesson was already distilled this turn (fire once)
 	billingCredits bool            // user consented to serve THIS turn on memcode credits after a BYOK key failure

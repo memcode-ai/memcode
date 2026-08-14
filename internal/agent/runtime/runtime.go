@@ -588,6 +588,13 @@ func (s *Session) askApproval(ctx context.Context, req ApprovalRequest) Approval
 		s.turn.interrupted = true
 		s.emit(ctx, events.KindInputInterrupted, map[string]any{"during": req.Label})
 	}
+	if d.Redirect {
+		// Deny this action and skip its siblings this batch, but let the turn
+		// CONTINUE: the denial (carrying the user's typed feedback as Reason) goes
+		// back to the model, which reads it and responds — instead of the turn
+		// silently terminating with the feedback unread.
+		s.turn.redirected = true
+	}
 	if !d.Allow {
 		s.noteDenied(ctx, req.Title)
 	}

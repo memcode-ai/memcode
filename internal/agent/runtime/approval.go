@@ -42,7 +42,8 @@ type ApprovalDecision struct {
 	RememberScope string // when Allow: the chosen ApprovalScope.Key ("" = none / plain yes)
 	Command       string // when Allow and non-empty: run THIS instead of the original
 	Reason        string // when !Allow: why — fed back to the model so it can adjust
-	Interrupt     bool   // stop the whole turn, not just this action
+	Interrupt     bool   // STOP the whole turn (Esc / "No, stop") — the model does not get another call
+	Redirect      bool   // when !Allow with a typed Reason: deny this action and skip its siblings, but let the turn CONTINUE so the model reads the feedback and responds (does NOT terminate)
 }
 
 // Allowed is a plain yes.

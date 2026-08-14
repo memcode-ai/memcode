@@ -118,9 +118,12 @@ func (s *Session) executeBatch(ctx context.Context, uses []wire.Block) []wire.Bl
 		// run — otherwise denying edit #1 still silently applies edits #2, #3 (the
 		// "I said no but it kept editing" bug). Every tool_use still needs a paired
 		// tool_result, so the skipped ones get a benign one rather than being dropped.
-		if s.turn.interrupted || ctx.Err() != nil {
-			results[i] = wire.Block{Type: "tool_result", ToolUseID: u.ID,
-				Content: "skipped — you stopped this turn", IsError: true}
+		if s.turn.interrupted || s.turn.redirected || ctx.Err() != nil {
+			skip := "skipped — you stopped this turn"
+			if s.turn.redirected && !s.turn.interrupted {
+				skip = "skipped — the user redirected; see their instruction on the denied action above"
+			}
+			results[i] = wire.Block{Type: "tool_result", ToolUseID: u.ID, Content: skip, IsError: true}
 			continue
 		}
 		if !isParallelSafe(u.Name) {

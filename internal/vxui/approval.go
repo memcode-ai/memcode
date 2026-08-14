@@ -18,8 +18,8 @@ type approvalOption struct {
 
 // approvalOptions builds the card's rows. Scoped requests (MCP) read Execute / one row per
 // remember scope / Cancel — Cancel is a PLAIN deny (the model sees the refusal and moves on),
-// unlike "tell", which interrupts the turn to redirect it. Everything else keeps the classic
-// three: Yes / don't-ask-again / tell.
+// unlike "tell", which denies + redirects: the agent keeps working and acts on the typed
+// feedback. Everything else keeps the classic three: Yes / don't-ask-again / tell.
 func (s *appState) approvalOptions() []approvalOption {
 	p := s.pending
 	if len(p.RememberScopes) > 0 {
@@ -46,10 +46,9 @@ func (s *appState) approvalOptions() []approvalOption {
 
 // approvalEnterAction decides what Enter does on the approval card, given the highlighted
 // option's kind and whether the user typed feedback. Typed feedback is always "tell" (deny +
-// redirect). With nothing typed, "tell" returns "hint" — NOT an interrupt. The old code sent
-// Interrupt on an empty "tell" Enter, which silently STOPPED the whole turn when the user just
-// meant to pick an option. Esc remains the explicit stop. "cancel" with nothing typed is a
-// plain deny, no hint dance — Cancel IS the chosen outcome.
+// redirect — the turn CONTINUES and the agent acts on the feedback). With nothing typed, "tell"
+// returns "hint" so the user is prompted to type, never a stop. Esc remains the explicit stop.
+// "cancel" with nothing typed is a plain deny, no hint dance — Cancel IS the chosen outcome.
 func approvalEnterAction(kind string, hasFeedback bool) string {
 	if hasFeedback {
 		return "tell"
@@ -74,9 +73,10 @@ func (s *appState) answerApproval(d runtime.ApprovalDecision) {
 }
 
 // answerApprovalChoice maps a card outcome to a decision. "tell" is "No, and tell me what to
-// do differently": stop the turn and feed the typed redirection back so the agent acts on it
-// instead of the path the user just rejected. "cancel" (scoped cards) denies without stopping
-// the turn — the model sees the refusal and continues. scope carries the chosen remember key.
+// do differently": DENY the rejected action and hand the typed redirection to the agent, which
+// keeps working — it reads the feedback and responds (says something / re-plans / asks) instead
+// of the turn terminating. (Esc is the hard stop.) "cancel" (scoped cards) denies without
+// redirecting — the model sees a plain refusal and continues. scope carries the remember key.
 func (s *appState) answerApprovalChoice(kind, scope, feedback string) {
 	switch kind {
 	case "yes":
@@ -91,7 +91,11 @@ func (s *appState) answerApprovalChoice(kind, scope, feedback string) {
 	case "cancel":
 		s.answerApproval(runtime.ApprovalDecision{})
 	case "tell":
-		s.answerApproval(runtime.ApprovalDecision{Interrupt: true, Reason: feedback})
+		// Deny + Redirect: skip the rejected action and its siblings, but keep the turn
+		// alive so the agent acts on the feedback. Frame the reason as a user instruction
+		// so the model responds to it rather than treating it as a bare tool error.
+		reason := "The user declined that action and said: " + feedback
+		s.answerApproval(runtime.ApprovalDecision{Redirect: true, Reason: reason})
 		s.SetState(s.clearComposerInput)
 	}
 }

@@ -512,6 +512,13 @@ func (s *Session) runLoop(ctx context.Context, sys promptSpec, messages *[]wire.
 			s.printf("\n■ stopped this turn at your request.\n")
 			return iterations, false, nil
 		}
+		// The user denied an action and typed a redirection: the denial (carrying
+		// their feedback) is already in this batch's tool_results, so CONTINUE — the
+		// next model call reads the feedback and responds, instead of the turn
+		// terminating with it unread. Clear the one-shot flag.
+		if s.turn.redirected {
+			s.turn.redirected = false
+		}
 	}
 	ceiling := "max iterations"
 	if iterCap == maxIterationsYolo {
