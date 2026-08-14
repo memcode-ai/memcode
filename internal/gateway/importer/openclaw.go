@@ -187,8 +187,10 @@ func anyToString(v any) string {
 	switch t := v.(type) {
 	case string:
 		return t
-	case float64:
+	case float64: // JSON numbers
 		return strconv.FormatInt(int64(t), 10)
+	case int: // YAML integers
+		return strconv.Itoa(t)
 	case int64:
 		return strconv.FormatInt(t, 10)
 	default:

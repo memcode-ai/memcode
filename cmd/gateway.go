@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -133,12 +134,13 @@ var gatewaySetupCmd = &cobra.Command{
 	},
 }
 
-// gatewayImportCmd migrates an existing OpenClaw configuration into memcode's
-// gateway config — bring your channels over with one command instead of
-// reconfiguring each by hand.
+// gatewayImportCmd migrates an existing OpenClaw or Hermes configuration into
+// memcode's gateway config — bring your channels over with one command instead of
+// reconfiguring each by hand. The format is auto-detected (OpenClaw JSON vs Hermes
+// YAML); with no path it looks in each tool's default location.
 var gatewayImportCmd = &cobra.Command{
-	Use:   "import [openclaw.json]",
-	Short: "Import channels from an existing OpenClaw config",
+	Use:   "import [config]",
+	Short: "Import channels from an existing OpenClaw or Hermes config",
 	Args:  cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		provider.LoadDotEnv() // so env-referenced credentials resolve
@@ -147,15 +149,7 @@ var gatewayImportCmd = &cobra.Command{
 		if len(args) == 1 {
 			arg = args[0]
 		}
-		path, searched := openClawConfigPath(arg)
-		if path == "" {
-			return fmt.Errorf("no OpenClaw config found (looked in: %s); pass its path explicitly", strings.Join(searched, ", "))
-		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		res, err := importer.FromOpenClaw(data, os.Getenv)
+		res, source, err := resolveImport(arg)
 		if err != nil {
 			return err
 		}
@@ -185,7 +179,7 @@ var gatewayImportCmd = &cobra.Command{
 			}
 		}
 
-		cmd.Printf("Imported from %s\n", path)
+		cmd.Printf("Imported from %s\n", source)
 		if len(imported) > 0 {
 			cmd.Printf("Channels: %s\n", strings.Join(imported, ", "))
 		}
@@ -196,6 +190,78 @@ var gatewayImportCmd = &cobra.Command{
 		cmd.Println("Review with `memcode gateway setup`, then run `memcode gateway`.")
 		return nil
 	},
+}
+
+// resolveImport finds and imports a config, auto-detecting OpenClaw vs Hermes. An
+// explicit path is detected by content; with no path it tries OpenClaw's default
+// location, then Hermes's. Returns the mapped result and a human-readable source.
+func resolveImport(arg string) (importer.Result, string, error) {
+	if arg != "" {
+		data, err := os.ReadFile(arg)
+		if err != nil {
+			return importer.Result{}, "", err
+		}
+		return importByContent(arg, data)
+	}
+	if path, _ := openClawConfigPath(""); path != "" {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return importer.Result{}, "", err
+		}
+		res, err := importer.FromOpenClaw(data, os.Getenv)
+		return res, "OpenClaw (" + path + ")", err
+	}
+	if path := hermesConfigPath(); path != "" {
+		return importHermesFile(path)
+	}
+	return importer.Result{}, "", fmt.Errorf("no OpenClaw or Hermes config found (looked in ~/.openclaw/openclaw.json and ~/.hermes/config.yaml); pass a path explicitly")
+}
+
+// importByContent picks the importer by what the file contains: OpenClaw is JSON
+// with a top-level "channels" object; anything else is treated as a Hermes YAML.
+func importByContent(path string, data []byte) (importer.Result, string, error) {
+	var probe map[string]json.RawMessage
+	if json.Unmarshal(data, &probe) == nil {
+		if _, ok := probe["channels"]; ok {
+			res, err := importer.FromOpenClaw(data, os.Getenv)
+			return res, "OpenClaw (" + path + ")", err
+		}
+	}
+	res, err := importHermesData(path, data)
+	return res, "Hermes (" + path + ")", err
+}
+
+// importHermesFile reads a Hermes config.yaml and imports it.
+func importHermesFile(path string) (importer.Result, string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return importer.Result{}, "", err
+	}
+	res, err := importHermesData(path, data)
+	return res, "Hermes (" + path + ")", err
+}
+
+// importHermesData maps a Hermes config plus the .env sitting beside it (its
+// canonical token home) into memcode's config.
+func importHermesData(path string, configYAML []byte) (importer.Result, error) {
+	env := map[string]string{}
+	if b, err := os.ReadFile(filepath.Join(filepath.Dir(path), ".env")); err == nil {
+		env = importer.ParseEnv(b)
+	}
+	return importer.FromHermes(configYAML, env)
+}
+
+// hermesConfigPath returns the default Hermes config path if it exists, else "".
+func hermesConfigPath() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	p := filepath.Join(home, ".hermes", "config.yaml")
+	if _, err := os.Stat(p); err == nil {
+		return p
+	}
+	return ""
 }
 
 // openClawConfigPath resolves the OpenClaw config to import: an explicit arg, then
