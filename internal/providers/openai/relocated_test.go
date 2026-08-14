@@ -72,7 +72,7 @@ func TestGrokAgentToolsSearch(t *testing.T) {
 		gotPath = r.URL.Path
 		_ = json.NewDecoder(r.Body).Decode(&gotBody)
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"id":"resp_1","object":"response","status":"completed","model":"grok-4.5",
+		fmt.Fprint(w, `{"id":"resp_1","object":"response","status":"completed","model":"grok-4.6",
 			"output":[{"type":"message","id":"m1","role":"assistant","status":"completed",
 			"content":[{"type":"output_text","text":"answer with sources","annotations":[]}]}],
 			"usage":{"input_tokens":10,"output_tokens":5}}`)
@@ -88,7 +88,7 @@ func TestGrokAgentToolsSearch(t *testing.T) {
 	if text != "answer with sources" {
 		t.Fatalf("text = %q", text)
 	}
-	if usage.Backend != "grok" || usage.Model != catalog.ModelGrok45 || usage.InputTokens != 10 {
+	if usage.Backend != "grok" || usage.Model != catalog.ModelGrok46 || usage.InputTokens != 10 {
 		t.Fatalf("usage = %+v", usage)
 	}
 	if gotPath != "/responses" {

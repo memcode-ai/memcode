@@ -36,8 +36,8 @@
   "label": "gemini-flash-lite"
  },
  {
-  "model": "grok-4.5",
-  "label": "grok-4.5"
+  "model": "grok-4.6",
+  "label": "grok-4.6"
  },
  {
   "model": "glm-5p2",
@@ -102,8 +102,8 @@
  },
  {
   "explicit_vendor": "anthropic",
-  "model": "grok-4.5",
-  "label": "grok-4.5"
+  "model": "grok-4.6",
+  "label": "grok-4.6"
  },
  {
   "explicit_vendor": "anthropic",
@@ -172,8 +172,8 @@
  },
  {
   "credits_exhausted": true,
-  "model": "grok-4.5",
-  "label": "grok-4.5"
+  "model": "grok-4.6",
+  "label": "grok-4.6"
  },
  {
   "credits_exhausted": true,
@@ -252,8 +252,8 @@
  {
   "credits_exhausted": true,
   "explicit_vendor": "anthropic",
-  "model": "grok-4.5",
-  "label": "grok-4.5"
+  "model": "grok-4.6",
+  "label": "grok-4.6"
  },
  {
   "credits_exhausted": true,
@@ -346,7 +346,7 @@
   "byok": [
    "anthropic"
   ],
-  "model": "grok-4.5",
+  "model": "grok-4.6",
   "label": "opus"
  },
  {
@@ -454,8 +454,8 @@
    "anthropic"
   ],
   "explicit_vendor": "anthropic",
-  "model": "grok-4.5",
-  "label": "grok-4.5"
+  "model": "grok-4.6",
+  "label": "grok-4.6"
  },
  {
   "byok": [
@@ -566,7 +566,7 @@
    "anthropic"
   ],
   "credits_exhausted": true,
-  "model": "grok-4.5",
+  "model": "grok-4.6",
   "label": "opus"
  },
  {
@@ -688,8 +688,8 @@
   ],
   "credits_exhausted": true,
   "explicit_vendor": "anthropic",
-  "model": "grok-4.5",
-  "label": "grok-4.5"
+  "model": "grok-4.6",
+  "label": "grok-4.6"
  },
  {
   "byok": [
@@ -794,7 +794,7 @@
   "byok": [
    "openai"
   ],
-  "model": "grok-4.5",
+  "model": "grok-4.6",
   "label": "sol"
  },
  {
@@ -902,8 +902,8 @@
    "openai"
   ],
   "explicit_vendor": "anthropic",
-  "model": "grok-4.5",
-  "label": "grok-4.5"
+  "model": "grok-4.6",
+  "label": "grok-4.6"
  },
  {
   "byok": [
@@ -1014,7 +1014,7 @@
    "openai"
   ],
   "credits_exhausted": true,
-  "model": "grok-4.5",
+  "model": "grok-4.6",
   "label": "sol"
  },
  {
@@ -1136,8 +1136,8 @@
   ],
   "credits_exhausted": true,
   "explicit_vendor": "anthropic",
-  "model": "grok-4.5",
-  "label": "grok-4.5"
+  "model": "grok-4.6",
+  "label": "grok-4.6"
  },
  {
   "byok": [
@@ -1242,7 +1242,7 @@
   "byok": [
    "gemini"
   ],
-  "model": "grok-4.5",
+  "model": "grok-4.6",
   "label": "gemini-pro"
  },
  {
@@ -1350,8 +1350,8 @@
    "gemini"
   ],
   "explicit_vendor": "anthropic",
-  "model": "grok-4.5",
-  "label": "grok-4.5"
+  "model": "grok-4.6",
+  "label": "grok-4.6"
  },
  {
   "byok": [
@@ -1462,7 +1462,7 @@
    "gemini"
   ],
   "credits_exhausted": true,
-  "model": "grok-4.5",
+  "model": "grok-4.6",
   "label": "gemini-pro"
  },
  {
@@ -1584,8 +1584,8 @@
   ],
   "credits_exhausted": true,
   "explicit_vendor": "anthropic",
-  "model": "grok-4.5",
-  "label": "grok-4.5"
+  "model": "grok-4.6",
+  "label": "grok-4.6"
  },
  {
   "byok": [
@@ -1628,70 +1628,70 @@
    "grok"
   ],
   "model": "sol",
-  "label": "grok-4.5"
+  "label": "grok-4.6"
  },
  {
   "byok": [
    "grok"
   ],
   "model": "terra",
-  "label": "grok-4.5"
+  "label": "grok-4.6"
  },
  {
   "byok": [
    "grok"
   ],
   "model": "luna",
-  "label": "grok-4.5"
+  "label": "grok-4.6"
  },
  {
   "byok": [
    "grok"
   ],
   "model": "opus",
-  "label": "grok-4.5"
+  "label": "grok-4.6"
  },
  {
   "byok": [
    "grok"
   ],
   "model": "sonnet",
-  "label": "grok-4.5"
+  "label": "grok-4.6"
  },
  {
   "byok": [
    "grok"
   ],
   "model": "haiku",
-  "label": "grok-4.5"
+  "label": "grok-4.6"
  },
  {
   "byok": [
    "grok"
   ],
   "model": "gemini-pro",
-  "label": "grok-4.5"
+  "label": "grok-4.6"
  },
  {
   "byok": [
    "grok"
   ],
   "model": "gemini-flash",
-  "label": "grok-4.5"
+  "label": "grok-4.6"
  },
  {
   "byok": [
    "grok"
   ],
   "model": "gemini-flash-lite",
-  "label": "grok-4.5"
+  "label": "grok-4.6"
  },
  {
   "byok": [
    "grok"
   ],
-  "model": "grok-4.5",
-  "label": "grok-4.5"
+  "model": "grok-4.6",
+  "label": "grok-4.6"
  },
  {
   "byok": [
@@ -1798,8 +1798,8 @@
    "grok"
   ],
   "explicit_vendor": "anthropic",
-  "model": "grok-4.5",
-  "label": "grok-4.5"
+  "model": "grok-4.6",
+  "label": "grok-4.6"
  },
  {
   "byok": [
@@ -1839,7 +1839,7 @@
   ],
   "credits_exhausted": true,
   "model": "sol",
-  "label": "grok-4.5"
+  "label": "grok-4.6"
  },
  {
   "byok": [
@@ -1847,7 +1847,7 @@
   ],
   "credits_exhausted": true,
   "model": "terra",
-  "label": "grok-4.5"
+  "label": "grok-4.6"
  },
  {
   "byok": [
@@ -1855,7 +1855,7 @@
   ],
   "credits_exhausted": true,
   "model": "luna",
-  "label": "grok-4.5"
+  "label": "grok-4.6"
  },
  {
   "byok": [
@@ -1863,7 +1863,7 @@
   ],
   "credits_exhausted": true,
   "model": "opus",
-  "label": "grok-4.5"
+  "label": "grok-4.6"
  },
  {
   "byok": [
@@ -1871,7 +1871,7 @@
   ],
   "credits_exhausted": true,
   "model": "sonnet",
-  "label": "grok-4.5"
+  "label": "grok-4.6"
  },
  {
   "byok": [
@@ -1879,7 +1879,7 @@
   ],
   "credits_exhausted": true,
   "model": "haiku",
-  "label": "grok-4.5"
+  "label": "grok-4.6"
  },
  {
   "byok": [
@@ -1887,7 +1887,7 @@
   ],
   "credits_exhausted": true,
   "model": "gemini-pro",
-  "label": "grok-4.5"
+  "label": "grok-4.6"
  },
  {
   "byok": [
@@ -1895,7 +1895,7 @@
   ],
   "credits_exhausted": true,
   "model": "gemini-flash",
-  "label": "grok-4.5"
+  "label": "grok-4.6"
  },
  {
   "byok": [
@@ -1903,15 +1903,15 @@
   ],
   "credits_exhausted": true,
   "model": "gemini-flash-lite",
-  "label": "grok-4.5"
+  "label": "grok-4.6"
  },
  {
   "byok": [
    "grok"
   ],
   "credits_exhausted": true,
-  "model": "grok-4.5",
-  "label": "grok-4.5"
+  "model": "grok-4.6",
+  "label": "grok-4.6"
  },
  {
   "byok": [
@@ -2032,8 +2032,8 @@
   ],
   "credits_exhausted": true,
   "explicit_vendor": "anthropic",
-  "model": "grok-4.5",
-  "label": "grok-4.5"
+  "model": "grok-4.6",
+  "label": "grok-4.6"
  },
  {
   "byok": [
@@ -2138,7 +2138,7 @@
   "byok": [
    "fireworks"
   ],
-  "model": "grok-4.5",
+  "model": "grok-4.6",
   "label": "kimi-k3"
  },
  {
@@ -2246,8 +2246,8 @@
    "fireworks"
   ],
   "explicit_vendor": "anthropic",
-  "model": "grok-4.5",
-  "label": "grok-4.5"
+  "model": "grok-4.6",
+  "label": "grok-4.6"
  },
  {
   "byok": [
@@ -2358,7 +2358,7 @@
    "fireworks"
   ],
   "credits_exhausted": true,
-  "model": "grok-4.5",
+  "model": "grok-4.6",
   "label": "kimi-k3"
  },
  {
@@ -2480,8 +2480,8 @@
   ],
   "credits_exhausted": true,
   "explicit_vendor": "anthropic",
-  "model": "grok-4.5",
-  "label": "grok-4.5"
+  "model": "grok-4.6",
+  "label": "grok-4.6"
  },
  {
   "byok": [
@@ -2596,7 +2596,7 @@
    "anthropic",
    "fireworks"
   ],
-  "model": "grok-4.5",
+  "model": "grok-4.6",
   "label": "opus"
  },
  {
@@ -2718,8 +2718,8 @@
    "fireworks"
   ],
   "explicit_vendor": "anthropic",
-  "model": "grok-4.5",
-  "label": "grok-4.5"
+  "model": "grok-4.6",
+  "label": "grok-4.6"
  },
  {
   "byok": [
@@ -2844,7 +2844,7 @@
    "fireworks"
   ],
   "credits_exhausted": true,
-  "model": "grok-4.5",
+  "model": "grok-4.6",
   "label": "opus"
  },
  {
@@ -2980,8 +2980,8 @@
   ],
   "credits_exhausted": true,
   "explicit_vendor": "anthropic",
-  "model": "grok-4.5",
-  "label": "grok-4.5"
+  "model": "grok-4.6",
+  "label": "grok-4.6"
  },
  {
   "byok": [
@@ -3100,7 +3100,7 @@
    "openai",
    "anthropic"
   ],
-  "model": "grok-4.5",
+  "model": "grok-4.6",
   "label": "sol"
  },
  {
@@ -3222,8 +3222,8 @@
    "anthropic"
   ],
   "explicit_vendor": "anthropic",
-  "model": "grok-4.5",
-  "label": "grok-4.5"
+  "model": "grok-4.6",
+  "label": "grok-4.6"
  },
  {
   "byok": [
@@ -3348,7 +3348,7 @@
    "anthropic"
   ],
   "credits_exhausted": true,
-  "model": "grok-4.5",
+  "model": "grok-4.6",
   "label": "sol"
  },
  {
@@ -3484,8 +3484,8 @@
   ],
   "credits_exhausted": true,
   "explicit_vendor": "anthropic",
-  "model": "grok-4.5",
-  "label": "grok-4.5"
+  "model": "grok-4.6",
+  "label": "grok-4.6"
  },
  {
   "byok": [
@@ -3533,7 +3533,7 @@
    "grok"
   ],
   "model": "sol",
-  "label": "grok-4.5"
+  "label": "grok-4.6"
  },
  {
   "byok": [
@@ -3541,7 +3541,7 @@
    "grok"
   ],
   "model": "terra",
-  "label": "grok-4.5"
+  "label": "grok-4.6"
  },
  {
   "byok": [
@@ -3549,7 +3549,7 @@
    "grok"
   ],
   "model": "luna",
-  "label": "grok-4.5"
+  "label": "grok-4.6"
  },
  {
   "byok": [
@@ -3557,7 +3557,7 @@
    "grok"
   ],
   "model": "opus",
-  "label": "grok-4.5"
+  "label": "grok-4.6"
  },
  {
   "byok": [
@@ -3565,7 +3565,7 @@
    "grok"
   ],
   "model": "sonnet",
-  "label": "grok-4.5"
+  "label": "grok-4.6"
  },
  {
   "byok": [
@@ -3573,7 +3573,7 @@
    "grok"
   ],
   "model": "haiku",
-  "label": "grok-4.5"
+  "label": "grok-4.6"
  },
  {
   "byok": [
@@ -3604,8 +3604,8 @@
    "gemini",
    "grok"
   ],
-  "model": "grok-4.5",
-  "label": "grok-4.5"
+  "model": "grok-4.6",
+  "label": "grok-4.6"
  },
  {
   "byok": [
@@ -3726,8 +3726,8 @@
    "grok"
   ],
   "explicit_vendor": "anthropic",
-  "model": "grok-4.5",
-  "label": "grok-4.5"
+  "model": "grok-4.6",
+  "label": "grok-4.6"
  },
  {
   "byok": [
@@ -3772,7 +3772,7 @@
   ],
   "credits_exhausted": true,
   "model": "sol",
-  "label": "grok-4.5"
+  "label": "grok-4.6"
  },
  {
   "byok": [
@@ -3781,7 +3781,7 @@
   ],
   "credits_exhausted": true,
   "model": "terra",
-  "label": "grok-4.5"
+  "label": "grok-4.6"
  },
  {
   "byok": [
@@ -3790,7 +3790,7 @@
   ],
   "credits_exhausted": true,
   "model": "luna",
-  "label": "grok-4.5"
+  "label": "grok-4.6"
  },
  {
   "byok": [
@@ -3799,7 +3799,7 @@
   ],
   "credits_exhausted": true,
   "model": "opus",
-  "label": "grok-4.5"
+  "label": "grok-4.6"
  },
  {
   "byok": [
@@ -3808,7 +3808,7 @@
   ],
   "credits_exhausted": true,
   "model": "sonnet",
-  "label": "grok-4.5"
+  "label": "grok-4.6"
  },
  {
   "byok": [
@@ -3817,7 +3817,7 @@
   ],
   "credits_exhausted": true,
   "model": "haiku",
-  "label": "grok-4.5"
+  "label": "grok-4.6"
  },
  {
   "byok": [
@@ -3852,8 +3852,8 @@
    "grok"
   ],
   "credits_exhausted": true,
-  "model": "grok-4.5",
-  "label": "grok-4.5"
+  "model": "grok-4.6",
+  "label": "grok-4.6"
  },
  {
   "byok": [
@@ -3988,8 +3988,8 @@
   ],
   "credits_exhausted": true,
   "explicit_vendor": "anthropic",
-  "model": "grok-4.5",
-  "label": "grok-4.5"
+  "model": "grok-4.6",
+  "label": "grok-4.6"
  },
  {
   "byok": [
@@ -4108,7 +4108,7 @@
    "fireworks",
    "openai"
   ],
-  "model": "grok-4.5",
+  "model": "grok-4.6",
   "label": "sol"
  },
  {
@@ -4230,8 +4230,8 @@
    "openai"
   ],
   "explicit_vendor": "anthropic",
-  "model": "grok-4.5",
-  "label": "grok-4.5"
+  "model": "grok-4.6",
+  "label": "grok-4.6"
  },
  {
   "byok": [
@@ -4356,7 +4356,7 @@
    "openai"
   ],
   "credits_exhausted": true,
-  "model": "grok-4.5",
+  "model": "grok-4.6",
   "label": "sol"
  },
  {
@@ -4492,8 +4492,8 @@
   ],
   "credits_exhausted": true,
   "explicit_vendor": "anthropic",
-  "model": "grok-4.5",
-  "label": "grok-4.5"
+  "model": "grok-4.6",
+  "label": "grok-4.6"
  },
  {
   "byok": [
@@ -4612,7 +4612,7 @@
    "anthropic",
    "gemini"
   ],
-  "model": "grok-4.5",
+  "model": "grok-4.6",
   "label": "gemini-pro"
  },
  {
@@ -4734,8 +4734,8 @@
    "gemini"
   ],
   "explicit_vendor": "anthropic",
-  "model": "grok-4.5",
-  "label": "grok-4.5"
+  "model": "grok-4.6",
+  "label": "grok-4.6"
  },
  {
   "byok": [
@@ -4860,7 +4860,7 @@
    "gemini"
   ],
   "credits_exhausted": true,
-  "model": "grok-4.5",
+  "model": "grok-4.6",
   "label": "gemini-pro"
  },
  {
@@ -4996,8 +4996,8 @@
   ],
   "credits_exhausted": true,
   "explicit_vendor": "anthropic",
-  "model": "grok-4.5",
-  "label": "grok-4.5"
+  "model": "grok-4.6",
+  "label": "grok-4.6"
  },
  {
   "byok": [

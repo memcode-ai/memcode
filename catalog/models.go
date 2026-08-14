@@ -35,5 +35,5 @@ const (
 // the single model for all three strong-tier roles, so the selector resolves
 // every tier to this id.
 const (
-	ModelGrok45 = "grok-4.5" // single model — serves frontier/balanced/cheap tiers
+	ModelGrok46 = "grok-4.6" // single model — serves frontier/balanced/cheap tiers
 )

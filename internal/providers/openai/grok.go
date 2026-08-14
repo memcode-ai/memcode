@@ -32,13 +32,13 @@ type Grok struct {
 }
 
 // NewGrok returns a provider for the xAI Grok API. apiKey is the xAI API key
-// (XAI_API_KEY); the default served model is grok-4.5 (the single model for
+// (XAI_API_KEY); the default served model is grok-4.6 (the single model for
 // all three strong-tier roles).
 func NewGrok(apiKey string) *Grok {
 	o := NewOpenAI(apiKey)
 	o.baseURL = "https://api.x.ai/v1"
 	o.backend = "grok"
-	o.defaultModel = catalog.ModelGrok45
+	o.defaultModel = catalog.ModelGrok46
 	o.keyEnv = EnvGrokKey
 	o.clampEffort = true
 	o.includeEnc = false

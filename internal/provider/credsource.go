@@ -164,7 +164,7 @@ func resolveGrok() (Endpoint, bool) {
 		Name:    "grok-sub",
 		BaseURL: grok.BaseURL,
 		Key:     tok,
-		Model:   sourceModel(catalog.ModelGrok45), // the catalog's Grok tier; /model to change
+		Model:   sourceModel(catalog.ModelGrok46), // the catalog's Grok tier; /model to change
 	}, true
 }
 

@@ -18,7 +18,7 @@ func grokResponsesServer(t *testing.T, onReq func(r *http.Request)) *httptest.Se
 data: {"type":"response.output_text.delta","item_id":"msg_1","output_index":0,"content_index":0,"delta":"ok"}
 
 event: response.completed
-data: {"type":"response.completed","response":{"id":"resp_1","model":"grok-4.5","output":[],"usage":{"input_tokens":5,"output_tokens":3,"total_tokens":8,"input_tokens_details":{"cached_tokens":0}}}}
+data: {"type":"response.completed","response":{"id":"resp_1","model":"grok-4.6","output":[],"usage":{"input_tokens":5,"output_tokens":3,"total_tokens":8,"input_tokens_details":{"cached_tokens":0}}}}
 
 `
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -43,7 +43,7 @@ func TestGrokStampsGrokBackend(t *testing.T) {
 	g := NewGrok("xai-secret-key")
 	g.baseURL = srv.URL
 	resp, err := g.Complete(context.Background(), wire.Request{
-		Model:    catalog.ModelGrok45,
+		Model:    catalog.ModelGrok46,
 		Messages: []wire.Message{{Role: "user", Blocks: []wire.Block{wire.TextBlock("hi")}}},
 	})
 	if err != nil {
@@ -92,7 +92,7 @@ func TestGrokReasoningEffortClamped(t *testing.T) {
 // grok requests must not carry it (xAI rejects unknown includables).
 func TestGrokNoEncryptedInclude(t *testing.T) {
 	g := NewGrok("k")
-	p := g.buildParams(wire.Request{Model: catalog.ModelGrok45}, 4096)
+	p := g.buildParams(wire.Request{Model: catalog.ModelGrok46}, 4096)
 	if len(p.Include) != 0 {
 		t.Fatalf("grok must not request includables: %v", p.Include)
 	}
@@ -101,10 +101,10 @@ func TestGrokNoEncryptedInclude(t *testing.T) {
 	}
 }
 
-// TestGrokModelReturnsGrok45 locks that Model() returns the grok-4.5 id.
-func TestGrokModelReturnsGrok45(t *testing.T) {
+// TestGrokModelReturnsGrok46 locks that Model() returns the grok-4.6 id.
+func TestGrokModelReturnsGrok46(t *testing.T) {
 	g := NewGrok("key")
-	if g.Model() != catalog.ModelGrok45 {
-		t.Errorf("Model() = %q, want %q", g.Model(), catalog.ModelGrok45)
+	if g.Model() != catalog.ModelGrok46 {
+		t.Errorf("Model() = %q, want %q", g.Model(), catalog.ModelGrok46)
 	}
 }

@@ -66,7 +66,7 @@ type OpenAI struct {
 	// is this SDK + a base URL; xAI ships no Go SDK). Grok embeds this adapter
 	// with these fields overridden instead of duplicating the dialect.
 	backend      string // wire backend tag stamped on responses ("openai" | "grok")
-	defaultModel string // side-channel + display model (Terra | grok-4.5)
+	defaultModel string // side-channel + display model (Terra | grok-4.6)
 	keyEnv       string // env var named in missing-key errors
 	clampEffort  bool   // clamp reasoning.effort to the low|high vocabulary (xAI)
 	includeEnc   bool   // request encrypted-reasoning round-trip (OpenAI-only includable)

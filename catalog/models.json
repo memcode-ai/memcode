@@ -2,20 +2,20 @@
   "_comment": "CANONICAL model catalog for the WHOLE monorepo (root /models.json): capabilities (window/vision/reasoning/max_output), CLI picker flags (pinnable/group), pricing ($/M tokens; entry price_in/out -> first-matching family rule -> defaults; cache read defaults to 0.1x input, cache write to 1.25x input), and the www chat surface (per-model `www` block: chat/order/description \u2014 Go ignores it). Consumers: Go embeds a BYTE-IDENTICAL copy at packages/sdk/go/common/models.json (sync with scripts/sync-models.sh; a guard test fails on drift; api/ re-vendors it), and apps/www derives its entire catalog + calculateCost from THIS file. Edit HERE, run the sync script, never edit the sdk copy directly.",
   "models": [
     {
-      "id": "grok-4.5",
-      "label": "grok-4.5",
+      "id": "grok-4.6",
+      "label": "grok-4.6",
       "vendor": "grok",
       "window": 500000,
       "vision": true,
       "reasoning": true,
       "price_in": 2.0,
       "price_out": 6.0,
-      "price_cache_read": 0.3,
-      "_note": "Grok 4.5 (xAI, via the OpenAI-compatible api.x.ai endpoint). Single model for all three strong-tier roles for the Grok vendor (no 'Grok Haiku' yet). 500K context, reasoning_effort knob, vision. Without this catalog row, catalog.spec returned window 0 / vision false, so every image turn was mis-stamped FallbackReason:vision and /v1/models reported the Grok roles as window 0. PRICING verified docs.x.ai 2026-07-27: $2/$6, cached $0.30 (<200k tier; the >=200k doubled tier is not modeled). LiteLLM had cached $0.50 \u2014 vendor doc wins.",
+      "price_cache_read": 0.5,
+      "_note": "Grok 4.6 (xAI, via the OpenAI-compatible api.x.ai endpoint). Single model for all three strong-tier roles for the Grok vendor (no 'Grok Haiku' yet). 500K context, reasoning_effort knob, vision. Without a catalog row, catalog.spec returns window 0 / vision false (mis-stamps image turns FallbackReason:vision). PRICING verified docs.x.ai 2026-08-15: $2/$6, cached $0.50 (<200k tier; the >=200k doubled tier is not modeled). Replaced grok-4.5 ($0.30 cached) 2026-08-15.",
       "pinnable": true,
       "group": "Grok",
       "desc": "Frontier reasoning",
-      "name": "Grok 4.5",
+      "name": "Grok 4.6",
       "www": {
         "chat": true,
         "order": 36,
@@ -59,9 +59,9 @@
       "window": 1000000,
       "vision": true,
       "reasoning": true,
-      "price_in": 1.5,
-      "price_out": 7.5,
-      "_note": "Gemini 3.6 Flash (Google, GA July 21 2026). Balanced tier \u2014 everyday default + fallback absorb target for the Gemini vendor. Latest stable Flash; supersedes gemini-3.5-flash ($1.50/$9.00) at a lower output price. 1M context, 64K max output, vision, thinking budget, Google Search grounding.",
+      "price_in": 0.75,
+      "price_out": 3.75,
+      "_note": "Gemini 3.6 Flash (Google, GA July 21 2026). Balanced tier \u2014 everyday default + fallback absorb target for the Gemini vendor. Latest stable Flash; supersedes gemini-3.5-flash ($1.50/$9.00) at a lower output price. 1M context, 64K max output, vision, thinking budget, Google Search grounding. PRICING verified 2026-08-15 ai.google.dev: $0.75/$3.75 promo through 2026-12-31; RAISE to $1.50/$7.50 on 2027-01-01.",
       "pinnable": true,
       "group": "Gemini",
       "desc": "Fast agentic coding",
@@ -228,9 +228,9 @@
       "window": 1050000,
       "vision": true,
       "reasoning": true,
-      "price_in": 2.5,
-      "price_out": 15.0,
-      "_note": "GPT-5.6 Terra (OpenAI). Balanced tier \u2014 everyday default + fallback absorb target (was Sonnet in inference).",
+      "price_in": 2,
+      "price_out": 12,
+      "_note": "GPT-5.6 Terra (OpenAI). Balanced tier \u2014 everyday default + fallback absorb target (was Sonnet in inference). PRICING verified 2026-08-15 developers.openai.com: $2/$12 (cut from $2.50/$15 on 2026-07-30).",
       "pinnable": true,
       "group": "OpenAI",
       "desc": "Balanced everyday coding",
@@ -253,9 +253,9 @@
       "window": 1050000,
       "vision": true,
       "reasoning": true,
-      "price_in": 1.0,
-      "price_out": 6.0,
-      "_note": "GPT-5.6 Luna (OpenAI). Fast/cheap tier \u2014 classifier + reviewer (was Haiku in inference).",
+      "price_in": 0.2,
+      "price_out": 1.2,
+      "_note": "GPT-5.6 Luna (OpenAI). Fast/cheap tier \u2014 classifier + reviewer (was Haiku in inference). PRICING verified 2026-08-15 developers.openai.com: $0.20/$1.20 (80% cut from $1/$6 on 2026-07-30).",
       "pinnable": true,
       "group": "OpenAI",
       "desc": "Fast and cheap",
@@ -399,7 +399,7 @@
       "window": 1000000,
       "vision": false,
       "reasoning": true,
-      "_note": "DeepSeek V4 (Fireworks, exposed 2026-08-10 at Tim's request): open-weight reasoning + coding, 1M context, no vision. Fireworks-family pricing applies (glm rate card floor, so cheap-lane metering is never $0). Pinnable + web chat; NOT a routing role. The Fireworks id was NOT re-probed at expose time — verify accounts/fireworks/models/deepseek-v4-pro resolves on the account before making it a role.",
+      "_note": "DeepSeek V4 (Fireworks, exposed 2026-08-10 at Tim's request): open-weight reasoning + coding, 1M context, no vision. Fireworks-family pricing applies (glm rate card floor, so cheap-lane metering is never $0). Pinnable + web chat; NOT a routing role. The Fireworks id was NOT re-probed at expose time \u2014 verify accounts/fireworks/models/deepseek-v4-pro resolves on the account before making it a role. PRICING verified 2026-08-15 fireworks.ai model page: $1.74/$3.48, cached $0.145 (the glm-family fallback rate was undercharging in/overcharging out).",
       "pinnable": true,
       "group": "DeepSeek",
       "desc": "Open-weight reasoning",
@@ -412,7 +412,10 @@
       "max_output": 32000,
       "fallback": [
         "glm-5p2"
-      ]
+      ],
+      "price_in": 1.74,
+      "price_out": 3.48,
+      "price_cache_read": 0.145
     },
     {
       "id": "accounts/fireworks/models/minimax-m3",
@@ -421,10 +424,13 @@
       "window": 500000,
       "vision": true,
       "reasoning": true,
-      "_note": "RETIRED from roles 2026-06-13 \u2014 recurring tool-call-text leak (opencode #30684 + cross-harness) + weak instruction-following. Kept for reference; not assigned to any role.",
+      "_note": "RETIRED from roles 2026-06-13 \u2014 recurring tool-call-text leak (opencode #30684 + cross-harness) + weak instruction-following. Kept for reference; not assigned to any role. PRICING verified 2026-08-15 fireworks.ai model page: $0.30/$1.20, cached $0.059 (was billing the glm-family fallback $1.40/$4.40).",
       "fallback": [
         "glm-5p2"
-      ]
+      ],
+      "price_in": 0.3,
+      "price_out": 1.2,
+      "price_cache_read": 0.059
     },
     {
       "id": "gemini-embedding-001",
@@ -489,15 +495,15 @@
       "match": [
         "gpt-5.6-terra"
       ],
-      "price_in": 2.5,
-      "price_out": 15
+      "price_in": 2,
+      "price_out": 12
     },
     {
       "match": [
         "gpt-5.6-luna"
       ],
-      "price_in": 1,
-      "price_out": 6
+      "price_in": 0.2,
+      "price_out": 1.2
     },
     {
       "match": [
@@ -526,13 +532,13 @@
         "gemini"
       ],
       "window": 1000000,
-      "price_in": 1.5,
-      "price_out": 7.5,
+      "price_in": 0.75,
+      "price_out": 3.75,
       "_note": "windows: all gemini-3.x are 1M; pricing: tier-word rules above catch lite/pro, this row is the flash default (gemini-3.6-flash rate)"
     },
     {
       "match": [
-        "grok-4.5"
+        "grok-4.6"
       ],
       "window": 500000,
       "price_in": 2,
@@ -673,9 +679,9 @@
       "cheap": "gemini-flash-lite"
     },
     "grok": {
-      "frontier": "grok-4.5",
-      "balanced": "grok-4.5",
-      "cheap": "grok-4.5"
+      "frontier": "grok-4.6",
+      "balanced": "grok-4.6",
+      "cheap": "grok-4.6"
     },
     "fireworks": {
       "frontier": "kimi-k3",

@@ -15,12 +15,12 @@ func TestModelPricingRealIDs(t *testing.T) {
 		in, out float64
 	}{
 		{"gpt-5.6-sol", 5, 30},
-		{"gpt-5.6-terra", 2.5, 15},
-		{"gpt-5.6-luna", 1, 6},
+		{"gpt-5.6-terra", 2, 12},
+		{"gpt-5.6-luna", 0.2, 1.2},
 		{"gemini-3.1-pro-preview", 2, 12},   // was mispriced → 1.5/9
-		{"gemini-3.6-flash", 1.5, 7.5},      // balanced default
+		{"gemini-3.6-flash", 0.75, 3.75},    // balanced default (promo through 2026-12-31)
 		{"gemini-3.5-flash-lite", 0.3, 2.5}, // was billed 6x high → 1.5/9
-		{"grok-4.5", 2, 6},
+		{"grok-4.6", 2, 6},
 		{"accounts/fireworks/models/glm-5p2", 1.40, 4.40}, // was $0
 		{"accounts/fireworks/models/glm-5p1", 1.40, 4.40},
 		{"accounts/fireworks/models/kimi-k3", 3.00, 15.00},       // K3's own Fireworks headline card ($3/$15), NOT the kimi family rule
@@ -52,7 +52,7 @@ func TestModelPricingByLabel(t *testing.T) {
 		label string
 		in    float64
 	}{
-		{"sol", 5}, {"terra", 2.5}, {"luna", 1},
+		{"sol", 5}, {"terra", 2}, {"luna", 0.2},
 		{"glm-5p2", 1.40}, {"kimi-k2p6", 0.95},
 		{"gemini-flash-lite", 0.3},
 	}
@@ -94,9 +94,9 @@ func TestModelPricingCacheRates(t *testing.T) {
 		id                    string
 		cacheRead, cacheWrite float64
 	}{
-		{"grok-4.5", 0.3, 2.5},
+		{"grok-4.6", 0.5, 2.5},
 		{"claude-sonnet-5", 0.2, 2.5},
-		{"gpt-5.6-terra", 0.25, 3.125},
+		{"gpt-5.6-terra", 0.2, 2.5},
 		{"accounts/fireworks/models/glm-5p2", 0.14, 1.75},
 		{"accounts/fireworks/models/kimi-k2p6", 0.16, 1.1875},
 		{"gpt-image-2", 0.8, 10},

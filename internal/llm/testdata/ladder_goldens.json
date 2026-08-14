@@ -42999,41 +42999,41 @@
  {
   "risk": "self_heal",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
   "risk": "self_heal",
   "difficulty": "deep",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
   "risk": "self_heal",
   "difficulty": "lookup",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
   "risk": "agent_frontier",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
   "risk": "agent_frontier",
   "difficulty": "deep",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
   "risk": "agent_frontier",
   "difficulty": "lookup",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
@@ -43080,7 +43080,7 @@
   "mode": "plan",
   "risk": "self_heal",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
@@ -43088,7 +43088,7 @@
   "risk": "self_heal",
   "difficulty": "deep",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
@@ -43096,7 +43096,7 @@
   "risk": "self_heal",
   "difficulty": "lookup",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
@@ -43126,7 +43126,7 @@
   "mode": "plan",
   "risk": "plan_review_escalate",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
@@ -43134,7 +43134,7 @@
   "risk": "plan_review_escalate",
   "difficulty": "deep",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
@@ -43142,7 +43142,7 @@
   "risk": "plan_review_escalate",
   "difficulty": "lookup",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
@@ -43169,7 +43169,7 @@
   "purpose": "main_loop",
   "risk": "self_heal",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
@@ -43177,7 +43177,7 @@
   "risk": "self_heal",
   "difficulty": "deep",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
@@ -43185,14 +43185,14 @@
   "risk": "self_heal",
   "difficulty": "lookup",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
   "purpose": "main_loop",
   "risk": "agent_frontier",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
@@ -43200,7 +43200,7 @@
   "risk": "agent_frontier",
   "difficulty": "deep",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
@@ -43208,7 +43208,7 @@
   "risk": "agent_frontier",
   "difficulty": "lookup",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
@@ -43262,7 +43262,7 @@
   "mode": "plan",
   "risk": "self_heal",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
@@ -43271,7 +43271,7 @@
   "risk": "self_heal",
   "difficulty": "deep",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
@@ -43280,7 +43280,7 @@
   "risk": "self_heal",
   "difficulty": "lookup",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
@@ -43314,7 +43314,7 @@
   "mode": "plan",
   "risk": "plan_review_escalate",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
@@ -43323,7 +43323,7 @@
   "risk": "plan_review_escalate",
   "difficulty": "deep",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
@@ -43332,7 +43332,7 @@
   "risk": "plan_review_escalate",
   "difficulty": "lookup",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
@@ -43832,7 +43832,7 @@
   "mode": "plan",
   "risk": "self_heal",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
@@ -43841,7 +43841,7 @@
   "risk": "self_heal",
   "difficulty": "deep",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
@@ -43850,7 +43850,7 @@
   "risk": "self_heal",
   "difficulty": "lookup",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
@@ -43884,7 +43884,7 @@
   "mode": "plan",
   "risk": "plan_review_escalate",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
@@ -43893,7 +43893,7 @@
   "risk": "plan_review_escalate",
   "difficulty": "deep",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
@@ -43902,7 +43902,7 @@
   "risk": "plan_review_escalate",
   "difficulty": "lookup",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
@@ -44022,7 +44022,7 @@
   "mode": "plan",
   "risk": "self_heal",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
@@ -44031,7 +44031,7 @@
   "risk": "self_heal",
   "difficulty": "deep",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
@@ -44040,7 +44040,7 @@
   "risk": "self_heal",
   "difficulty": "lookup",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
@@ -44074,7 +44074,7 @@
   "mode": "plan",
   "risk": "plan_review_escalate",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
@@ -44083,7 +44083,7 @@
   "risk": "plan_review_escalate",
   "difficulty": "deep",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
@@ -44092,7 +44092,7 @@
   "risk": "plan_review_escalate",
   "difficulty": "lookup",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
@@ -44212,7 +44212,7 @@
   "mode": "plan",
   "risk": "self_heal",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
@@ -44221,7 +44221,7 @@
   "risk": "self_heal",
   "difficulty": "deep",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
@@ -44230,7 +44230,7 @@
   "risk": "self_heal",
   "difficulty": "lookup",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
@@ -44264,7 +44264,7 @@
   "mode": "plan",
   "risk": "plan_review_escalate",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
@@ -44273,7 +44273,7 @@
   "risk": "plan_review_escalate",
   "difficulty": "deep",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
@@ -44282,7 +44282,7 @@
   "risk": "plan_review_escalate",
   "difficulty": "lookup",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
@@ -44402,7 +44402,7 @@
   "mode": "plan",
   "risk": "self_heal",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
@@ -44411,7 +44411,7 @@
   "risk": "self_heal",
   "difficulty": "deep",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
@@ -44420,7 +44420,7 @@
   "risk": "self_heal",
   "difficulty": "lookup",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
@@ -44454,7 +44454,7 @@
   "mode": "plan",
   "risk": "plan_review_escalate",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
@@ -44463,7 +44463,7 @@
   "risk": "plan_review_escalate",
   "difficulty": "deep",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
@@ -44472,7 +44472,7 @@
   "risk": "plan_review_escalate",
   "difficulty": "lookup",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
@@ -44592,7 +44592,7 @@
   "mode": "plan",
   "risk": "self_heal",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
@@ -44601,7 +44601,7 @@
   "risk": "self_heal",
   "difficulty": "deep",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
@@ -44610,7 +44610,7 @@
   "risk": "self_heal",
   "difficulty": "lookup",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
@@ -44644,7 +44644,7 @@
   "mode": "plan",
   "risk": "plan_review_escalate",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
@@ -44653,7 +44653,7 @@
   "risk": "plan_review_escalate",
   "difficulty": "deep",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
@@ -44662,7 +44662,7 @@
   "risk": "plan_review_escalate",
   "difficulty": "lookup",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
@@ -44782,7 +44782,7 @@
   "mode": "plan",
   "risk": "self_heal",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
@@ -44791,7 +44791,7 @@
   "risk": "self_heal",
   "difficulty": "deep",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
@@ -44800,7 +44800,7 @@
   "risk": "self_heal",
   "difficulty": "lookup",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
@@ -44834,7 +44834,7 @@
   "mode": "plan",
   "risk": "plan_review_escalate",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
@@ -44843,7 +44843,7 @@
   "risk": "plan_review_escalate",
   "difficulty": "deep",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
@@ -44852,7 +44852,7 @@
   "risk": "plan_review_escalate",
   "difficulty": "lookup",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
@@ -44972,7 +44972,7 @@
   "mode": "plan",
   "risk": "self_heal",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
@@ -44981,7 +44981,7 @@
   "risk": "self_heal",
   "difficulty": "deep",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
@@ -44990,7 +44990,7 @@
   "risk": "self_heal",
   "difficulty": "lookup",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
@@ -45024,7 +45024,7 @@
   "mode": "plan",
   "risk": "plan_review_escalate",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
@@ -45033,7 +45033,7 @@
   "risk": "plan_review_escalate",
   "difficulty": "deep",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
@@ -45042,7 +45042,7 @@
   "risk": "plan_review_escalate",
   "difficulty": "lookup",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
@@ -45162,7 +45162,7 @@
   "mode": "plan",
   "risk": "self_heal",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
@@ -45171,7 +45171,7 @@
   "risk": "self_heal",
   "difficulty": "deep",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
@@ -45180,7 +45180,7 @@
   "risk": "self_heal",
   "difficulty": "lookup",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
@@ -45214,7 +45214,7 @@
   "mode": "plan",
   "risk": "plan_review_escalate",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
@@ -45223,7 +45223,7 @@
   "risk": "plan_review_escalate",
   "difficulty": "deep",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
@@ -45232,7 +45232,7 @@
   "risk": "plan_review_escalate",
   "difficulty": "lookup",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
@@ -45449,7 +45449,7 @@
   "purpose": "agent",
   "risk": "self_heal",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
@@ -45457,7 +45457,7 @@
   "risk": "self_heal",
   "difficulty": "deep",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
@@ -45465,14 +45465,14 @@
   "risk": "self_heal",
   "difficulty": "lookup",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
   "purpose": "agent",
   "risk": "agent_frontier",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
@@ -45480,7 +45480,7 @@
   "risk": "agent_frontier",
   "difficulty": "deep",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
@@ -45488,7 +45488,7 @@
   "risk": "agent_frontier",
   "difficulty": "lookup",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
@@ -45542,7 +45542,7 @@
   "mode": "plan",
   "risk": "self_heal",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
@@ -45551,7 +45551,7 @@
   "risk": "self_heal",
   "difficulty": "deep",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
@@ -45560,7 +45560,7 @@
   "risk": "self_heal",
   "difficulty": "lookup",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
@@ -45594,7 +45594,7 @@
   "mode": "plan",
   "risk": "plan_review_escalate",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
@@ -45603,7 +45603,7 @@
   "risk": "plan_review_escalate",
   "difficulty": "deep",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
@@ -45612,7 +45612,7 @@
   "risk": "plan_review_escalate",
   "difficulty": "lookup",
   "vendor": "grok",
-  "label": "grok-4.5",
+  "label": "grok-4.6",
   "pinned": false
  },
  {
