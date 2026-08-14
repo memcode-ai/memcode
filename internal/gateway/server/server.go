@@ -263,12 +263,39 @@ func (r *runtime) Deliver(ctx context.Context, inb channels.Inbound) error {
 	return nil
 }
 
-// runWorker drains the durable inbox: it submits each pending item to its
-// conversation's serial worker and processes it. On startup it also replays any
-// items a prior crash left pending. Blocks until ctx is cancelled.
+// runWorker drains the durable inbox: fresh messages become jobs, and finished
+// jobs whose reply has not been delivered are retried. Both are keyed through an
+// in-process guard so the same item is never worked twice at once, and both
+// replay after a restart (pending jobs re-run, undelivered replies re-send).
+// Blocks until ctx is cancelled.
 func (r *runtime) runWorker(ctx context.Context) {
 	var mu sync.Mutex
 	inflight := map[string]bool{}
+	claim := func(key string) bool {
+		mu.Lock()
+		defer mu.Unlock()
+		if inflight[key] {
+			return false
+		}
+		inflight[key] = true
+		return true
+	}
+	release := func(key string) {
+		mu.Lock()
+		delete(inflight, key)
+		mu.Unlock()
+	}
+	dispatch := func(it state.Item, run func()) {
+		key := it.Channel + ":" + it.MessageID
+		if !claim(key) {
+			return
+		}
+		r.disp.submit(ctx, it.Channel+":"+it.Conversation, func() {
+			run()
+			release(key)
+		})
+	}
+
 	tick := time.NewTicker(2 * time.Second)
 	defer tick.Stop()
 
@@ -278,22 +305,17 @@ func (r *runtime) runWorker(ctx context.Context) {
 			fmt.Fprintf(r.out, "gateway: reading inbox: %v\n", err)
 		}
 		for _, it := range items {
-			key := it.Channel + ":" + it.MessageID
-			mu.Lock()
-			if inflight[key] {
-				mu.Unlock()
-				continue
-			}
-			inflight[key] = true
-			mu.Unlock()
-
 			it := it
-			r.disp.submit(ctx, it.Channel+":"+it.Conversation, func() {
-				r.process(ctx, it)
-				mu.Lock()
-				delete(inflight, key)
-				mu.Unlock()
-			})
+			dispatch(it, func() { r.runJob(ctx, it) })
+		}
+		// Undelivered replies: the job already ran, so only re-send.
+		replies, err := r.gw.PendingReplies(ctx)
+		if err != nil && ctx.Err() == nil {
+			fmt.Fprintf(r.out, "gateway: reading outbound queue: %v\n", err)
+		}
+		for _, it := range replies {
+			it := it
+			dispatch(it, func() { r.deliverReply(ctx, it, it.Reply) })
 		}
 		select {
 		case <-ctx.Done():
@@ -304,11 +326,12 @@ func (r *runtime) runWorker(ctx context.Context) {
 	}
 }
 
-// process runs one inbox item as a detached agent job and posts the result. The
-// item is marked done only after the job COMPLETES (before the reply is sent), so
-// a restart re-runs an interrupted job (at-least-once) but never re-runs a job
-// that already finished.
-func (r *runtime) process(ctx context.Context, it state.Item) {
+// runJob runs one inbox item as a detached agent job and durably records the
+// result. The item moves pending → replied the instant the job finishes, so a
+// crash or a send failure never re-runs a completed job — only its delivery is
+// retried (deliverReply). An interrupted job is still pending and re-runs on
+// restart (at-least-once).
+func (r *runtime) runJob(ctx context.Context, it state.Item) {
 	ch := r.byName[it.Channel]
 	if ch == nil {
 		_ = r.gw.MarkDone(ctx, it.Channel, it.MessageID)
@@ -321,8 +344,14 @@ func (r *runtime) process(ctx context.Context, it state.Item) {
 	tier := r.settings.Get(it.Channel).Tier
 	job, err := jobs.Spawn(r.root, it.Text, string(permissions.ModeAuto), tier, false, true, conversationSession(it.Channel, it.Conversation))
 	if err != nil {
-		_ = ch.Send(ctx, it.Conversation, channels.Outbound{Text: "Couldn't start that: " + err.Error()})
-		_ = r.gw.MarkDone(ctx, it.Channel, it.MessageID) // a spawn failure won't succeed on replay
+		// A spawn failure won't succeed on replay; record the error as the reply so
+		// it rides the same durable delivery path instead of being lost.
+		msg := "Couldn't start that: " + err.Error()
+		if serr := r.gw.SetReplied(ctx, it.Channel, it.MessageID, msg); serr != nil {
+			fmt.Fprintf(r.out, "gateway: recording spawn failure for %s: %v\n", it.Channel, serr)
+			return
+		}
+		r.deliverReply(ctx, it, msg)
 		return
 	}
 	r.event(ctx, events.KindGatewayJobSpawned, eventPayload{Channel: it.Channel, Conversation: it.Conversation, PrincipalID: it.Principal, MessageID: it.MessageID, JobID: job.ID})
@@ -332,17 +361,49 @@ func (r *runtime) process(ctx context.Context, it state.Item) {
 	if strings.TrimSpace(reply) == "" {
 		reply = "Done."
 	}
-	// Job finished — never re-run it, even if the reply below fails or a crash
-	// follows. (A failed outbound reply is not retried; a durable outbound queue
-	// would be the next enhancement.)
-	_ = r.gw.MarkDone(ctx, it.Channel, it.MessageID)
-
-	status := "ok"
-	if err := ch.Send(ctx, it.Conversation, channels.Outbound{Text: reply}); err != nil {
-		fmt.Fprintf(r.out, "gateway: reply to %s failed: %v\n", it.Channel, err)
-		status = "reply_failed"
+	// Durable handoff: the job is finished and must never re-run, even if delivery
+	// below fails or the process crashes. From here the reply is the worker's to
+	// deliver. A rare DB write failure leaves the item pending and re-runs it.
+	if err := r.gw.SetReplied(ctx, it.Channel, it.MessageID, reply); err != nil {
+		fmt.Fprintf(r.out, "gateway: recording reply for %s failed: %v\n", it.Channel, err)
+		return
 	}
-	r.event(ctx, events.KindGatewayResultPosted, eventPayload{Channel: it.Channel, Conversation: it.Conversation, MessageID: it.MessageID, JobID: job.ID, Status: status})
+	r.deliverReply(ctx, it, reply)
+}
+
+// deliverReply sends a finished job's reply and, on success, marks the item done.
+// A transient send failure is retried in-process a few times; if it still fails
+// the item stays 'replied' and the worker retries it on a later tick and after a
+// restart, so a result is never silently dropped.
+func (r *runtime) deliverReply(ctx context.Context, it state.Item, reply string) {
+	ch := r.byName[it.Channel]
+	if ch == nil {
+		_ = r.gw.MarkDone(ctx, it.Channel, it.MessageID) // channel gone; nothing to deliver to
+		return
+	}
+	if strings.TrimSpace(reply) == "" {
+		reply = "Done."
+	}
+	var sendErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(time.Duration(attempt) * 500 * time.Millisecond):
+			}
+		}
+		if sendErr = ch.Send(ctx, it.Conversation, channels.Outbound{Text: reply}); sendErr == nil {
+			break
+		}
+	}
+	if sendErr != nil {
+		fmt.Fprintf(r.out, "gateway: reply to %s failed, will retry: %v\n", it.Channel, sendErr)
+		r.event(ctx, events.KindGatewayResultPosted, eventPayload{Channel: it.Channel, Conversation: it.Conversation, MessageID: it.MessageID, Status: "reply_pending"})
+		return // stays 'replied'; retried next tick
+	}
+	_ = r.gw.MarkDone(ctx, it.Channel, it.MessageID)
+	r.event(ctx, events.KindGatewayResultPosted, eventPayload{Channel: it.Channel, Conversation: it.Conversation, MessageID: it.MessageID, Status: "ok"})
 }
 
 // event appends a gateway event to the main store, best-effort.

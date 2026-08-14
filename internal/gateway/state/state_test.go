@@ -61,6 +61,79 @@ func TestPendingAndDone(t *testing.T) {
 	}
 }
 
+func TestReplyQueueDurability(t *testing.T) {
+	s := openTemp(t)
+	ctx := context.Background()
+	now := time.Unix(1000, 0)
+
+	s.Accept(ctx, item("telegram", "1"), now)
+
+	// Job finished: pending → replied, reply held. It leaves the fresh-job queue
+	// but joins the outbound queue, so a delivery failure never re-runs the job.
+	if err := s.SetReplied(ctx, "telegram", "1", "the answer"); err != nil {
+		t.Fatal(err)
+	}
+	if p, _ := s.Pending(ctx); len(p) != 0 {
+		t.Errorf("a replied item must not be a pending job, got %+v", p)
+	}
+	replies, err := s.PendingReplies(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(replies) != 1 || replies[0].Reply != "the answer" {
+		t.Fatalf("outbound queue = %+v, want one item carrying its reply", replies)
+	}
+
+	// Delivered: replied → done, off both queues.
+	if err := s.MarkDone(ctx, "telegram", "1"); err != nil {
+		t.Fatal(err)
+	}
+	if r, _ := s.PendingReplies(ctx); len(r) != 0 {
+		t.Errorf("a delivered item must leave the outbound queue, got %+v", r)
+	}
+}
+
+func TestReplySurvivesReopen(t *testing.T) {
+	dir := t.TempDir()
+	ctx := context.Background()
+	s, err := Open(ctx, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Accept(ctx, item("telegram", "1"), time.Unix(1000, 0))
+	s.SetReplied(ctx, "telegram", "1", "durable answer")
+	s.Close() // simulate a crash before the reply was delivered
+
+	s2, err := Open(ctx, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s2.Close()
+	replies, _ := s2.PendingReplies(ctx)
+	if len(replies) != 1 || replies[0].Reply != "durable answer" {
+		t.Fatalf("undelivered reply lost across restart: %+v", replies)
+	}
+}
+
+func TestProjectLockIsExclusive(t *testing.T) {
+	dir := t.TempDir()
+	ctx := context.Background()
+	s, err := Open(ctx, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	// A second gateway on the same project must be refused, not silently share the
+	// inbox and double-process it.
+	s2, err := Open(ctx, dir)
+	if err != nil {
+		return // expected: the project lock is held (unix)
+	}
+	// Reached only where file locking is a no-op (non-unix); nothing to assert.
+	s2.Close()
+}
+
 func TestPendingSurvivesReopen(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()

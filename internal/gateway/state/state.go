@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -29,7 +30,8 @@ CREATE TABLE IF NOT EXISTS inbox (
     principal    TEXT NOT NULL,
     text         TEXT NOT NULL,
     trusted      INTEGER NOT NULL,
-    status       TEXT NOT NULL,          -- 'pending' | 'done'
+    status       TEXT NOT NULL,          -- 'pending' | 'replied' | 'done'
+    reply        TEXT NOT NULL DEFAULT '', -- the job's result, held durably until delivered
     received_at  TEXT NOT NULL,
     PRIMARY KEY (channel, message_id)
 );
@@ -41,7 +43,9 @@ CREATE TABLE IF NOT EXISTS poll_offsets (
 );
 `
 
-// Item is one inbound message durably recorded for processing.
+// Item is one inbound message durably recorded for processing. Reply is set only
+// for items returned by PendingReplies (the job finished; the reply awaits
+// delivery).
 type Item struct {
 	Channel      string
 	MessageID    string
@@ -49,21 +53,32 @@ type Item struct {
 	Principal    string
 	Text         string
 	Trusted      bool
+	Reply        string
 }
 
 // Store is the gateway's durable state.
 type Store struct {
-	db *sql.DB
+	db   *sql.DB
+	lock *os.File // exclusive project lock; nil on platforms without file locking
 }
 
-// Open opens (creating if needed) the gateway state DB at dir/gateway.db.
+// Open opens (creating if needed) the gateway state DB at dir/gateway.db. It also
+// takes an exclusive lock on the project so a second `memcode gateway` for the
+// same repo cannot start and double-process the shared inbox — the in-memory
+// dedup guard only protects a single process. The lock releases when the Store is
+// closed or the process exits.
 func Open(ctx context.Context, dir string) (*Store, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, fmt.Errorf("creating %s: %w", dir, err)
 	}
+	lock, err := acquireLock(filepath.Join(dir, "gateway.lock"))
+	if err != nil {
+		return nil, err
+	}
 	path := filepath.Join(dir, "gateway.db")
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
+		releaseLock(lock)
 		return nil, fmt.Errorf("opening %s: %w", path, err)
 	}
 	// busy_timeout first, then WAL — the gateway and detached agent jobs may touch
@@ -74,18 +89,32 @@ func Open(ctx context.Context, dir string) (*Store, error) {
 	} {
 		if _, err := db.ExecContext(ctx, pragma); err != nil {
 			_ = db.Close()
+			releaseLock(lock)
 			return nil, fmt.Errorf("%s: %w", pragma, err)
 		}
 	}
 	if _, err := db.ExecContext(ctx, schema); err != nil {
 		_ = db.Close()
+		releaseLock(lock)
 		return nil, fmt.Errorf("applying gateway schema: %w", err)
 	}
-	return &Store{db: db}, nil
+	// Bring an inbox created before the reply column forward. A fresh table
+	// already has it, so ignore the duplicate-column error on the older shape.
+	if _, err := db.ExecContext(ctx, `ALTER TABLE inbox ADD COLUMN reply TEXT NOT NULL DEFAULT ''`); err != nil &&
+		!strings.Contains(err.Error(), "duplicate column") {
+		_ = db.Close()
+		releaseLock(lock)
+		return nil, fmt.Errorf("migrating inbox: %w", err)
+	}
+	return &Store{db: db, lock: lock}, nil
 }
 
-// Close closes the underlying database.
-func (s *Store) Close() error { return s.db.Close() }
+// Close closes the database and releases the project lock.
+func (s *Store) Close() error {
+	err := s.db.Close()
+	releaseLock(s.lock)
+	return err
+}
 
 // Accept durably records an inbound message as pending and reports whether this
 // call is the one that recorded it. fresh=true means "you own this message, ack
@@ -135,7 +164,43 @@ func (s *Store) Pending(ctx context.Context) ([]Item, error) {
 	return out, rows.Err()
 }
 
-// MarkDone marks an item processed so it is not run again.
+// SetReplied durably records a finished job's reply and moves the item to
+// 'replied'. From here the job is never re-run; only the reply's delivery is
+// retried, so a send failure or a crash after the job completes cannot lose the
+// result or repeat the work.
+func (s *Store) SetReplied(ctx context.Context, channel, messageID, reply string) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE inbox SET status = 'replied', reply = ? WHERE channel = ? AND message_id = ?`,
+		reply, channel, messageID)
+	return err
+}
+
+// PendingReplies returns items whose job finished but whose reply has not yet
+// been delivered, oldest first — the outbound retry queue, drained on every tick
+// and replayed after a restart.
+func (s *Store) PendingReplies(ctx context.Context) ([]Item, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT channel, message_id, conversation, principal, text, trusted, reply
+		   FROM inbox WHERE status = 'replied' ORDER BY received_at`)
+	if err != nil {
+		return nil, fmt.Errorf("pending replies: %w", err)
+	}
+	defer rows.Close()
+	var out []Item
+	for rows.Next() {
+		var it Item
+		var trusted int
+		if err := rows.Scan(&it.Channel, &it.MessageID, &it.Conversation, &it.Principal, &it.Text, &trusted, &it.Reply); err != nil {
+			return nil, err
+		}
+		it.Trusted = trusted != 0
+		out = append(out, it)
+	}
+	return out, rows.Err()
+}
+
+// MarkDone marks an item fully processed (reply delivered) so it is not run or
+// re-sent again.
 func (s *Store) MarkDone(ctx context.Context, channel, messageID string) error {
 	_, err := s.db.ExecContext(ctx,
 		`UPDATE inbox SET status = 'done' WHERE channel = ? AND message_id = ?`, channel, messageID)
