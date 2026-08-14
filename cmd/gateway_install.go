@@ -85,6 +85,13 @@ func hasControlChars(s string) bool { return strings.ContainsAny(s, "\n\r\x00") 
 // xmlEscape escapes a value for safe interpolation into the plist XML.
 var xmlEscape = strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", `"`, "&quot;", "'", "&apos;").Replace
 
+// systemdQuote renders a path as a single double-quoted systemd argument,
+// escaping the % specifier introducer. The caller has already rejected paths
+// containing a double quote, so the value inside the quotes is safe.
+func systemdQuote(s string) string {
+	return `"` + strings.ReplaceAll(s, "%", "%%") + `"`
+}
+
 // gatewayUnit builds the service unit for goos: its file path, contents, and the
 // command to start it. bin/workDir may be empty when only the path is needed
 // (uninstall). Returns an error for an unsupported OS or a path with control
@@ -118,6 +125,15 @@ func gatewayUnit(goos, home, bin, workDir string) (path, content, start string, 
 		start = "launchctl load " + path
 		return path, content, start, nil
 	case "linux":
+		// systemd parses ExecStart with its own quoting rules and treats % as a
+		// specifier introducer, so a path with a space or a % would corrupt the
+		// unit. Quote both paths and double any % (systemd's escape for a literal
+		// percent). A literal double-quote in a path can't be represented safely
+		// here, so reject it rather than emit a broken unit.
+		if strings.ContainsAny(bin, "\"") || strings.ContainsAny(workDir, "\"") {
+			return "", "", "", fmt.Errorf("binary or working-directory path contains a double quote; refusing to write a systemd unit")
+		}
+		qBin, qWork := systemdQuote(bin), systemdQuote(workDir)
 		path = filepath.Join(home, ".config", "systemd", "user", "memcode-gateway.service")
 		content = fmt.Sprintf(`[Unit]
 Description=memcode gateway
@@ -131,7 +147,7 @@ RestartSec=5
 
 [Install]
 WantedBy=default.target
-`, bin, workDir)
+`, qBin, qWork)
 		start = "systemctl --user daemon-reload && systemctl --user enable --now memcode-gateway"
 		return path, content, start, nil
 	default:
