@@ -147,6 +147,7 @@ type Session struct {
 	scripts           []scripts.Script // saved reusable command sequences (.memcode/scripts) — see script.go, scripts_prompt.go
 	nudgedScripts     map[string]bool  // script slugs already nudged this session (nudge once, don't nag) — see scriptNudge
 	userMd            string           // user's MEMCODE.md instructions, loaded once per session, injected every turn
+	memoryMd          string           // durable memory (global + project memory.md), loaded once per session, injected every turn
 	editsAllowed      bool             // user said "don't ask again for edits" this session (scoped: edits only, not commands; never catastrophic)
 
 	lastCompactSummary string // most recent in-session compaction summary (the warm layer)
@@ -444,6 +445,9 @@ func (s *Session) Run(ctx context.Context, task string) (Result, error) {
 	}
 	if s.userMd = s.userInstructions(ctx); s.userMd != "" { // MEMCODE.md / CLAUDE.md standing instructions
 		sys = sys.withExtra(s.userMd)
+	}
+	if s.memoryMd = s.userMemory(ctx); s.memoryMd != "" { // durable memory (global + project), facts not rules
+		sys = sys.withExtra(s.memoryMd)
 	}
 	if nudge := s.skillNudge(task); nudge != "" { // the task names an installed skill → point right at it
 		sys = sys.withExtra(nudge)
