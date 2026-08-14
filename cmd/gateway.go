@@ -74,6 +74,9 @@ var gatewaySetupCmd = &cobra.Command{
 			choice := strings.ToLower(strings.TrimSpace(prompt(in, cmd, "Channel to add/update [telegram/discord/slack/github/whatsapp] (blank to finish): ")))
 
 			secrets := map[string]string{}
+			if settings.Channels == nil {
+				settings.Channels = map[string]gwconfig.Channel{}
+			}
 			switch choice {
 			case "":
 				p, _ := gwconfig.Path()
@@ -81,20 +84,30 @@ var gatewaySetupCmd = &cobra.Command{
 				return nil
 			case "telegram":
 				secrets[gwconfig.EnvTelegramToken] = secret(cmd, "Bot token (from @BotFather): ")
+				settings.Channels["telegram"] = gwconfig.Channel{AllowFrom: allowList(in, cmd)}
 			case "discord":
 				secrets[gwconfig.EnvDiscordToken] = secret(cmd, "Bot token (Discord developer portal): ")
+				settings.Channels["discord"] = gwconfig.Channel{AllowFrom: allowList(in, cmd)}
 			case "slack":
 				secrets[gwconfig.EnvSlackAppToken] = secret(cmd, "App-level token (xapp-…): ")
 				secrets[gwconfig.EnvSlackBotToken] = secret(cmd, "Bot token (xoxb-…): ")
+				settings.Channels["slack"] = gwconfig.Channel{AllowFrom: allowList(in, cmd)}
 			case "github":
 				secrets[gwconfig.EnvGitHubSecret] = secret(cmd, "Webhook secret: ")
-				settings.GitHub.ReplyTo = strings.TrimSpace(prompt(in, cmd, "Route results to (e.g. telegram:123456, blank for none): "))
+				// GitHub deliveries are HMAC-authenticated, so no allow-list here.
+				settings.Channels["github"] = gwconfig.Channel{
+					ReplyTo: strings.TrimSpace(prompt(in, cmd, "Route results to (e.g. telegram:123456, blank for none): ")),
+				}
 			case "whatsapp":
 				cmd.Println("Note: WhatsApp stays inactive until your Meta business is verified.")
 				cmd.Println("Once verified, set `whatsapp.active: true` in gateway.yaml to enable it.")
-				settings.WhatsApp.PhoneNumberID = strings.TrimSpace(prompt(in, cmd, "Phone number ID: "))
+				wa := gwconfig.Channel{
+					PhoneNumberID: strings.TrimSpace(prompt(in, cmd, "Phone number ID: ")),
+				}
 				secrets[gwconfig.EnvWhatsAppToken] = secret(cmd, "Access token: ")
 				secrets[gwconfig.EnvWhatsAppVerify] = secret(cmd, "Webhook verify token: ")
+				wa.AllowFrom = allowList(in, cmd)
+				settings.Channels["whatsapp"] = wa
 			default:
 				cmd.Println("Unknown channel; pick one of telegram/discord/slack/github/whatsapp.")
 				continue
@@ -115,6 +128,20 @@ var gatewaySetupCmd = &cobra.Command{
 			cmd.Printf("Saved %s.\n", choice)
 		}
 	},
+}
+
+// allowList prompts for the principals allowed to drive the agent through this
+// channel. The gateway is default-deny, so an empty answer means no one can use
+// the channel yet; "*" allows anyone who can reach it.
+func allowList(in *bufio.Reader, cmd *cobra.Command) []string {
+	raw := prompt(in, cmd, "Allowed users — comma-separated ids/@handles, or * for anyone (blank = no one yet): ")
+	var out []string
+	for _, p := range strings.Split(raw, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // prompt writes a prompt and reads one line.

@@ -75,7 +75,10 @@ func (t *Trigger) Handler(inbound chan<- channels.Inbound) http.Handler {
 		// MessageID carries the delivery id so the router's durable dedup also
 		// guards against re-runs across a restart (the in-memory dedup above does
 		// not survive one — hardened separately).
-		inb := channels.Inbound{Channel: ch, Conversation: convo, Principal: "github", Text: task, MessageID: "github:" + delivery}
+		// Trusted: the HMAC signature above already authenticated the sender, so
+		// this bypasses the reply-channel's allow-list (the delivery isn't from a
+		// chat principal that could be listed).
+		inb := channels.Inbound{Channel: ch, Conversation: convo, Principal: "github", Text: task, MessageID: "github:" + delivery, Trusted: true}
 		select {
 		case inbound <- inb:
 			w.WriteHeader(http.StatusAccepted)

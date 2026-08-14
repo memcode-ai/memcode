@@ -81,7 +81,7 @@ func Run(ctx context.Context, root string, settings gwconfig.Settings, out io.Wr
 		case <-ctx.Done():
 			return ctx.Err()
 		case inb := <-inbound:
-			go handle(ctx, root, st, byName[inb.Channel], inb, out)
+			go handle(ctx, root, st, settings, byName[inb.Channel], inb, out)
 		}
 	}
 }
@@ -119,10 +119,10 @@ func startWebhooks(ctx context.Context, settings gwconfig.Settings, byName map[s
 	mounted := false
 
 	if secret := strings.TrimSpace(os.Getenv(gwconfig.EnvGitHubSecret)); secret != "" {
-		if _, _, ok := githubReplyRoute(settings.GitHub.ReplyTo); !ok {
+		if _, _, ok := githubReplyRoute(settings.Get("github").ReplyTo); !ok {
 			fmt.Fprintf(out, "gateway: github disabled: set github.reply_to (e.g. telegram:123456) in gateway.yaml\n")
 		} else {
-			mux.Handle("/webhook/github", githubtrigger.New(secret, settings.GitHub.ReplyTo).Handler(inbound))
+			mux.Handle("/webhook/github", githubtrigger.New(secret, settings.Get("github").ReplyTo).Handler(inbound))
 			fmt.Fprintf(out, "gateway: github webhook on POST /webhook/github\n")
 			mounted = true
 		}
@@ -132,9 +132,9 @@ func startWebhooks(ctx context.Context, settings gwconfig.Settings, byName map[s
 	// business verification is an external state the gateway can't observe.
 	token := strings.TrimSpace(os.Getenv(gwconfig.EnvWhatsAppToken))
 	verify := strings.TrimSpace(os.Getenv(gwconfig.EnvWhatsAppVerify))
-	pn := strings.TrimSpace(settings.WhatsApp.PhoneNumberID)
+	pn := strings.TrimSpace(settings.Get("whatsapp").PhoneNumberID)
 	if pn != "" && token != "" && verify != "" {
-		if !settings.WhatsApp.Active {
+		if !settings.Get("whatsapp").Active {
 			fmt.Fprintf(out, "gateway: whatsapp configured but inactive (set whatsapp.active: true after Meta verification)\n")
 		} else {
 			wc := whatsapp.New(pn, token, verify)
@@ -184,9 +184,16 @@ func githubReplyRoute(replyTo string) (channel, conversation string, ok bool) {
 // back to its channel. Jobs are subprocesses (a hung/panicking run can't wedge
 // the gateway or other channels); we poll to completion. Failures are reported
 // to the user, never silently dropped.
-func handle(ctx context.Context, root string, st *state.Store, ch replySender, inb channels.Inbound, out io.Writer) {
+func handle(ctx context.Context, root string, st *state.Store, settings gwconfig.Settings, ch replySender, inb channels.Inbound, out io.Writer) {
 	if ch == nil {
 		fmt.Fprintf(out, "gateway: no route for channel %q — dropping message\n", inb.Channel)
+		return
+	}
+	// Authorization: a chat message must come from an allow-listed principal (the
+	// gateway is default-deny). A Trusted inbound (a signature-verified webhook)
+	// skips this — its transport already authenticated the sender.
+	if !inb.Trusted && !settings.Allowed(inb.Channel, inb.Principal) {
+		fmt.Fprintf(out, "gateway: %s message from unauthorized principal %q — ignoring (add it to channels.%s.allow_from)\n", inb.Channel, inb.Principal, inb.Channel)
 		return
 	}
 	// Durable idempotency: a redelivery (provider retry, reconnect, or restart)

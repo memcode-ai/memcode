@@ -34,12 +34,17 @@ const (
 )
 
 // Settings is the NON-secret gateway configuration (gateway.yaml). A channel's
-// presence is decided by its secret in .env (see EnabledChannels); the blocks
-// here only carry the non-secret knobs a channel needs.
+// presence is decided by its secret in .env (see EnabledChannels); the per-channel
+// blocks under Channels carry the non-secret knobs and the access list. The shape
+// mirrors what Hermes and OpenClaw use (a channels.<name> object), so a config can
+// be imported from either with a direct field mapping.
 type Settings struct {
-	Webhook  Webhook  `yaml:"webhook,omitempty"`
-	GitHub   GitHub   `yaml:"github,omitempty"`
-	WhatsApp WhatsApp `yaml:"whatsapp,omitempty"`
+	// AllowAll disables the per-channel allow-list entirely — anyone who can reach
+	// a channel may drive the agent. Defaults false: the gateway is default-deny,
+	// so an unconfigured channel answers no one until you add yourself.
+	AllowAll bool               `yaml:"allow_all,omitempty"`
+	Webhook  Webhook            `yaml:"webhook,omitempty"`
+	Channels map[string]Channel `yaml:"channels,omitempty"`
 }
 
 // Webhook is the inbound HTTP listener shared by GitHub/WhatsApp. Defaults to
@@ -48,20 +53,43 @@ type Webhook struct {
 	Addr string `yaml:"addr,omitempty"`
 }
 
-// GitHub: ReplyTo routes an autonomous result to a chat conversation, e.g.
-// "telegram:123456". The webhook secret is a secret and lives in .env.
-type GitHub struct {
+// Channel is a channel's non-secret configuration.
+type Channel struct {
+	// AllowFrom is the set of principals (ids or @handles) permitted to drive the
+	// agent through this channel; "*" allows anyone on the channel. Empty means
+	// no one is allowed (unless the global AllowAll is set). Secrets never live
+	// here — bot tokens are in the .env.
+	AllowFrom []string `yaml:"allow_from,omitempty"`
+	// ReplyTo (GitHub) routes an autonomous result to a chat conversation, e.g.
+	// "telegram:123456".
 	ReplyTo string `yaml:"reply_to,omitempty"`
+	// PhoneNumberID (WhatsApp) is the non-secret Cloud API sender id.
+	PhoneNumberID string `yaml:"phone_number_id,omitempty"`
+	// Active (WhatsApp) gates the adapter: it stays inert (built but not mounted)
+	// until the Meta business is verified and the operator flips this to true —
+	// verification is an external account state the gateway can't detect.
+	Active bool `yaml:"active,omitempty"`
 }
 
-// WhatsApp: the non-secret phone number ID. Access + verify tokens live in .env.
-// Active gates the adapter: it stays inert (built but not mounted) until the
-// Meta business is verified and the operator flips this to true — verification
-// is an external account state with no programmatic signal, so it's a manual
-// switch, not something the gateway can detect.
-type WhatsApp struct {
-	PhoneNumberID string `yaml:"phone_number_id,omitempty"`
-	Active        bool   `yaml:"active,omitempty"`
+// Get returns the settings for a channel (a zero Channel if unset), so callers
+// don't repeat nil-map/missing-key handling.
+func (s Settings) Get(name string) Channel {
+	return s.Channels[name]
+}
+
+// Allowed reports whether principal may drive the agent through channel. It is
+// default-deny: only the global AllowAll, an explicit "*", or an exact principal
+// match grants access.
+func (s Settings) Allowed(channel, principal string) bool {
+	if s.AllowAll {
+		return true
+	}
+	for _, p := range s.Channels[channel].AllowFrom {
+		if p == "*" || p == principal {
+			return true
+		}
+	}
+	return false
 }
 
 // Path returns the gateway settings file: $XDG_CONFIG_HOME/memcode/gateway.yaml

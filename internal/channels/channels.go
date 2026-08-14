@@ -20,6 +20,11 @@ type Inbound struct {
 	// restart, reconnect, or provider retry — never re-runs as a fresh agent turn.
 	// Empty means the adapter couldn't supply one; the router then can't dedup it.
 	MessageID string
+	// Trusted marks an inbound whose SENDER is already cryptographically
+	// authenticated by the transport (a signature-verified webhook), so the
+	// router's per-channel allow-list doesn't apply. Chat messages leave this
+	// false and are gated by the allow-list; a signed GitHub delivery sets it.
+	Trusted bool
 }
 
 // Outbound is a reply to post back to a conversation.
