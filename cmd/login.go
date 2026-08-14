@@ -33,7 +33,7 @@ func init() {
 }
 
 func runLogin() error {
-	fmt.Printf("\n  memcode login\n\n")
+	fmt.Println()
 	res, err := authflow.Run(context.Background(), func(s string) {
 		fmt.Printf("  %s\n", s)
 	})
@@ -48,7 +48,11 @@ func runLogin() error {
 	os.Setenv(provider.EnvAPIToken, res.Token)
 	os.Setenv(provider.EnvAPIURL, res.GatewayURL)
 
-	fmt.Printf("\n  ✓ Logged in successfully.\n")
+	if res.Email != "" {
+		fmt.Printf("\n  ✓ Logged in as %s\n", res.Email)
+	} else {
+		fmt.Printf("\n  ✓ Logged in successfully.\n")
+	}
 	fmt.Printf("    Token written to %s\n", provider.GlobalEnvPath())
 	fmt.Printf("    Gateway: %s\n\n", res.GatewayURL)
 	return nil

@@ -41,12 +41,14 @@ const DefaultWebAppURL = "https://www.memcode.ai"
 type Result struct {
 	Token      string
 	GatewayURL string
+	Email      string // the signed-in account email, when the web app supplies it
 }
 
 // loginResult is the outcome of the browser callback.
 type loginResult struct {
 	token  string
 	apiURL string
+	email  string
 	err    string
 }
 
@@ -82,9 +84,9 @@ func makeCallbackHandler(state string, resultCh chan<- loginResult) http.Handler
 			writeCallbackPage(w, false, "No token received.")
 			return
 		}
-		// The web app may include api_url to tell us the gateway endpoint.
+		// The web app may include api_url (which gateway) and email (who signed in).
 		apiURL := q.Get("api_url")
-		deliver(loginResult{token: token, apiURL: apiURL})
+		deliver(loginResult{token: token, apiURL: apiURL, email: q.Get("email")})
 		writeCallbackPage(w, true, "")
 	}
 }
@@ -161,7 +163,7 @@ func Run(ctx context.Context, status func(string)) (Result, error) {
 		if gatewayURL == "" {
 			gatewayURL = envOr(provider.EnvAPIURL, DefaultGatewayURL)
 		}
-		return Result{Token: res.token, GatewayURL: gatewayURL}, nil
+		return Result{Token: res.token, GatewayURL: gatewayURL, Email: res.email}, nil
 
 	case <-ctx.Done():
 		server.Close()
