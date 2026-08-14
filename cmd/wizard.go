@@ -14,6 +14,7 @@ import (
 	"github.com/memcode-ai/memcode/internal/subscription/claudesub"
 	"github.com/memcode-ai/memcode/internal/subscription/codex"
 	"github.com/memcode-ai/memcode/internal/subscription/copilot"
+	"github.com/memcode-ai/memcode/internal/subscription/grok"
 )
 
 // The first-run wizard: the front door. Before the TUI opens for a user who
@@ -131,6 +132,14 @@ func runFirstRunWizard(ctx context.Context) {
 		add("Use your GitHub Copilot subscription — no extra cost"+rec(!haveSub), func(context.Context) error { return selectSource("copilot") })
 		haveSub = true
 	}
+	if grok.Available() {
+		add("Use your SuperGrok / X Premium+ subscription (Grok) — no extra cost"+rec(!haveSub), func(context.Context) error { return selectSource("grok") })
+		haveSub = true
+	} else {
+		// Not detectable up front (memcode runs this login itself), so it is
+		// offered but never pre-selected.
+		add("Sign in with a SuperGrok / X Premium+ subscription (Grok) — no extra cost", useGrok)
+	}
 	add("Sign in to memcode (hosted — metered, no API keys)"+rec(!haveSub), func(context.Context) error {
 		return runLogin()
 	})
@@ -154,6 +163,34 @@ func runFirstRunWizard(ctx context.Context) {
 	if err := opts[idx].action(ctx); err != nil {
 		fmt.Printf("\n  %v\n  You can finish setup later; opening memcode.\n\n", err)
 	}
+}
+
+// useGrok makes the grok source live: it runs the device-code login when no
+// stored login exists yet, then persists the selection.
+func useGrok(ctx context.Context) error {
+	if !grok.Available() {
+		if err := grokLogin(ctx); err != nil {
+			return err
+		}
+	}
+	return selectSource("grok")
+}
+
+// grokLogin runs the xAI browser approval. It prints the verification URL (and
+// tries to open it), so it works over SSH and in containers too — the approval
+// can happen in any browser.
+func grokLogin(ctx context.Context) error {
+	return grok.Login(ctx, func(url, code string) {
+		fmt.Print("\n  To continue, approve the login in your browser:\n")
+		fmt.Printf("    Open: %s\n", url)
+		if code != "" {
+			fmt.Printf("    If prompted, enter code: %s\n", code)
+		}
+		if authflow.OpenBrowser(url) == nil {
+			fmt.Print("    (opened your browser)\n")
+		}
+		fmt.Print("  Waiting for approval…\n")
+	})
 }
 
 // selectSource persists a subscription source choice.

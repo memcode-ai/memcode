@@ -353,6 +353,10 @@ func envOr(key, fallback string) string {
 	return fallback
 }
 
+// OpenBrowser opens url in the user's default browser. Best-effort — callers
+// always print the URL too, so a headless session still works.
+func OpenBrowser(url string) error { return openBrowser(url) }
+
 // openBrowser opens url in the user's default browser. Best-effort.
 func openBrowser(url string) error {
 	switch runtime.GOOS {

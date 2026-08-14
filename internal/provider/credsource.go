@@ -28,6 +28,7 @@ import (
 	"github.com/memcode-ai/memcode/internal/subscription/claudesub"
 	"github.com/memcode-ai/memcode/internal/subscription/codex"
 	"github.com/memcode-ai/memcode/internal/subscription/copilot"
+	"github.com/memcode-ai/memcode/internal/subscription/grok"
 )
 
 // EnvCredentialSource names the explicitly-selected credential source. Empty =
@@ -86,6 +87,10 @@ func discoverCredentialEndpoint() (Endpoint, bool) {
 		}
 	case "claude", "claude-sub", "anthropic-sub":
 		if ep, ok := resolveClaudeSub(); ok {
+			return ep, true
+		}
+	case "grok", "grok-sub", "xai-sub":
+		if ep, ok := resolveGrok(); ok {
 			return ep, true
 		}
 	}
@@ -147,6 +152,22 @@ func resolveCodex() (Endpoint, bool) {
 // api.anthropic.com. The token is a subscription OAuth token, so the native
 // Anthropic adapter switches itself into Claude Code compatibility mode purely
 // from the token shape (never from the host).
+// resolveGrok serves the memcode-owned SuperGrok / X Premium+ login (memcode
+// runs that OAuth flow itself — see the grok package) as a bearer on api.x.ai,
+// riding the shared Grok Responses adapter unchanged.
+func resolveGrok() (Endpoint, bool) {
+	tok, err := grok.Resolve()
+	if err != nil {
+		return Endpoint{}, false
+	}
+	return Endpoint{
+		Name:    "grok-sub",
+		BaseURL: grok.BaseURL,
+		Key:     tok,
+		Model:   sourceModel(catalog.ModelGrok45), // the catalog's Grok tier; /model to change
+	}, true
+}
+
 func resolveClaudeSub() (Endpoint, bool) {
 	tok, err := claudesub.Resolve()
 	if err != nil {

@@ -12,6 +12,7 @@ import (
 	"github.com/memcode-ai/memcode/internal/subscription/claudesub"
 	"github.com/memcode-ai/memcode/internal/subscription/codex"
 	"github.com/memcode-ai/memcode/internal/subscription/copilot"
+	"github.com/memcode-ai/memcode/internal/subscription/grok"
 )
 
 // authCmd is the front door for choosing how memcode signs in, so a user never
@@ -30,27 +31,35 @@ Run without arguments for an interactive picker, or set a subscription directly:
   memcode auth use claude     use a Claude Pro/Max subscription
   memcode auth use codex      use a ChatGPT (Codex) login
   memcode auth use copilot    use a GitHub Copilot subscription
+  memcode auth use grok       use a SuperGrok / X Premium+ subscription
 
 The choice is saved to your global config, so later runs pick it up with no
 environment variable.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !interactiveTTY() {
-			return fmt.Errorf("run in a terminal, or set one directly: memcode auth use <claude|codex|copilot>")
+			return fmt.Errorf("run in a terminal, or set one directly: memcode auth use <claude|codex|copilot|grok>")
 		}
 		return runAuthPicker(cmd.Context())
 	},
 }
 
 var authUseCmd = &cobra.Command{
-	Use:   "use <claude|codex|copilot>",
+	Use:   "use <claude|codex|copilot|grok>",
 	Short: "Use a subscription you already have, and remember it",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		src, ok := canonicalSource(args[0])
 		if !ok {
-			return fmt.Errorf("unknown source %q — use one of: claude, codex, copilot", args[0])
+			return fmt.Errorf("unknown source %q — use one of: claude, codex, copilot, grok", args[0])
 		}
-		if !sourceAvailable(src) {
+		// Grok has no other tool's login to reuse: memcode signs in itself, so
+		// selecting it without a stored login starts the browser approval.
+		if src == "grok" && !grok.Available() {
+			if err := grokLogin(cmd.Context()); err != nil {
+				return err
+			}
+		}
+		if src != "grok" && !sourceAvailable(src) {
 			fmt.Printf("  Note: no %s login found yet. Saving your choice anyway — sign in to that tool and memcode will use it.\n", src)
 		}
 		return selectSource(src)
@@ -95,6 +104,8 @@ func canonicalSource(in string) (string, bool) {
 		return "codex", true
 	case "copilot", "github-copilot":
 		return "copilot", true
+	case "grok", "grok-sub", "xai", "xai-sub", "supergrok":
+		return "grok", true
 	}
 	return "", false
 }
@@ -109,6 +120,8 @@ func sourceAvailable(src string) bool {
 		return codex.Available()
 	case "copilot":
 		return copilot.Available()
+	case "grok":
+		return grok.Available()
 	}
 	return false
 }
@@ -130,6 +143,11 @@ func runAuthPicker(ctx context.Context) error {
 	}
 	if copilot.Available() {
 		add("Use your GitHub Copilot subscription", func(context.Context) error { return selectSource("copilot") })
+	}
+	if grok.Available() {
+		add("Use your SuperGrok / X Premium+ subscription (Grok)", func(context.Context) error { return selectSource("grok") })
+	} else {
+		add("Sign in with a SuperGrok / X Premium+ subscription (Grok)", useGrok)
 	}
 	add("Sign in to memcode (hosted, metered)", func(context.Context) error { return runLogin() })
 	add("Use your own API key (Anthropic or OpenAI)", func(context.Context) error { return promptOwnKey() })
