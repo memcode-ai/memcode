@@ -64,3 +64,51 @@ func TestHandleCommandAndSelection(t *testing.T) {
 		t.Error("a normal task must not be treated as a command")
 	}
 }
+
+// channels.<name>.projects narrows /project and the channel's effective default
+// to the listed set — the grain that keeps a shared group channel from being
+// pointed at any registered project.
+func TestChannelProjectPolicy(t *testing.T) {
+	ctx := context.Background()
+	gw, err := state.Open(ctx, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer gw.Close()
+
+	sender := &capturingSender{}
+	rt := &runtime{
+		gw: gw,
+		settings: gwconfig.Settings{
+			Channels: map[string]gwconfig.Channel{"discord": {Projects: []string{"www"}}},
+			Projects: map[string]gwconfig.Project{
+				"memcode": {Path: t.TempDir(), Enabled: true},
+				"www":     {Path: t.TempDir(), Enabled: true},
+			},
+			DefaultProject: "memcode",
+		},
+		byName: map[string]replySender{"discord": sender},
+		out:    io.Discard,
+		notify: make(chan struct{}, 1),
+	}
+
+	// /project to a registered-but-unlisted project is refused for this channel.
+	if !rt.handleCommand(ctx, channels.Inbound{Channel: "discord", Conversation: "1", Text: "/project memcode"}) {
+		t.Fatal("/project should be recognized as a command")
+	}
+	if _, p, _ := gw.Conversation(ctx, "discord", "1"); p != "" {
+		t.Errorf("disallowed project must not change selection, got %q", p)
+	}
+
+	// /project to a listed project works.
+	rt.handleCommand(ctx, channels.Inbound{Channel: "discord", Conversation: "1", Text: "/project www"})
+	if _, p, _ := gw.Conversation(ctx, "discord", "1"); p != "www" {
+		t.Errorf("allowed project selection = %q, want www", p)
+	}
+
+	// The gateway default is NOT in this channel's set, so a fresh conversation
+	// resolves to the channel's first allowed project, never the gateway default.
+	if _, p := rt.resolveSelection(ctx, "discord", "fresh"); p != "www" {
+		t.Errorf("resolveSelection default = %q, want www (channel policy)", p)
+	}
+}

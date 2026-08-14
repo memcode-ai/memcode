@@ -73,9 +73,10 @@ type Persona struct {
 // the AUTHORITY is its canonicalized form (see ResolveProject), resolved at use
 // time so a symlink swap can't redirect execution. Registration (is this path
 // runnable at all?) is deliberately distinct from authorization (may THIS
-// principal/agent run against it?) — the initial trust model is that every
-// allow-listed gateway principal may execute against every enabled project; a
-// principal→agent→projects policy is a later primitive.
+// surface run against it?): by default every allow-listed gateway principal may
+// execute against every enabled project, and channels.<name>.projects narrows
+// that to a per-channel set (see ProjectAllowed) — the right grain for a shared
+// group channel. A finer per-principal policy is a later primitive.
 type Project struct {
 	Path    string `yaml:"path"`
 	Enabled bool   `yaml:"enabled"`
@@ -172,6 +173,11 @@ type Channel struct {
 	// Agent binds this channel to a persona by id (see Settings.Agents). Empty
 	// means the gateway's plain default (no persona context layered on).
 	Agent string `yaml:"agent,omitempty"`
+	// Projects narrows which registered projects this channel may execute
+	// against (/project and the default). Empty means every enabled project —
+	// fine for a solo operator, too coarse for a shared group channel: list the
+	// project ids a channel is for, and /project can't point it anywhere else.
+	Projects []string `yaml:"projects,omitempty"`
 	// ReplyTo (GitHub) routes an autonomous result to a chat conversation, e.g.
 	// "telegram:123456".
 	ReplyTo string `yaml:"reply_to,omitempty"`
@@ -198,6 +204,23 @@ func (s Settings) Allowed(channel, principal string) bool {
 	}
 	for _, p := range s.Channels[channel].AllowFrom {
 		if p == "*" || p == principal {
+			return true
+		}
+	}
+	return false
+}
+
+// ProjectAllowed reports whether channel may execute against project id. An
+// empty channels.<name>.projects list allows every registered project (the
+// registry itself is still the boundary — see ResolveProject); a non-empty list
+// is exhaustive for that channel.
+func (s Settings) ProjectAllowed(channel, project string) bool {
+	allowed := s.Channels[channel].Projects
+	if len(allowed) == 0 {
+		return true
+	}
+	for _, id := range allowed {
+		if id == project {
 			return true
 		}
 	}

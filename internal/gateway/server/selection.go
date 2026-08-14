@@ -45,6 +45,10 @@ func (r *runtime) handleCommand(ctx context.Context, inb channels.Inbound) bool 
 			reply = fmt.Sprintf("%v. %s", err, r.projectList())
 			break
 		}
+		if !r.settings.ProjectAllowed(inb.Channel, id) { // channel policy narrows the registry
+			reply = fmt.Sprintf("Project %q is not allowed on this channel. %s", id, r.channelProjectList(inb.Channel))
+			break
+		}
 		if err := r.gw.SetConversationProject(ctx, inb.Channel, inb.Conversation, id); err != nil {
 			reply = "Couldn't switch project: " + err.Error()
 			break
@@ -61,6 +65,9 @@ func (r *runtime) handleCommand(ctx context.Context, inb channels.Inbound) bool 
 
 // resolveSelection returns the persona and project id a new task should snapshot:
 // the conversation's explicit choice if set, else the channel/gateway defaults.
+// The project always satisfies the channel's project policy: a default (or a
+// selection made before the policy tightened) that is no longer allowed falls to
+// the first project the channel IS allowed, never through to the gateway default.
 func (r *runtime) resolveSelection(ctx context.Context, channel, conversation string) (agent, project string) {
 	agent = r.settings.Get(channel).Agent
 	project = r.settings.DefaultProject
@@ -72,6 +79,9 @@ func (r *runtime) resolveSelection(ctx context.Context, channel, conversation st
 			project = p
 		}
 	}
+	if !r.settings.ProjectAllowed(channel, project) {
+		project = r.settings.Get(channel).Projects[0] // non-empty list, or Allowed would be true
+	}
 	return agent, project
 }
 
@@ -81,6 +91,16 @@ func (r *runtime) agentList() string {
 		ids = append(ids, id)
 	}
 	return listOrNone("agents", ids)
+}
+
+// channelProjectList names the projects a channel may select: its configured
+// subset when one is set, else every registered project.
+func (r *runtime) channelProjectList(channel string) string {
+	if allowed := r.settings.Get(channel).Projects; len(allowed) > 0 {
+		ids := append([]string(nil), allowed...)
+		return listOrNone("projects", ids)
+	}
+	return r.projectList()
 }
 
 func (r *runtime) projectList() string {

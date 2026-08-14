@@ -176,13 +176,21 @@ func (r *runtime) fireSchedule(ctx context.Context, sch gwconfig.Schedule, chann
 	}
 }
 
-// conversationSession derives a stable session id for a (channel, conversation)
-// so every message in that conversation resumes the same agent session. It's
-// deterministic, so no mapping needs to be stored; the child resumes it if the
-// transcript exists and creates it under this id otherwise. Matches the "sess_"
-// id shape the runtime uses.
-func conversationSession(channel, conversation string) string {
-	sum := sha256.Sum256([]byte(channel + ":" + conversation))
+// conversationSession derives a stable session id for a (channel, conversation,
+// persona) so every message in that conversation resumes the same agent session.
+// The persona is part of the key: switching /agent switches to that persona's OWN
+// transcript instead of inheriting the previous persona's, and switching back
+// resumes where that persona left off. It's deterministic, so no mapping needs to
+// be stored; the child resumes it if the transcript exists and creates it under
+// this id otherwise. Matches the "sess_" id shape the runtime uses. (The project
+// needs no key part: transcripts live under the project root, so a different
+// project is a different store.)
+func conversationSession(channel, conversation, agent string) string {
+	key := channel + ":" + conversation
+	if agent != "" {
+		key += "#agent:" + agent
+	}
+	sum := sha256.Sum256([]byte(key))
 	return "sess_" + hex.EncodeToString(sum[:16])
 }
 
@@ -230,6 +238,13 @@ func scheduleSpec(sch gwconfig.Schedule) (string, bool) {
 // adapter must not ack.
 func (r *runtime) Deliver(ctx context.Context, inb channels.Inbound) error {
 	if r.byName[inb.Channel] == nil {
+		// A Trusted delivery (webhook, schedule) was routed here by CONFIG, not by a
+		// sender picking a live channel — losing it silently would be a config bug
+		// eating real work. Refuse so the webhook returns 5xx and the provider
+		// retries after the config is fixed.
+		if inb.Trusted {
+			return fmt.Errorf("no route for channel %q — is it enabled?", inb.Channel)
+		}
 		fmt.Fprintf(r.out, "gateway: no route for channel %q — dropping message\n", inb.Channel)
 		return nil
 	}
@@ -357,22 +372,35 @@ func (r *runtime) runJob(ctx context.Context, it state.Item) {
 	// resume the same session (the child does resume-or-create on this id). Tier
 	// routes this channel to a stronger model when configured.
 	cfg := r.settings.Get(it.Channel)
-	session := conversationSession(it.Channel, it.Conversation)
-	// Resolve the snapshotted project id to its canonical root. The registry is the
-	// authorization boundary: an id that no longer resolves falls back to the
-	// gateway default rather than executing somewhere unregistered.
+	session := conversationSession(it.Channel, it.Conversation, it.Agent)
+	// Resolve the snapshotted project id to its canonical root. The registry plus
+	// the channel's project policy is the authorization boundary: an id that no
+	// longer resolves — or that the channel is no longer allowed to use — falls
+	// back to the gateway default rather than executing somewhere unauthorized.
 	root := r.root
 	if it.Project != "" {
+		// The channel's project policy is re-checked at execution, not only at
+		// snapshot: if it tightened while this task was queued, refuse — never
+		// "helpfully" run the task somewhere the channel wasn't pointed.
+		if !r.settings.ProjectAllowed(it.Channel, it.Project) {
+			msg := fmt.Sprintf("Project %q is not allowed on this channel anymore; nothing was run.", it.Project)
+			if serr := r.gw.SetReplied(ctx, it.Channel, it.MessageID, msg); serr != nil {
+				fmt.Fprintf(r.out, "gateway: recording policy refusal for %s: %v\n", it.Channel, serr)
+				return
+			}
+			r.deliverReply(ctx, it, msg)
+			return
+		}
 		if resolved, rerr := r.settings.ResolveProject(it.Project); rerr == nil {
 			root = resolved
 		} else {
 			fmt.Fprintf(r.out, "gateway: project %q for %s no longer resolves (%v); using default\n", it.Project, it.Channel, rerr)
 		}
 	}
-	// Compose the snapshotted persona's context and persist it keyed by session;
-	// the spawned child self-discovers it (no jobs.Spawn signature change). No
-	// persona → no supplemental context → the coding engine runs exactly as the CLI.
-	if err := writeContext(session, personaContext(it.Agent)); err != nil {
+	// Compose the snapshotted persona's context + skill roots and persist it keyed
+	// by session; the spawned child self-discovers it (no jobs.Spawn signature
+	// change). No persona → empty envelope → the coding engine runs exactly as the CLI.
+	if err := writeContext(session, jobContextFor(it.Agent)); err != nil {
 		fmt.Fprintf(r.out, "gateway: composing context for %s: %v\n", it.Channel, err)
 	}
 	job, err := jobs.Spawn(root, it.Text, string(permissions.ModeAuto), cfg.Tier, false, true, session)
@@ -476,18 +504,9 @@ func startWebhooks(ctx context.Context, settings gwconfig.Settings, rt *runtime,
 	mux := http.NewServeMux()
 	mounted := false
 
-	if secret := strings.TrimSpace(os.Getenv(gwconfig.EnvGitHubSecret)); secret != "" {
-		if _, _, ok := parseRoute(settings.Get("github").ReplyTo); !ok {
-			fmt.Fprintf(out, "gateway: github disabled: set github.reply_to (e.g. telegram:123456) in gateway.yaml\n")
-		} else {
-			mux.Handle("/webhook/github", githubtrigger.New(secret, settings.Get("github").ReplyTo).Handler(rt))
-			fmt.Fprintf(out, "gateway: github webhook on POST /webhook/github\n")
-			mounted = true
-		}
-	}
-
 	// WhatsApp is built but stays inert until whatsapp.active is set — Meta business
-	// verification is an external state the gateway can't observe.
+	// verification is an external state the gateway can't observe. Mounted BEFORE
+	// GitHub so github.reply_to can be validated against every live reply channel.
 	token := strings.TrimSpace(os.Getenv(gwconfig.EnvWhatsAppToken))
 	verify := strings.TrimSpace(os.Getenv(gwconfig.EnvWhatsAppVerify))
 	appSecret := strings.TrimSpace(os.Getenv(gwconfig.EnvWhatsAppSecret))
@@ -503,6 +522,23 @@ func startWebhooks(ctx context.Context, settings gwconfig.Settings, rt *runtime,
 			rt.byName[wc.Name()] = wc
 			mux.Handle("/webhook/whatsapp", wc.Handler(rt))
 			fmt.Fprintf(out, "gateway: whatsapp webhook on /webhook/whatsapp\n")
+			mounted = true
+		}
+	}
+
+	if secret := strings.TrimSpace(os.Getenv(gwconfig.EnvGitHubSecret)); secret != "" {
+		replyCh, _, ok := parseRoute(settings.Get("github").ReplyTo)
+		switch {
+		case !ok:
+			fmt.Fprintf(out, "gateway: github disabled: set github.reply_to (e.g. telegram:123456) in gateway.yaml\n")
+		case rt.byName[replyCh] == nil:
+			// A route to a channel that isn't running would let GitHub ack work and
+			// then drop the result — refuse to mount instead, so deliveries fail
+			// visibly until the config is fixed.
+			fmt.Fprintf(out, "gateway: github disabled: reply_to channel %q is not enabled\n", replyCh)
+		default:
+			mux.Handle("/webhook/github", githubtrigger.New(secret, settings.Get("github").ReplyTo).Handler(rt))
+			fmt.Fprintf(out, "gateway: github webhook on POST /webhook/github\n")
 			mounted = true
 		}
 	}

@@ -65,10 +65,10 @@ func (s *Session) StartChat(ctx context.Context) *ChatState {
 	s.emit(ctx, events.KindAgentSessionStarted, map[string]any{
 		"mode": string(s.mode), "model": s.model, "head_sha": head, "interactive": true,
 		"resumed": resumedMsgs != nil})
-	s.startSessionLog(head)                       // open the append-only episodic log for this session
-	s.skills = skills.Discover(s.root)            // own skills + Claude Code's installed plugin skills
-	s.approvedSkills = loadApprovedSkills(s.root) // skills the user said "don't ask again" for (persists across sessions)
-	s.nudgedSkills = map[string]bool{}            // per-session: a matched skill is nudged once, not every turn
+	s.startSessionLog(head)                                 // open the append-only episodic log for this session
+	s.skills = skills.DiscoverIn(s.root, s.extraSkillRoots) // own skills + Claude Code's installed plugin skills
+	s.approvedSkills = loadApprovedSkills(s.root)           // skills the user said "don't ask again" for (persists across sessions)
+	s.nudgedSkills = map[string]bool{}                      // per-session: a matched skill is nudged once, not every turn
 	if list, err := scripts.List(s.root); err == nil {
 		s.scripts = list // saved reusable command sequences (.memcode/scripts)
 	}
@@ -80,7 +80,7 @@ func (s *Session) StartChat(ctx context.Context) *ChatState {
 	// Skills are NOT dumped into context — the prompt only POINTS at the skill dirs (a blurb
 	// for every installed skill, ≈100+ with host plugins, would be wasted context == money).
 	// The model greps/reads them on demand and loads one with the skill tool. See skills.Roots.
-	if ptr := skillsPointer(skills.Roots(s.root)); ptr != "" {
+	if ptr := skillsPointer(skills.RootsIn(s.root, s.extraSkillRoots)); ptr != "" {
 		sys = sys.withExtra(ptr)
 	}
 	if ptr := scriptsPointer(s.scripts); ptr != "" {

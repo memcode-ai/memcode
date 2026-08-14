@@ -10,12 +10,29 @@ import (
 	gwconfig "github.com/memcode-ai/memcode/internal/gateway/config"
 )
 
+// jobContext is the envelope the gateway persists (keyed by session id) for a
+// spawned job to self-discover: the persona's composed supplemental context plus
+// its extra skill roots. The JSON shape is the contract with cmd's loader.
+type jobContext struct {
+	Items      []agentrt.ContextItem `json:"items,omitempty"`
+	SkillRoots []string              `json:"skill_roots,omitempty"`
+}
+
+func (jc jobContext) empty() bool { return len(jc.Items) == 0 && len(jc.SkillRoots) == 0 }
+
+// jobContextFor composes everything a bound persona layers onto a run: its
+// instructions and memory as generic ContextItems, and its own skills dir as an
+// extra skill root. A zero envelope means the run is byte-for-byte a plain CLI run.
+func jobContextFor(agentID string) jobContext {
+	return jobContext{Items: personaContext(agentID), SkillRoots: personaSkillRoots(agentID)}
+}
+
 // personaContext composes a bound persona's supplemental context: its own
 // instructions and memory (from ~/.memcode/agents/<id>), classified into generic
 // ContextItems. User-global (~/.memcode) and project context are sourced by the
 // coding engine itself, so they are deliberately NOT duplicated here — the engine
 // stays the owner of those tiers. Returns nil when there is no persona or no
-// material, in which case the run is byte-for-byte a plain CLI run.
+// material.
 func personaContext(agentID string) []agentrt.ContextItem {
 	if agentID == "" {
 		return nil
@@ -39,15 +56,35 @@ func personaContext(agentID string) []agentrt.ContextItem {
 	return items
 }
 
-// writeContext persists a session's composed context so the spawned child can
-// self-discover it by session id. With no items it removes any stale file, so a
-// prior persona's context never leaks into a later run on the same session.
-func writeContext(session string, items []agentrt.ContextItem) error {
+// personaSkillRoots returns the persona's own skills directory
+// (~/.memcode/agents/<id>/skills) when it exists — an extra discovery root that
+// ranks between repo-local and user-global skills, so a persona carries its own
+// capabilities without touching the project or the user's global skill set.
+func personaSkillRoots(agentID string) []string {
+	if agentID == "" {
+		return nil
+	}
+	home, err := gwconfig.PersonaHome(agentID)
+	if err != nil {
+		return nil
+	}
+	dir := filepath.Join(home, "skills")
+	if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
+		return nil
+	}
+	return []string{dir}
+}
+
+// writeContext persists a session's composed job context so the spawned child can
+// self-discover it by session id. With an empty envelope it removes any stale
+// file, so a prior persona's context never leaks into a later run on the same
+// session.
+func writeContext(session string, jc jobContext) error {
 	path, err := gwconfig.ContextPath(session)
 	if err != nil {
 		return err
 	}
-	if len(items) == 0 {
+	if jc.empty() {
 		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 			return err
 		}
@@ -56,7 +93,7 @@ func writeContext(session string, items []agentrt.ContextItem) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
-	data, err := json.Marshal(items)
+	data, err := json.Marshal(jc)
 	if err != nil {
 		return err
 	}

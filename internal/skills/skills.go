@@ -59,18 +59,23 @@ type rootSpec struct {
 //   - the Agent Skills std:  .agents/skills (user-global AND anywhere in the repo)
 //   - Claude Code:           .claude/skills (anywhere in the repo) + user ~/.claude/{skills,plugins}
 //
-// Repo-local dirs (including nested ones) outrank user-global ones.
-func discoveryRoots(repoRoot string) []rootSpec {
+// Repo-local dirs (including nested ones) outrank caller-supplied extra roots
+// (a gateway persona's own skills — more specific than the user), which outrank
+// user-global ones.
+func discoveryRoots(repoRoot string, extra []string) []rootSpec {
 	roots := []rootSpec{{filepath.Join(repoRoot, ".memcode", "skills"), 0}}
 	for _, d := range nestedSkillDirs(repoRoot) { // .agents/skills + .claude/skills, repo-root or nested
 		roots = append(roots, rootSpec{d, 1})
 	}
+	for _, d := range extra {
+		roots = append(roots, rootSpec{d, 2})
+	}
 	if home, err := os.UserHomeDir(); err == nil && home != "" {
 		roots = append(roots,
-			rootSpec{filepath.Join(home, ".agents", "skills"), 2},  // Agent Skills, user-global
-			rootSpec{filepath.Join(home, ".memcode", "skills"), 2}, // memcode, user-global
-			rootSpec{filepath.Join(home, ".claude", "skills"), 3},  // Claude Code user skills
-			rootSpec{filepath.Join(home, ".claude", "plugins"), 4}, // Claude Code plugins
+			rootSpec{filepath.Join(home, ".agents", "skills"), 3},  // Agent Skills, user-global
+			rootSpec{filepath.Join(home, ".memcode", "skills"), 3}, // memcode, user-global
+			rootSpec{filepath.Join(home, ".claude", "skills"), 4},  // Claude Code user skills
+			rootSpec{filepath.Join(home, ".claude", "plugins"), 5}, // Claude Code plugins
 		)
 	}
 	return dedupRoots(roots)
@@ -124,9 +129,13 @@ func nestedSkillDirs(repoRoot string) []string {
 
 // Discover scans the universal roots and returns one skill per name, with repo-local skills
 // overriding user-global ones and, within a source, the newest file winning.
-func Discover(repoRoot string) []Skill {
+func Discover(repoRoot string) []Skill { return DiscoverIn(repoRoot, nil) }
+
+// DiscoverIn is Discover plus caller-supplied extra roots (e.g. a gateway
+// persona's own skills dir), which rank between repo-local and user-global.
+func DiscoverIn(repoRoot string, extraRoots []string) []Skill {
 	var cands []candidate
-	for _, r := range discoveryRoots(repoRoot) {
+	for _, r := range discoveryRoots(repoRoot, extraRoots) {
 		cands = append(cands, scanRoot(r.dir, r.priority)...)
 	}
 	sort.SliceStable(cands, func(i, j int) bool {
@@ -490,9 +499,12 @@ func (s Skill) Load() (string, error) {
 // (user-global + anywhere in the repo), and Claude Code's dirs. Pointed at from the system
 // prompt so the model can grep/read them on demand instead of having every skill's blurb
 // dumped into context.
-func Roots(repoRoot string) []string {
+func Roots(repoRoot string) []string { return RootsIn(repoRoot, nil) }
+
+// RootsIn is Roots plus caller-supplied extra roots (see DiscoverIn).
+func RootsIn(repoRoot string, extraRoots []string) []string {
 	var out []string
-	for _, r := range discoveryRoots(repoRoot) {
+	for _, r := range discoveryRoots(repoRoot, extraRoots) {
 		if fi, err := os.Stat(r.dir); err == nil && fi.IsDir() {
 			out = append(out, r.dir)
 		}

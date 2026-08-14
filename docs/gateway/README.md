@@ -53,12 +53,21 @@ channels:
     allow_from: ["123456789"]           # STABLE user ids (not @handles); "*" = anyone
     # respond_to_all: true              # act on every message in a group (default: mention required)
     # tier: strong                      # route this channel to a stronger model (strong|frontier)
+    # agent: personal                   # bind this channel to a persona (see agents:)
+    # projects: [www]                   # restrict /project on this channel to these ids
   github:
     reply_to: "telegram:123456789"      # where CI-failure results are posted
   whatsapp:
     phone_number_id: "10012345"
     active: false                        # stays inert until Meta verification
     allow_from: ["+15555550123"]
+projects:                                # written by `memcode project add`
+  memcode: { path: ~/github/memcode, enabled: true }
+  www:     { path: ~/github/www, enabled: true }
+default_project: memcode
+agents:                                  # durable personas; state in ~/.memcode/agents/<id>
+  personal: { type: assistant }
+  coder:    { type: coding }
 schedules:
   - name: standup
     cron: "0 9 * * 1-5"                  # or  every: "24h"
@@ -66,10 +75,32 @@ schedules:
     deliver_to: "telegram:123456789"
 ```
 
-Conversations are **stateful**: each `(channel, conversation)` keeps its own agent
-session, so follow-up messages continue with context instead of starting fresh.
-Per-channel `tier` routes a channel to a stronger model (a code-review channel can
-run strong while a status channel stays cheap).
+Conversations are **stateful**: each `(channel, conversation, agent)` keeps its
+own agent session, so follow-up messages continue with context instead of
+starting fresh — and each persona keeps its own transcript, so switching
+`/agent` never inherits another persona's conversation. Per-channel `tier`
+routes a channel to a stronger model (a code-review channel can run strong while
+a status channel stays cheap).
+
+## Projects
+
+The gateway is one global daemon that can work in many repos. `memcode project
+add <path>` registers a directory in the project registry; a chat message can
+select among registered projects with `/project <id>` but can never manufacture
+an arbitrary filesystem root — the registry (canonical, symlink-resolved paths)
+is the execution boundary. `default_project` is where tasks run when a
+conversation hasn't chosen, and `channels.<name>.projects` narrows a channel to
+a subset of the registry, so a shared group channel can't be pointed at your
+other repos.
+
+## Agents (personas)
+
+`agents:` declares durable personas. Each has a home at `~/.memcode/agents/<id>`
+holding its own `MEMCODE.md` (instructions), `memory.md`, and `skills/` — layered
+onto the run as supplemental context and an extra skill root, above whatever the
+project itself provides. A channel binds to a persona with `channels.<name>.agent`,
+and a conversation switches with `/agent <id>`. Each persona gets its own session
+transcript per conversation.
 
 ## Authorization and triggering
 
@@ -116,7 +147,10 @@ chat message, so scheduled work is autonomous but just as reliable.
 memcode gateway
 ```
 
-in the project the agent should operate in. It runs until interrupted (Ctrl-C).
+from anywhere once a `default_project` is registered (`memcode project add`);
+without one it falls back to the repo it's started in. One daemon per machine —
+a singleton lock enforces it, which is what lets it own single-consumer bot
+tokens. It runs until interrupted (Ctrl-C).
 
 ### As a background service
 
@@ -127,7 +161,8 @@ memcode gateway install
 ```
 
 This writes a launchd LaunchAgent (macOS) or systemd `--user` unit (Linux) that
-runs the gateway in the current project, and prints the command to start it.
+runs the gateway (working dir = where you ran install, the fallback when no
+`default_project` is set), and prints the command to start it.
 `memcode gateway uninstall` removes it.
 
 Chat channels connect outbound (no public URL needed). GitHub and WhatsApp are
@@ -178,13 +213,15 @@ repeatedly:
 - **Authenticated webhooks.** GitHub and WhatsApp POSTs are HMAC-verified against
   their secrets; the verification handshake is a separate path from the
   per-message signature check.
-- **Visible in memcode.** Gateway activity is logged to the main event store
-  (`gateway_message_received` / `job_spawned` / `result_posted` / `dropped` /
-  `unauthorized`) — but an inbound chat message is never turned into a project
-  objective.
+- **Visible in memcode.** Gateway activity is logged to the gateway's global
+  event store (`gateway_message_received` / `job_spawned` / `result_posted` /
+  `dropped` / `unauthorized`) — but an inbound chat message is never turned into
+  a project objective.
 
-State lives in the project's `.memcode/gateway.db` (SQLite, WAL) — copyable with
-the rest of `.memcode`.
+Gateway state is global, never inside a repo's `.memcode`: the durable inbox and
+singleton lock live in `~/.config/memcode/` (`gateway.db`, SQLite WAL) alongside
+`gateway.yaml`, the global `.env`, and the gateway's own event log
+(`gateway-events.db`). Back up that directory and you've backed up the gateway.
 
 ## Adding a channel
 

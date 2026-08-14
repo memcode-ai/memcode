@@ -72,7 +72,7 @@ func (s *Session) useSkill(ctx context.Context, input json.RawMessage) toolResul
 		if err != nil {
 			return errResult(err.Error())
 		}
-		s.skills = skills.Discover(s.root) // re-index so the freshly installed skill is loadable now
+		s.skills = skills.DiscoverIn(s.root, s.extraSkillRoots) // re-index so the freshly installed skill is loadable now
 		s.toolLine(true, "Skill", "install "+pkg, "", false)
 		return textResult("Installed " + pkg + " into .agents/skills — now discoverable; `load` it by name to use it.\n\n" + clip(out, 400))
 	}

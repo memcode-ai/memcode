@@ -149,6 +149,7 @@ type Session struct {
 	userMd            string           // user's MEMCODE.md instructions, loaded once per session, injected every turn
 	memoryMd          string           // durable memory (global + project memory.md), loaded once per session, injected every turn
 	supplemental      []ContextItem    // caller-supplied supplemental context (empty for the CLI/Desktop; set only by the agent runtime), injected every turn
+	extraSkillRoots   []string         // caller-supplied extra skill roots (a gateway persona's skills dir); empty for the CLI/Desktop
 	editsAllowed      bool             // user said "don't ask again for edits" this session (scoped: edits only, not commands; never catastrophic)
 
 	lastCompactSummary string // most recent in-session compaction summary (the warm layer)
@@ -386,6 +387,12 @@ func (s *Session) SetSessionID(id string) { s.pinnedID = id }
 // not write project memory.
 func (s *Session) SetContext(items []ContextItem) { s.supplemental = items }
 
+// SetSkillRoots supplies caller-provided EXTRA skill discovery roots (e.g. a
+// gateway persona's own skills dir). They rank between repo-local and
+// user-global skills, so a persona can carry capabilities without editing the
+// project or the user's global skill set. Empty for the CLI and Desktop.
+func (s *Session) SetSkillRoots(roots []string) { s.extraSkillRoots = roots }
+
 func (s *Session) setSessionID(id string) {
 	s.sessionID = id
 	s.ckpt = checkpoint.New(s.root, id) // rewind points live per session id
@@ -430,10 +437,10 @@ func (s *Session) Run(ctx context.Context, task string) (Result, error) {
 		packJSON, _ := json.MarshalIndent(pack, "", "  ")
 		sys = s.execSpec(s.redactor.Redact(string(packJSON)))
 	}
-	s.skills = skills.Discover(s.root)                 // recruitable skills for this headless run too
-	s.approvedSkills = loadApprovedSkills(s.root)      // honor remembered "don't ask again" skill approvals
-	s.approvedArtifacts = loadArtifactApproval(s.root) // ditto for artifact publishing
-	s.nudgedSkills = map[string]bool{}                 // per-session: a matched skill is nudged once
+	s.skills = skills.DiscoverIn(s.root, s.extraSkillRoots) // recruitable skills for this headless run too
+	s.approvedSkills = loadApprovedSkills(s.root)           // honor remembered "don't ask again" skill approvals
+	s.approvedArtifacts = loadArtifactApproval(s.root)      // ditto for artifact publishing
+	s.nudgedSkills = map[string]bool{}                      // per-session: a matched skill is nudged once
 	if list, err := scripts.List(s.root); err == nil {
 		s.scripts = list // saved reusable command sequences for this headless run too
 	}
@@ -442,7 +449,7 @@ func (s *Session) Run(ctx context.Context, task string) (Result, error) {
 	defer s.closeMCP()
 	// Point at the skill dirs (don't dump blurbs) — the model greps/reads on demand and
 	// recruits any discovered skill by name via the skill tool.
-	if ptr := skillsPointer(skills.Roots(s.root)); ptr != "" {
+	if ptr := skillsPointer(skills.RootsIn(s.root, s.extraSkillRoots)); ptr != "" {
 		sys = sys.withExtra(ptr)
 	}
 	if ptr := scriptsPointer(s.scripts); ptr != "" {

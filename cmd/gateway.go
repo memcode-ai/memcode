@@ -102,6 +102,10 @@ var gatewaySetupCmd = &cobra.Command{
 			if settings.Channels == nil {
 				settings.Channels = map[string]gwconfig.Channel{}
 			}
+			// MERGE into the existing channel block — the wizard owns only the fields
+			// it asks about, so hand-set knobs (agent, tier, respond_to_all, projects,
+			// active, …) survive a re-run.
+			ch := settings.Channels[choice]
 			switch choice {
 			case "":
 				p, _ := gwconfig.Path()
@@ -109,35 +113,31 @@ var gatewaySetupCmd = &cobra.Command{
 				return nil
 			case "telegram":
 				secrets[gwconfig.EnvTelegramToken] = secret(cmd, "Bot token (from @BotFather): ")
-				settings.Channels["telegram"] = gwconfig.Channel{AllowFrom: allowList(in, cmd)}
+				ch.AllowFrom = allowList(in, cmd)
 			case "discord":
 				secrets[gwconfig.EnvDiscordToken] = secret(cmd, "Bot token (Discord developer portal): ")
-				settings.Channels["discord"] = gwconfig.Channel{AllowFrom: allowList(in, cmd)}
+				ch.AllowFrom = allowList(in, cmd)
 			case "slack":
 				secrets[gwconfig.EnvSlackAppToken] = secret(cmd, "App-level token (xapp-…): ")
 				secrets[gwconfig.EnvSlackBotToken] = secret(cmd, "Bot token (xoxb-…): ")
-				settings.Channels["slack"] = gwconfig.Channel{AllowFrom: allowList(in, cmd)}
+				ch.AllowFrom = allowList(in, cmd)
 			case "github":
 				secrets[gwconfig.EnvGitHubSecret] = secret(cmd, "Webhook secret: ")
 				// GitHub deliveries are HMAC-authenticated, so no allow-list here.
-				settings.Channels["github"] = gwconfig.Channel{
-					ReplyTo: strings.TrimSpace(prompt(in, cmd, "Route results to (e.g. telegram:123456, blank for none): ")),
-				}
+				ch.ReplyTo = strings.TrimSpace(prompt(in, cmd, "Route results to (e.g. telegram:123456, blank for none): "))
 			case "whatsapp":
 				cmd.Println("Note: WhatsApp stays inactive until your Meta business is verified.")
 				cmd.Println("Once verified, set `whatsapp.active: true` in gateway.yaml to enable it.")
-				wa := gwconfig.Channel{
-					PhoneNumberID: strings.TrimSpace(prompt(in, cmd, "Phone number ID: ")),
-				}
+				ch.PhoneNumberID = strings.TrimSpace(prompt(in, cmd, "Phone number ID: "))
 				secrets[gwconfig.EnvWhatsAppToken] = secret(cmd, "Access token: ")
 				secrets[gwconfig.EnvWhatsAppVerify] = secret(cmd, "Webhook verify token: ")
 				secrets[gwconfig.EnvWhatsAppSecret] = secret(cmd, "App secret (verifies inbound; required to activate): ")
-				wa.AllowFrom = allowList(in, cmd)
-				settings.Channels["whatsapp"] = wa
+				ch.AllowFrom = allowList(in, cmd)
 			default:
 				cmd.Println("Unknown channel; pick one of telegram/discord/slack/github/whatsapp.")
 				continue
 			}
+			settings.Channels[choice] = ch
 
 			if len(secrets) > 0 {
 				if err := authflow.SetGlobalEnv(secrets); err != nil {

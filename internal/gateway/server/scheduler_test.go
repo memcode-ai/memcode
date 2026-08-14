@@ -89,12 +89,18 @@ func TestFireScheduleUnknownChannelDropped(t *testing.T) {
 }
 
 func TestConversationSessionStable(t *testing.T) {
-	a := conversationSession("telegram", "42")
-	if a != conversationSession("telegram", "42") {
+	a := conversationSession("telegram", "42", "")
+	if a != conversationSession("telegram", "42", "") {
 		t.Error("session id must be deterministic for a conversation")
 	}
-	if a == conversationSession("telegram", "43") || a == conversationSession("discord", "42") {
+	if a == conversationSession("telegram", "43", "") || a == conversationSession("discord", "42", "") {
 		t.Error("distinct conversations must get distinct session ids")
+	}
+	if a == conversationSession("telegram", "42", "coder") {
+		t.Error("a persona must get its own session, not the default persona's transcript")
+	}
+	if conversationSession("telegram", "42", "coder") != conversationSession("telegram", "42", "coder") {
+		t.Error("a persona's session id must be deterministic")
 	}
 	if len(a) < 6 || a[:5] != "sess_" {
 		t.Errorf("session id must match the sess_ shape, got %q", a)
