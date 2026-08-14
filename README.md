@@ -38,7 +38,7 @@ Run `memcode` in a repo and you get a full terminal coding agent.
 
 **A terminal UI that keeps up.** Multiline editing, slash-command autocomplete, streaming output, interrupt and redirect mid-turn, themes, and a live context meter.
 
-**Everything you'd expect.** MCP servers, Agent Skills, hooks, code navigation and diagnostics, vision and PDF input, and instructions from `MEMCODE.md`, `AGENTS.md`, or `CLAUDE.md`. Updates itself in the background; `MEMCODE_AUTO_UPDATE=off` keeps it manual.
+**Everything you'd expect.** MCP servers, Agent Skills, hooks, code navigation and diagnostics, vision and PDF input, instructions from `MEMCODE.md`, `AGENTS.md`, or `CLAUDE.md`, and automatic updates.
 
 ## Agents
 
@@ -81,7 +81,7 @@ MEMCODE_ENDPOINT_URL=https://api.openai.com/v1 memcode      # your OpenAI key (O
 MEMCODE_ENDPOINT_URL=https://api.anthropic.com memcode      # your Anthropic key (ANTHROPIC_API_KEY)
 ```
 
-`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `XAI_API_KEY`, `FIREWORKS_API_KEY`, and friends are picked up automatically for their hosts. Named endpoints live in config, and `/model` switches models mid-session.
+Your provider API keys are picked up automatically from the standard environment variables.
 
 With a memcode account you get one balance across every vendor, a key vault for BYOK, and hosted web search:
 
