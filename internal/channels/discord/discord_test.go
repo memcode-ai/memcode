@@ -1,6 +1,7 @@
 package discord
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/bwmarrin/discordgo"
@@ -47,7 +48,7 @@ func TestToInbound(t *testing.T) {
 				return
 			}
 			want := channels.Inbound{Channel: "discord", Conversation: tt.wantConvo, Principal: tt.wantPrincipal, Text: tt.wantText, MessageID: "m1"}
-			if got != want {
+			if !reflect.DeepEqual(got, want) {
 				t.Errorf("got %+v, want %+v", got, want)
 			}
 		})

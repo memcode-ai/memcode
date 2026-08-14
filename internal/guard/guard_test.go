@@ -86,8 +86,12 @@ var vendorSDKs = map[string]string{
 	"github.com/openai/openai-go":            modulePrefix + "/internal/providers/openai",
 	"github.com/anthropics/anthropic-sdk-go": modulePrefix + "/internal/providers/anthropic",
 	"google.golang.org/genai":                modulePrefix + "/internal/providers/gemini",
+	"github.com/emersion/go-imap":            modulePrefix + "/internal/channels/email",
 	"github.com/bwmarrin/discordgo":          modulePrefix + "/internal/channels/discord",
 	"github.com/slack-go/slack":              modulePrefix + "/internal/channels/slack",
+	"github.com/golang-jwt/jwt":              modulePrefix + "/internal/webjwt",
+	"github.com/gorilla/websocket":           modulePrefix + "/internal/channels/mattermost",
+	"golang.org/x/oauth2":                    modulePrefix + "/internal/triggers/googlechat",
 }
 
 func directImports(t *testing.T, pkg string) []string {

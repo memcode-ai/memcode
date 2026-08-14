@@ -9,7 +9,10 @@ package discord
 
 import (
 	"context"
+	"net/http"
+	"os"
 	"strings"
+	"time"
 
 	"github.com/bwmarrin/discordgo"
 
@@ -22,18 +25,22 @@ const discordMaxMessage = 2000
 
 // Channel is a Discord bot connection.
 type Channel struct {
-	session *discordgo.Session
+	session  *discordgo.Session
+	mediaDir string // media spool; "" disables attachment downloads
+	dl       *http.Client
 }
 
 // New builds a Discord channel for the given bot token. It requests the message
 // intents (Message Content is privileged — the user must enable it on the bot).
-func New(token string) (*Channel, error) {
+// mediaDir is the gateway media spool attachments are downloaded into; ""
+// disables attachment handling.
+func New(token, mediaDir string) (*Channel, error) {
 	s, err := discordgo.New("Bot " + token)
 	if err != nil {
 		return nil, err
 	}
 	s.Identify.Intents = discordgo.IntentsGuildMessages | discordgo.IntentsDirectMessages | discordgo.IntentMessageContent
-	return &Channel{session: s}, nil
+	return &Channel{session: s, mediaDir: mediaDir, dl: &http.Client{Timeout: 30 * time.Second}}, nil
 }
 
 // Name returns the adapter identifier.
@@ -52,6 +59,7 @@ func (c *Channel) Start(ctx context.Context, sink channels.Sink) error {
 		if !ok {
 			return
 		}
+		inb.Attachments = c.download(ctx, m.Attachments)
 		// The Discord gateway has no per-message replay, so a Deliver failure can't
 		// be retried — the durable record is best-effort here.
 		_ = sink.Deliver(ctx, inb)
@@ -77,7 +85,7 @@ func toInbound(m *discordgo.MessageCreate, selfID string) (channels.Inbound, boo
 	if m.Author.ID == selfID || m.Author.Bot {
 		return channels.Inbound{}, false
 	}
-	if strings.TrimSpace(m.Content) == "" {
+	if strings.TrimSpace(m.Content) == "" && len(m.Attachments) == 0 {
 		return channels.Inbound{}, false
 	}
 	// A message with no guild is a DM. In a guild the bot only acts when addressed:
@@ -107,9 +115,49 @@ func toInbound(m *discordgo.MessageCreate, selfID string) (channels.Inbound, boo
 	}, true
 }
 
+// download fetches message attachments (CDN URLs) into the media spool,
+// best-effort: a failed download drops that attachment, the message still flows.
+func (c *Channel) download(ctx context.Context, atts []*discordgo.MessageAttachment) []channels.Attachment {
+	if c.mediaDir == "" || len(atts) == 0 {
+		return nil
+	}
+	var out []channels.Attachment
+	for _, a := range atts {
+		if a == nil || a.URL == "" {
+			continue
+		}
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, a.URL, nil)
+		if err != nil {
+			continue
+		}
+		resp, err := c.dl.Do(req)
+		if err != nil {
+			continue
+		}
+		if resp.StatusCode/100 != 2 {
+			resp.Body.Close()
+			continue
+		}
+		att, err := channels.SaveToSpool(c.mediaDir, resp.Body, a.ContentType, a.Filename)
+		resp.Body.Close()
+		if err != nil {
+			continue
+		}
+		out = append(out, att)
+	}
+	return out
+}
+
 // Send posts a reply to a channel, splitting it with the shared chunker to
-// respect Discord's per-message length limit.
+// respect Discord's per-message length limit. A synthesized voice rendition
+// (VoicePath) is uploaded first as a file, best-effort — the text always follows.
 func (c *Channel) Send(ctx context.Context, conversation string, msg channels.Outbound) error {
+	if msg.VoicePath != "" {
+		if f, err := os.Open(msg.VoicePath); err == nil {
+			_, _ = c.session.ChannelFileSend(conversation, "voice-reply.ogg", f)
+			f.Close()
+		}
+	}
 	for _, part := range channels.Chunk(msg.Text, discordMaxMessage) {
 		if err := ctx.Err(); err != nil {
 			return err

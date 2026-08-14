@@ -104,7 +104,7 @@ func TestReplyQueueDurability(t *testing.T) {
 
 	// Job finished: pending → replied, reply held. It leaves the fresh-job queue
 	// but joins the outbound queue, so a delivery failure never re-runs the job.
-	if err := s.SetReplied(ctx, "telegram", "1", "the answer"); err != nil {
+	if err := s.SetReplied(ctx, "telegram", "1", "the answer", ""); err != nil {
 		t.Fatal(err)
 	}
 	if p, _ := s.Pending(ctx); len(p) != 0 {
@@ -135,7 +135,7 @@ func TestReplySurvivesReopen(t *testing.T) {
 		t.Fatal(err)
 	}
 	s.Accept(ctx, item("telegram", "1"), time.Unix(1000, 0))
-	s.SetReplied(ctx, "telegram", "1", "durable answer")
+	s.SetReplied(ctx, "telegram", "1", "durable answer", "vv.ogg")
 	s.Close() // simulate a crash before the reply was delivered
 
 	s2, err := Open(ctx, dir)
@@ -232,5 +232,27 @@ func TestOffsetRoundTrip(t *testing.T) {
 	s.SetOffset(ctx, "telegram", 99999)
 	if v, _ := s.Offset(ctx, "telegram"); v != 99999 {
 		t.Errorf("offset after upsert = %d, want 99999", v)
+	}
+}
+
+// Attachments (media spool IDs) ride the durable inbox row as JSON.
+func TestItemAttachmentsRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	gw, err := Open(ctx, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer gw.Close()
+	it := Item{Channel: "telegram", MessageID: "m1", Conversation: "c", Principal: "p", Text: "look",
+		Attachments: []string{"abc.png", "def.ogg"}}
+	if _, err := gw.Accept(ctx, it, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	got, err := gw.Pending(ctx)
+	if err != nil || len(got) != 1 {
+		t.Fatalf("pending: %v %d", err, len(got))
+	}
+	if len(got[0].Attachments) != 2 || got[0].Attachments[0] != "abc.png" || got[0].Attachments[1] != "def.ogg" {
+		t.Errorf("attachments = %+v", got[0].Attachments)
 	}
 }

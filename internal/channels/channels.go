@@ -33,11 +33,42 @@ type Inbound struct {
 	// replied-to — so a group message meant for it triggers even without
 	// respond_to_all. Detected structurally by each adapter, never by substring.
 	Mentioned bool
+	// Attachments are media the sender included, already downloaded into the
+	// gateway's media spool by the adapter (see SaveToSpool). The spool is the
+	// trust boundary: downstream code addresses an attachment by its spool ID,
+	// never by an arbitrary path.
+	Attachments []Attachment
 }
+
+// Attachment kinds — a coarse content class, mapped by MIME type.
+const (
+	KindImage = "image"
+	KindAudio = "audio"
+	KindPDF   = "pdf"
+	KindFile  = "file"
+)
+
+// Attachment is one piece of inbound media, stored in the gateway media spool.
+type Attachment struct {
+	Path string // absolute path inside the media spool
+	Kind string // image | audio | pdf | file
+	Mime string // as reported by the platform (best-effort)
+	Name string // original filename, display only
+}
+
+// ID returns the attachment's spool ID — the bare spool filename. IDs, not
+// paths, are what cross process boundaries (durable inbox, job context); the
+// consumer re-resolves an ID strictly inside the spool directory.
+func (a Attachment) ID() string { return filepathBase(a.Path) }
 
 // Outbound is a reply to post back to a conversation.
 type Outbound struct {
 	Text string
+	// VoicePath optionally points at a synthesized speech rendition of Text
+	// (OGG/Opus in the media spool). Adapters that can send voice notes send it
+	// alongside/instead of the text; adapters that can't simply ignore it — Text
+	// is always present as the fallback.
+	VoicePath string
 }
 
 // Sink receives inbound messages from an adapter. Deliver applies the gateway's

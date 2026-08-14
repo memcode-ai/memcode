@@ -33,6 +33,36 @@ const (
 	EnvWhatsAppToken  = "WHATSAPP_ACCESS_TOKEN"
 	EnvWhatsAppVerify = "WHATSAPP_VERIFY_TOKEN"
 	EnvWhatsAppSecret = "WHATSAPP_APP_SECRET" // Meta app secret — signs inbound POSTs
+	// Email: a DEDICATED mailbox the agent answers (app password for Gmail/
+	// Outlook), never your personal inbox. Hosts may carry :port (defaults
+	// 993 IMAP-SSL / 587 SMTP-STARTTLS).
+	EnvEmailAddress  = "EMAIL_ADDRESS"
+	EnvEmailPassword = "EMAIL_PASSWORD"
+	EnvEmailIMAPHost = "EMAIL_IMAP_HOST"
+	EnvEmailSMTPHost = "EMAIL_SMTP_HOST"
+	// Signal: a signal-cli daemon in native HTTP mode owns the account (linked
+	// device via `signal-cli link`; use a dedicated number). The URL points at
+	// that daemon; the number is our own account (loop prevention).
+	EnvSignalNumber = "SIGNAL_NUMBER"
+	EnvSignalCLIURL = "SIGNAL_CLI_URL" // optional; default http://127.0.0.1:8080
+	// Matrix: any homeserver, access-token login. Plain rooms only (no E2EE).
+	EnvMatrixHomeserver = "MATRIX_HOMESERVER"
+	EnvMatrixToken      = "MATRIX_ACCESS_TOKEN"
+	// Mattermost: self-hosted server URL + a bot (or personal) access token.
+	EnvMattermostURL   = "MATTERMOST_URL"
+	EnvMattermostToken = "MATTERMOST_TOKEN"
+	// SMS via Twilio. The webhook URL (signature input) is non-secret config:
+	// channels.sms.webhook_url in gateway.yaml.
+	EnvTwilioAccountSID = "TWILIO_ACCOUNT_SID"
+	EnvTwilioAuthToken  = "TWILIO_AUTH_TOKEN"
+	EnvTwilioFromNumber = "TWILIO_FROM_NUMBER"
+	// Microsoft Teams (Bot Framework / Azure bot registration).
+	EnvTeamsAppID       = "TEAMS_APP_ID"
+	EnvTeamsAppPassword = "TEAMS_APP_PASSWORD"
+	EnvTeamsTenantID    = "TEAMS_TENANT_ID"
+	// Google Chat: path to the app's service-account JSON key. The verification
+	// audience (project number) is non-secret: channels.googlechat.audience.
+	EnvGoogleChatSAKey = "GOOGLE_CHAT_SA_KEY"
 )
 
 // Settings is the NON-secret gateway configuration (gateway.yaml). A channel's
@@ -187,6 +217,22 @@ type Channel struct {
 	// until the Meta business is verified and the operator flips this to true —
 	// verification is an external account state the gateway can't detect.
 	Active bool `yaml:"active,omitempty"`
+	// Poll (email) is the mailbox poll cadence as a Go duration ("15s", "1m").
+	// Empty uses the adapter default.
+	Poll string `yaml:"poll,omitempty"`
+	// WebhookURL (sms) is the EXACT public URL Twilio posts to — the signature
+	// input, which a proxied server can't reliably reconstruct. Without it the
+	// SMS webhook rejects everything (fail closed).
+	WebhookURL string `yaml:"webhook_url,omitempty"`
+	// Audience (googlechat) is the app's project number — the JWT audience
+	// inbound Chat events are verified against.
+	Audience string `yaml:"audience,omitempty"`
+	// VoiceReplies controls synthesized speech replies on channels that can
+	// carry voice notes (Telegram, WhatsApp, Signal, Discord, Matrix):
+	// "off" (default — voice output costs money and speaks replies aloud, so
+	// it is a deliberate opt-in), "in_kind" (a voice note in gets a voice
+	// reply out), or "always". The full text reply is always sent too.
+	VoiceReplies string `yaml:"voice_replies,omitempty"`
 }
 
 // Get returns the settings for a channel (a zero Channel if unset), so callers
@@ -266,6 +312,19 @@ func ContextPath(session string) (string, error) {
 	return filepath.Join(dir, "context", session+".json"), nil
 }
 
+// MediaDir is the gateway's media spool: downloaded inbound attachments and
+// synthesized voice replies, content-addressed (<sha256>.<ext>). Gateway-owned
+// and global like the rest of the operational state; pruned with the inbox.
+// The spool is the TRUST BOUNDARY for job media: jobs receive spool IDs, never
+// paths, and resolve them only inside this directory.
+func MediaDir() (string, error) {
+	dir, err := Dir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "media"), nil
+}
+
 // PersonaHome is a persona's state directory: ~/.memcode/agents/<id>, holding its
 // own memory.md, MEMCODE.md, and skills. Distinct from the project (the cwd) and
 // from user-global ~/.memcode (shared by all personas).
@@ -332,6 +391,28 @@ func EnabledChannels() []string {
 	}
 	if os.Getenv(EnvWhatsAppToken) != "" {
 		names = append(names, "whatsapp")
+	}
+	if os.Getenv(EnvEmailAddress) != "" && os.Getenv(EnvEmailPassword) != "" &&
+		os.Getenv(EnvEmailIMAPHost) != "" && os.Getenv(EnvEmailSMTPHost) != "" {
+		names = append(names, "email")
+	}
+	if os.Getenv(EnvSignalNumber) != "" {
+		names = append(names, "signal")
+	}
+	if os.Getenv(EnvMatrixHomeserver) != "" && os.Getenv(EnvMatrixToken) != "" {
+		names = append(names, "matrix")
+	}
+	if os.Getenv(EnvMattermostURL) != "" && os.Getenv(EnvMattermostToken) != "" {
+		names = append(names, "mattermost")
+	}
+	if os.Getenv(EnvTwilioAccountSID) != "" && os.Getenv(EnvTwilioAuthToken) != "" && os.Getenv(EnvTwilioFromNumber) != "" {
+		names = append(names, "sms")
+	}
+	if os.Getenv(EnvTeamsAppID) != "" && os.Getenv(EnvTeamsAppPassword) != "" && os.Getenv(EnvTeamsTenantID) != "" {
+		names = append(names, "msteams")
+	}
+	if os.Getenv(EnvGoogleChatSAKey) != "" {
+		names = append(names, "googlechat")
 	}
 	return names
 }

@@ -99,7 +99,7 @@ var gatewaySetupCmd = &cobra.Command{
 			} else {
 				cmd.Printf("Configured: %s\n", strings.Join(enabled, ", "))
 			}
-			choice := strings.ToLower(strings.TrimSpace(prompt(in, cmd, "Channel to add/update [telegram/discord/slack/github/whatsapp] (blank to finish): ")))
+			choice := strings.ToLower(strings.TrimSpace(prompt(in, cmd, "Channel to add/update [telegram/discord/slack/email/signal/matrix/mattermost/msteams/googlechat/sms/github/whatsapp] (blank to finish): ")))
 
 			secrets := map[string]string{}
 			if settings.Channels == nil {
@@ -136,8 +136,46 @@ var gatewaySetupCmd = &cobra.Command{
 				secrets[gwconfig.EnvWhatsAppVerify] = secret(cmd, "Webhook verify token: ")
 				secrets[gwconfig.EnvWhatsAppSecret] = secret(cmd, "App secret (verifies inbound; required to activate): ")
 				ch.AllowFrom = allowList(in, cmd)
+			case "email":
+				cmd.Println("Use a DEDICATED mailbox (an app password for Gmail/Outlook), never your personal inbox.")
+				secrets[gwconfig.EnvEmailAddress] = strings.TrimSpace(prompt(in, cmd, "Email address: "))
+				secrets[gwconfig.EnvEmailPassword] = secret(cmd, "App password: ")
+				secrets[gwconfig.EnvEmailIMAPHost] = strings.TrimSpace(prompt(in, cmd, "IMAP host (e.g. imap.gmail.com): "))
+				secrets[gwconfig.EnvEmailSMTPHost] = strings.TrimSpace(prompt(in, cmd, "SMTP host (e.g. smtp.gmail.com): "))
+				ch.AllowFrom = allowList(in, cmd)
+			case "signal":
+				cmd.Println("Requires a running signal-cli daemon in HTTP mode (see the docs); use a dedicated number.")
+				secrets[gwconfig.EnvSignalNumber] = strings.TrimSpace(prompt(in, cmd, "Your Signal number (+E.164): "))
+				if u := strings.TrimSpace(prompt(in, cmd, "signal-cli daemon URL (blank = http://127.0.0.1:8080): ")); u != "" {
+					secrets[gwconfig.EnvSignalCLIURL] = u
+				}
+				ch.AllowFrom = allowList(in, cmd)
+			case "matrix":
+				cmd.Println("Plain rooms only for now (no end-to-end-encrypted rooms).")
+				secrets[gwconfig.EnvMatrixHomeserver] = strings.TrimSpace(prompt(in, cmd, "Homeserver URL (e.g. https://matrix.org): "))
+				secrets[gwconfig.EnvMatrixToken] = secret(cmd, "Access token: ")
+				ch.AllowFrom = allowList(in, cmd)
+			case "mattermost":
+				secrets[gwconfig.EnvMattermostURL] = strings.TrimSpace(prompt(in, cmd, "Server URL (e.g. https://mm.example.com): "))
+				secrets[gwconfig.EnvMattermostToken] = secret(cmd, "Bot access token: ")
+				ch.AllowFrom = allowList(in, cmd)
+			case "msteams":
+				secrets[gwconfig.EnvTeamsAppID] = strings.TrimSpace(prompt(in, cmd, "Azure app (bot) ID: "))
+				secrets[gwconfig.EnvTeamsAppPassword] = secret(cmd, "Client secret: ")
+				secrets[gwconfig.EnvTeamsTenantID] = strings.TrimSpace(prompt(in, cmd, "Tenant ID: "))
+				ch.AllowFrom = allowList(in, cmd)
+			case "googlechat":
+				secrets[gwconfig.EnvGoogleChatSAKey] = strings.TrimSpace(prompt(in, cmd, "Path to the service-account JSON key: "))
+				ch.Audience = strings.TrimSpace(prompt(in, cmd, "Project number (JWT audience): "))
+				ch.AllowFrom = allowList(in, cmd)
+			case "sms":
+				secrets[gwconfig.EnvTwilioAccountSID] = strings.TrimSpace(prompt(in, cmd, "Twilio Account SID: "))
+				secrets[gwconfig.EnvTwilioAuthToken] = secret(cmd, "Auth token: ")
+				secrets[gwconfig.EnvTwilioFromNumber] = strings.TrimSpace(prompt(in, cmd, "Your Twilio number (+E.164): "))
+				ch.WebhookURL = strings.TrimSpace(prompt(in, cmd, "Exact public webhook URL (e.g. https://gw.example.com/webhook/sms): "))
+				ch.AllowFrom = allowList(in, cmd)
 			default:
-				cmd.Println("Unknown channel; pick one of telegram/discord/slack/github/whatsapp.")
+				cmd.Println("Unknown channel; pick one of telegram/discord/slack/email/signal/matrix/mattermost/msteams/googlechat/sms/github/whatsapp.")
 				continue
 			}
 			settings.Channels[choice] = ch

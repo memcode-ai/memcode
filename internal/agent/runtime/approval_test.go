@@ -83,12 +83,31 @@ func TestGateCommandStructuredOutcomes(t *testing.T) {
 		t.Fatalf("allow-with-edit: ok=%v cmd=%q", ok, cmd)
 	}
 
-	// Interrupt → denied and the turn is marked interrupted.
+	// Interrupt → denied and the turn is marked interrupted (STOP).
 	s = newTodoSession(t)
 	s.approve = func(context.Context, ApprovalRequest) ApprovalDecision { return ApprovalDecision{Interrupt: true} }
 	ok, _, _ = s.gateCommand(ctx, permissions.Medium, false, "go build", "")
 	if ok || !s.turn.interrupted {
 		t.Fatalf("interrupt: ok=%v interrupted=%v", ok, s.turn.interrupted)
+	}
+
+	// Redirect ("No, and tell me what to do differently" + feedback) → denied,
+	// the feedback propagates as the reason, and the turn is marked REDIRECTED
+	// (skip siblings) but NOT interrupted — so the loop continues and the model
+	// reads the feedback instead of the turn terminating.
+	s = newTodoSession(t)
+	s.approve = func(context.Context, ApprovalRequest) ApprovalDecision {
+		return ApprovalDecision{Redirect: true, Reason: "use the staging config instead"}
+	}
+	ok, _, reason = s.gateCommand(ctx, permissions.Medium, false, "go build", "")
+	if ok || reason != "use the staging config instead" {
+		t.Fatalf("redirect: ok=%v reason=%q", ok, reason)
+	}
+	if s.turn.interrupted {
+		t.Fatal("redirect must NOT interrupt the turn")
+	}
+	if !s.turn.redirected {
+		t.Fatal("redirect must mark the turn redirected (skip siblings, continue)")
 	}
 }
 

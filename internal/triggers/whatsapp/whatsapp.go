@@ -18,7 +18,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
+	"net/textproto"
+	"os"
 	"strings"
 	"time"
 
@@ -32,6 +35,9 @@ const defaultBase = "https://graph.facebook.com"
 
 const maxBody = 2 << 20 // 2 MiB
 
+// whatsappMaxMessage caps one outbound text; WhatsApp rejects bodies past 4096.
+const whatsappMaxMessage = 4096
+
 // Channel is a WhatsApp Cloud API connection.
 type Channel struct {
 	phoneNumberID string
@@ -40,12 +46,16 @@ type Channel struct {
 	appSecret     string // Meta app secret; verifies inbound POST signatures
 	base          string // Graph API base; overridable in tests
 	client        *http.Client
+	dl            *http.Client // SSRF-guarded client for media downloads
+	mediaDir      string       // media spool; "" disables inbound media downloads
 }
 
 // New builds a WhatsApp channel from the phone number id and its tokens. appSecret
 // is the Meta app secret used to verify inbound message signatures; it must be
-// non-empty for the handler to accept POSTed messages.
-func New(phoneNumberID, accessToken, verifyToken, appSecret string) *Channel {
+// non-empty for the handler to accept POSTed messages. mediaDir is the gateway
+// media spool inbound images/voice notes/documents are downloaded into; ""
+// disables media handling (text messages still flow).
+func New(phoneNumberID, accessToken, verifyToken, appSecret, mediaDir string) *Channel {
 	return &Channel{
 		phoneNumberID: phoneNumberID,
 		accessToken:   accessToken,
@@ -53,6 +63,8 @@ func New(phoneNumberID, accessToken, verifyToken, appSecret string) *Channel {
 		appSecret:     appSecret,
 		base:          defaultBase,
 		client:        &http.Client{Timeout: 30 * time.Second},
+		dl:            channels.SafeHTTPClient(30 * time.Second), // media fetches: SSRF-guarded
+		mediaDir:      mediaDir,
 	}
 }
 
@@ -85,7 +97,9 @@ func (c *Channel) Handler(sink channels.Sink) http.Handler {
 				http.Error(w, "bad signature", http.StatusUnauthorized)
 				return
 			}
-			for _, inb := range toInbounds(body) {
+			for _, pm := range toInbounds(body) {
+				inb := pm.inb
+				inb.Attachments = c.download(r.Context(), pm.media)
 				if err := sink.Deliver(r.Context(), inb); err != nil {
 					w.WriteHeader(http.StatusServiceUnavailable) // not recorded — Meta retries
 					return
@@ -132,6 +146,15 @@ func verifyChallenge(q map[string][]string, verifyToken string) (string, bool) {
 	return get("hub.challenge"), true
 }
 
+// waMedia references one piece of media on a message (resolved via the Graph
+// media endpoint at download time).
+type waMedia struct {
+	ID       string `json:"id"`
+	MimeType string `json:"mime_type"`
+	Filename string `json:"filename"`
+	Caption  string `json:"caption"`
+}
+
 // inboundPayload is the subset of a WhatsApp webhook payload we read.
 type inboundPayload struct {
 	Entry []struct {
@@ -144,33 +167,59 @@ type inboundPayload struct {
 					Text struct {
 						Body string `json:"body"`
 					} `json:"text"`
+					Image    *waMedia `json:"image"`
+					Audio    *waMedia `json:"audio"`
+					Document *waMedia `json:"document"`
 				} `json:"messages"`
 			} `json:"value"`
 		} `json:"changes"`
 	} `json:"entry"`
 }
 
-// toInbounds extracts each text message from a webhook payload as an Inbound.
-// Non-text messages (status updates, media, etc.) are skipped.
-func toInbounds(body []byte) []channels.Inbound {
+// parsedMessage pairs a normalized Inbound with the media it references; the
+// caller downloads the media (needs the access token) before delivering.
+type parsedMessage struct {
+	inb   channels.Inbound
+	media []waMedia
+}
+
+// toInbounds extracts each text/image/audio/document message from a webhook
+// payload. Status updates and unsupported types are skipped.
+func toInbounds(body []byte) []parsedMessage {
 	var p inboundPayload
 	if err := json.Unmarshal(body, &p); err != nil {
 		return nil
 	}
-	var out []channels.Inbound
+	var out []parsedMessage
 	for _, e := range p.Entry {
 		for _, ch := range e.Changes {
 			for _, m := range ch.Value.Messages {
-				if m.Type != "text" || m.From == "" || m.Text.Body == "" {
+				if m.From == "" {
 					continue
 				}
-				out = append(out, channels.Inbound{
-					Channel:      "whatsapp",
-					Conversation: m.From,
-					Principal:    m.From,
-					Text:         m.Text.Body,
-					MessageID:    m.ID,
-					IsDirect:     true, // WhatsApp Cloud messages are 1:1 with the sender
+				text := m.Text.Body
+				var media []waMedia
+				for _, w := range []*waMedia{m.Image, m.Audio, m.Document} {
+					if w != nil && w.ID != "" {
+						media = append(media, *w)
+						if text == "" {
+							text = w.Caption // media caption is the task text
+						}
+					}
+				}
+				if text == "" && len(media) == 0 {
+					continue
+				}
+				out = append(out, parsedMessage{
+					inb: channels.Inbound{
+						Channel:      "whatsapp",
+						Conversation: m.From,
+						Principal:    m.From,
+						Text:         text,
+						MessageID:    m.ID,
+						IsDirect:     true, // WhatsApp Cloud messages are 1:1 with the sender
+					},
+					media: media,
 				})
 			}
 		}
@@ -178,13 +227,156 @@ func toInbounds(body []byte) []channels.Inbound {
 	return out
 }
 
-// Send posts a text reply to a conversation (the recipient's phone number).
+// download fetches referenced media into the spool: GET /<media-id> resolves a
+// short-lived URL, then the bytes are fetched with the same bearer. Best-effort —
+// a failed download drops that attachment, the message still flows.
+func (c *Channel) download(ctx context.Context, media []waMedia) []channels.Attachment {
+	if c.mediaDir == "" || len(media) == 0 {
+		return nil
+	}
+	var out []channels.Attachment
+	for _, m := range media {
+		att, err := c.downloadOne(ctx, m)
+		if err != nil {
+			continue
+		}
+		out = append(out, att)
+	}
+	return out
+}
+
+func (c *Channel) downloadOne(ctx context.Context, m waMedia) (channels.Attachment, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%s/%s/%s", c.base, graphVersion, m.ID), nil)
+	if err != nil {
+		return channels.Attachment{}, err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.accessToken)
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return channels.Attachment{}, err
+	}
+	defer resp.Body.Close()
+	var meta struct {
+		URL string `json:"url"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&meta); err != nil || meta.URL == "" {
+		return channels.Attachment{}, fmt.Errorf("whatsapp media lookup failed")
+	}
+	dreq, err := http.NewRequestWithContext(ctx, http.MethodGet, meta.URL, nil)
+	if err != nil {
+		return channels.Attachment{}, err
+	}
+	dreq.Header.Set("Authorization", "Bearer "+c.accessToken)
+	dresp, err := c.dl.Do(dreq) // SSRF-guarded: the media URL is Graph-returned but fetched defensively
+	if err != nil {
+		return channels.Attachment{}, err
+	}
+	defer dresp.Body.Close()
+	if dresp.StatusCode/100 != 2 {
+		return channels.Attachment{}, fmt.Errorf("whatsapp media download: status %d", dresp.StatusCode)
+	}
+	name := m.Filename
+	if name == "" {
+		name = "media"
+	}
+	return channels.SaveToSpool(c.mediaDir, dresp.Body, m.MimeType, name)
+}
+
+// Send posts a text reply to a conversation (the recipient's phone number),
+// split with the shared chunker — WhatsApp rejects over-long bodies, and this
+// was the one adapter bypassing the shared splitter. A synthesized voice
+// rendition (VoicePath) is uploaded and sent first as an audio message,
+// best-effort — the text always follows.
 func (c *Channel) Send(ctx context.Context, conversation string, msg channels.Outbound) error {
+	if msg.VoicePath != "" {
+		_ = c.sendVoice(ctx, conversation, msg.VoicePath) // best-effort; text is the reply of record
+	}
+	for _, part := range channels.Chunk(msg.Text, whatsappMaxMessage) {
+		if err := c.sendOne(ctx, conversation, part); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// sendVoice uploads an OGG/Opus file to the media endpoint and sends it as an
+// audio message.
+func (c *Channel) sendVoice(ctx context.Context, conversation, path string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	if err := mw.WriteField("messaging_product", "whatsapp"); err != nil {
+		return err
+	}
+	h := textproto.MIMEHeader{}
+	h.Set("Content-Disposition", `form-data; name="file"; filename="voice.ogg"`)
+	h.Set("Content-Type", "audio/ogg")
+	fw, err := mw.CreatePart(h)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(fw, f); err != nil {
+		return err
+	}
+	if err := mw.Close(); err != nil {
+		return err
+	}
+	upload := fmt.Sprintf("%s/%s/%s/media", c.base, graphVersion, c.phoneNumberID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, upload, &body)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.accessToken)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	var out struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil || out.ID == "" {
+		return fmt.Errorf("whatsapp media upload failed")
+	}
+	payload := map[string]any{
+		"messaging_product": "whatsapp",
+		"to":                conversation,
+		"type":              "audio",
+		"audio":             map[string]string{"id": out.ID},
+	}
+	pb, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	send := fmt.Sprintf("%s/%s/%s/messages", c.base, graphVersion, c.phoneNumberID)
+	sreq, err := http.NewRequestWithContext(ctx, http.MethodPost, send, bytes.NewReader(pb))
+	if err != nil {
+		return err
+	}
+	sreq.Header.Set("Authorization", "Bearer "+c.accessToken)
+	sreq.Header.Set("Content-Type", "application/json")
+	sresp, err := c.client.Do(sreq)
+	if err != nil {
+		return err
+	}
+	defer sresp.Body.Close()
+	if sresp.StatusCode/100 != 2 {
+		return fmt.Errorf("whatsapp audio send: status %d", sresp.StatusCode)
+	}
+	return nil
+}
+
+func (c *Channel) sendOne(ctx context.Context, conversation, text string) error {
 	payload := map[string]any{
 		"messaging_product": "whatsapp",
 		"to":                conversation,
 		"type":              "text",
-		"text":              map[string]string{"body": msg.Text},
+		"text":              map[string]string{"body": text},
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {

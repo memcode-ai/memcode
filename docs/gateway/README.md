@@ -2,8 +2,9 @@
 
 The same `memcode` binary that runs the interactive agent can run as a
 long-lived, self-hosted **gateway**: it listens on the surfaces people already
-use (Telegram, Discord, Slack, GitHub, WhatsApp), turns each inbound message
-into an agent job, and posts the result back. Coding is one use of this loop,
+use (Telegram, Discord, Slack, Email, Signal, Matrix, Mattermost, Microsoft
+Teams, Google Chat, SMS, GitHub, WhatsApp), turns each inbound message into an
+agent job, and posts the result back. Coding is one use of this loop,
 not what it's built around — an inbound message is just a task.
 
 ```
@@ -30,13 +31,31 @@ It routes each answer the way memcode splits configuration:
 
 A channel is enabled when its secret is present.
 
-| Channel  | Secret(s) in `.env`                                        | Transport         |
-|----------|------------------------------------------------------------|-------------------|
-| Telegram | `TELEGRAM_BOT_TOKEN`                                        | Bot API long-poll |
-| Discord  | `DISCORD_BOT_TOKEN`                                         | gateway websocket |
-| Slack    | `SLACK_APP_TOKEN`, `SLACK_BOT_TOKEN`                        | Socket Mode       |
-| GitHub   | `GITHUB_WEBHOOK_SECRET`                                     | inbound webhook   |
-| WhatsApp | `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_APP_SECRET` | Meta Cloud API |
+| Channel     | Secret(s) in `.env`                                        | Transport         |
+|-------------|------------------------------------------------------------|-------------------|
+| Telegram    | `TELEGRAM_BOT_TOKEN`                                        | Bot API long-poll |
+| Discord     | `DISCORD_BOT_TOKEN`                                         | gateway websocket |
+| Slack       | `SLACK_APP_TOKEN`, `SLACK_BOT_TOKEN`                        | Socket Mode       |
+| Email       | `EMAIL_ADDRESS`, `EMAIL_PASSWORD`, `EMAIL_IMAP_HOST`, `EMAIL_SMTP_HOST` | IMAP poll + SMTP |
+| Signal      | `SIGNAL_NUMBER` (+ optional `SIGNAL_CLI_URL`)               | signal-cli daemon (SSE + JSON-RPC) |
+| Matrix      | `MATRIX_HOMESERVER`, `MATRIX_ACCESS_TOKEN`                  | client-server /sync (no E2EE v1) |
+| Mattermost  | `MATTERMOST_URL`, `MATTERMOST_TOKEN`                        | websocket + REST v4 |
+| MS Teams    | `TEAMS_APP_ID`, `TEAMS_APP_PASSWORD`, `TEAMS_TENANT_ID`     | Bot Framework webhook |
+| Google Chat | `GOOGLE_CHAT_SA_KEY` (path) + `googlechat.audience`         | signed webhook + Chat REST |
+| SMS         | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER` + `sms.webhook_url` | Twilio webhook + Messages API |
+| GitHub      | `GITHUB_WEBHOOK_SECRET`                                     | inbound webhook   |
+| WhatsApp    | `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_APP_SECRET` | Meta Cloud API |
+
+Webhook-driven surfaces (Teams, Google Chat, SMS, GitHub, WhatsApp) mount on
+the shared listener (`webhook.addr`, default `:8787`) at
+`/webhook/{teams,googlechat,sms,github,whatsapp}` — expose it over HTTPS.
+Email dedup is keyed on `<mailbox>/<UIDVALIDITY>/<UID>` (the provider-side ack
+identity); Message-ID serves threading only. Email's sender identity is the
+RFC From address — weaker than the other channels' platform-verified ids, so
+its allow-list depends on your mailbox provider rejecting spoofed mail
+(SPF/DKIM/DMARC); use a mainstream provider and a dedicated account. Signal requires a signal-cli
+daemon in native HTTP mode; Matrix v1 is plain rooms only (E2EE is a known
+follow-up).
 
 ### gateway.yaml
 
@@ -135,6 +154,23 @@ The running gateway hot-reloads gateway.yaml's POLICY fields (allow-lists,
 projects, agents, channel knobs) on change, so an approval takes effect within
 seconds — no restart. Channel connections and schedules are wired at startup and
 do not hot-reload.
+
+## Media and voice
+
+Inbound attachments (photos, PDFs, documents) are downloaded into a
+content-addressed media spool (`~/.config/memcode/media`, pruned with the
+inbox) and ride the task into the engine as native image/document blocks.
+Everything downstream of the adapter addresses media by spool ID, never by
+path — the spool is the trust boundary.
+
+Voice notes are transcribed gateway-side (OpenAI `gpt-4o-mini-transcribe`
+falling back to `whisper-1`, or Gemini — picked by whichever key is present)
+and the transcript becomes the task text; audio never reaches the engine.
+Without either key a voice-only message gets an honest "not configured" reply.
+Optionally, `channels.<name>.voice_replies: in_kind|always` (default `off`)
+synthesizes an OGG/Opus voice reply (OpenAI `gpt-4o-mini-tts` — the full text
+is always sent alongside, code blocks are never spoken, synthesis failures
+degrade to text).
 
 ## Import from OpenClaw
 

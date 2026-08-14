@@ -16,6 +16,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -25,6 +26,11 @@ import (
 	"github.com/memcode-ai/memcode/internal/agent/permissions"
 	"github.com/memcode-ai/memcode/internal/channels"
 	"github.com/memcode-ai/memcode/internal/channels/discord"
+	"github.com/memcode-ai/memcode/internal/channels/email"
+	"github.com/memcode-ai/memcode/internal/channels/matrix"
+	"github.com/memcode-ai/memcode/internal/channels/mattermost"
+	"github.com/memcode-ai/memcode/internal/channels/msteams"
+	signalch "github.com/memcode-ai/memcode/internal/channels/signal"
 	"github.com/memcode-ai/memcode/internal/channels/slack"
 	"github.com/memcode-ai/memcode/internal/channels/telegram"
 	"github.com/memcode-ai/memcode/internal/events"
@@ -33,6 +39,8 @@ import (
 	"github.com/memcode-ai/memcode/internal/jobs"
 	"github.com/memcode-ai/memcode/internal/store"
 	githubtrigger "github.com/memcode-ai/memcode/internal/triggers/github"
+	"github.com/memcode-ai/memcode/internal/triggers/googlechat"
+	"github.com/memcode-ai/memcode/internal/triggers/sms"
 	"github.com/memcode-ai/memcode/internal/triggers/whatsapp"
 )
 
@@ -63,6 +71,9 @@ type runtime struct {
 	mainStore store.Store // main .memcode event log; may be nil (events best-effort)
 	mu        sync.RWMutex
 	settings  gwconfig.Settings // guarded by mu; hot-reloaded from gateway.yaml (see maybeReload)
+	mediaDir  string            // the media spool (attachments in, synthesized voice out)
+	stt       transcriber       // speech-to-text for inbound voice notes; nil = not configured
+	tts       speaker           // text-to-speech for voice replies; nil = not configured
 	byName    map[string]replySender
 	disp      *dispatcher
 	out       io.Writer
@@ -99,18 +110,27 @@ func Run(ctx context.Context, root string, mainStore store.Store, settings gwcon
 
 	warnOpenSurfaces(settings, out)
 
+	mediaDir, err := gwconfig.MediaDir()
+	if err != nil {
+		return err
+	}
+	pruneSpool(mediaDir, time.Now().Add(-30*24*time.Hour)) // same retention as the inbox
+
 	rt := &runtime{
 		root:      root,
 		gw:        gw,
 		mainStore: mainStore,
 		settings:  settings,
+		mediaDir:  mediaDir,
+		stt:       newTranscriber(),
+		tts:       newSpeaker(),
 		byName:    make(map[string]replySender, 4),
 		disp:      newDispatcher(),
 		out:       out,
 		notify:    make(chan struct{}, 1),
 	}
 
-	chs := channelsFrom(settings, gw, out)
+	chs := channelsFrom(settings, gw, mediaDir, out)
 	for _, ch := range chs {
 		rt.byName[ch.Name()] = ch
 		ch := ch
@@ -292,10 +312,14 @@ func (r *runtime) Deliver(ctx context.Context, inb channels.Inbound) error {
 	// Snapshot the conversation's current persona + project at receipt, so a later
 	// /project changes only the NEXT task, never this queued one.
 	agent, project := r.resolveSelection(ctx, inb.Channel, inb.Conversation)
+	ids := make([]string, 0, len(inb.Attachments))
+	for _, a := range inb.Attachments {
+		ids = append(ids, a.ID()) // spool IDs only — paths never enter the durable row
+	}
 	fresh, err := r.gw.Accept(ctx, state.Item{
 		Channel: inb.Channel, MessageID: inb.MessageID, Conversation: inb.Conversation,
 		Principal: inb.Principal, Text: inb.Text, Trusted: inb.Trusted,
-		Agent: agent, Project: project,
+		Agent: agent, Project: project, Attachments: ids,
 	}, time.Now())
 	if err != nil {
 		return err // NOT durably recorded — adapter must not ack
@@ -395,45 +419,48 @@ func (r *runtime) runJob(ctx context.Context, it state.Item) {
 	cfg := settings.Get(it.Channel)
 	session := conversationSession(it.Channel, it.Conversation, it.Agent)
 	// Resolve the snapshotted project id to its canonical root. The registry plus
-	// the channel's project policy is the authorization boundary: an id that no
-	// longer resolves — or that the channel is no longer allowed to use — falls
-	// back to the gateway default rather than executing somewhere unauthorized.
+	// the channel's project policy is the authorization boundary, re-checked at
+	// EXECUTION, not only at snapshot: a task whose project was disallowed,
+	// disabled, or deleted while queued is REFUSED — never "helpfully" run in the
+	// gateway default root instead.
 	root := r.root
 	if it.Project != "" {
-		// The channel's project policy is re-checked at execution, not only at
-		// snapshot: if it tightened while this task was queued, refuse — never
-		// "helpfully" run the task somewhere the channel wasn't pointed.
 		if !settings.ProjectAllowed(it.Channel, it.Project) {
-			msg := fmt.Sprintf("Project %q is not allowed on this channel anymore; nothing was run.", it.Project)
-			if serr := r.gw.SetReplied(ctx, it.Channel, it.MessageID, msg); serr != nil {
-				fmt.Fprintf(r.out, "gateway: recording policy refusal for %s: %v\n", it.Channel, serr)
-				return
-			}
-			r.deliverReply(ctx, it, msg)
+			r.refuse(ctx, it, fmt.Sprintf("Project %q is not allowed on this channel anymore; nothing was run.", it.Project))
 			return
 		}
-		if resolved, rerr := settings.ResolveProject(it.Project); rerr == nil {
-			root = resolved
-		} else {
-			fmt.Fprintf(r.out, "gateway: project %q for %s no longer resolves (%v); using default\n", it.Project, it.Channel, rerr)
+		resolved, rerr := settings.ResolveProject(it.Project)
+		if rerr != nil {
+			r.refuse(ctx, it, fmt.Sprintf("Project %q is no longer available (%v); nothing was run.", it.Project, rerr))
+			return
 		}
+		root = resolved
 	}
-	// Compose the snapshotted persona's context + skill roots and persist it keyed
-	// by session; the spawned child self-discovers it (no jobs.Spawn signature
-	// change). No persona → empty envelope → the coding engine runs exactly as the CLI.
-	if err := writeContext(session, jobContextFor(it.Agent)); err != nil {
+	// Voice notes are transcribed HERE — after the durable record, before the
+	// spawn — so the transcript becomes task text and audio never reaches the
+	// engine. A voice note that can't be transcribed gets an honest reply, and a
+	// message that was ONLY untranscribable audio is refused rather than run as
+	// an empty task.
+	task, rest, sttMissing := r.transcribeAudio(ctx, it.Text, it.Attachments)
+	if strings.TrimSpace(task) == "" && sttMissing {
+		r.refuse(ctx, it, "Voice note received, but no transcription provider is configured. Set OPENAI_API_KEY or GEMINI_API_KEY on the gateway machine, or send text.")
+		return
+	}
+	it.Text = task
+	// Compose the snapshotted persona's context + skill roots + this message's
+	// media (as spool IDs) and persist it keyed by session; the spawned child
+	// self-discovers it (no jobs.Spawn signature change). No persona and no media
+	// → empty envelope → the coding engine runs exactly as the CLI.
+	jc := jobContextFor(it.Agent)
+	jc.Attachments = rest
+	if err := writeContext(session, jc); err != nil {
 		fmt.Fprintf(r.out, "gateway: composing context for %s: %v\n", it.Channel, err)
 	}
 	job, err := jobs.Spawn(root, it.Text, string(permissions.ModeAuto), cfg.Tier, false, true, session)
 	if err != nil {
 		// A spawn failure won't succeed on replay; record the error as the reply so
 		// it rides the same durable delivery path instead of being lost.
-		msg := "Couldn't start that: " + err.Error()
-		if serr := r.gw.SetReplied(ctx, it.Channel, it.MessageID, msg); serr != nil {
-			fmt.Fprintf(r.out, "gateway: recording spawn failure for %s: %v\n", it.Channel, serr)
-			return
-		}
-		r.deliverReply(ctx, it, msg)
+		r.refuse(ctx, it, "Couldn't start that: "+err.Error())
 		return
 	}
 	r.event(ctx, events.KindGatewayJobSpawned, eventPayload{Channel: it.Channel, Conversation: it.Conversation, PrincipalID: it.Principal, MessageID: it.MessageID, JobID: job.ID})
@@ -443,14 +470,31 @@ func (r *runtime) runJob(ctx context.Context, it state.Item) {
 	if strings.TrimSpace(reply) == "" {
 		reply = "Done."
 	}
+	// Synthesize any voice rendition ONCE, here — before the durable handoff — so
+	// a delivery retry or a restart re-sends the same spool file instead of
+	// re-billing TTS or losing the in_kind decision (the pending-replies replay
+	// carries the voice spool ID, not the attachment list).
+	voice := r.maybeSpeak(ctx, it, reply)
 	// Durable handoff: the job is finished and must never re-run, even if delivery
 	// below fails or the process crashes. From here the reply is the worker's to
 	// deliver. A rare DB write failure leaves the item pending and re-runs it.
-	if err := r.gw.SetReplied(ctx, it.Channel, it.MessageID, reply); err != nil {
+	if err := r.gw.SetReplied(ctx, it.Channel, it.MessageID, reply, voice); err != nil {
 		fmt.Fprintf(r.out, "gateway: recording reply for %s failed: %v\n", it.Channel, err)
 		return
 	}
+	it.Voice = voice
 	r.deliverReply(ctx, it, reply)
+}
+
+// refuse records msg as the task's durable reply (no job runs, no voice is
+// synthesized) and delivers it — the one shape every policy/config refusal uses.
+func (r *runtime) refuse(ctx context.Context, it state.Item, msg string) {
+	it.Voice = ""
+	if serr := r.gw.SetReplied(ctx, it.Channel, it.MessageID, msg, ""); serr != nil {
+		fmt.Fprintf(r.out, "gateway: recording refusal for %s: %v\n", it.Channel, serr)
+		return
+	}
+	r.deliverReply(ctx, it, msg)
 }
 
 // deliverReply sends a finished job's reply and, on success, marks the item done.
@@ -466,6 +510,14 @@ func (r *runtime) deliverReply(ctx context.Context, it state.Item, reply string)
 	if strings.TrimSpace(reply) == "" {
 		reply = "Done."
 	}
+	out := channels.Outbound{Text: reply}
+	// The voice rendition was synthesized once at job completion; delivery only
+	// resolves its spool ID (missing/pruned file → text only, never an error).
+	if it.Voice != "" {
+		if p, err := channels.ResolveSpoolID(r.mediaDir, it.Voice); err == nil {
+			out.VoicePath = p
+		}
+	}
 	var sendErr error
 	for attempt := 0; attempt < 3; attempt++ {
 		if attempt > 0 {
@@ -475,7 +527,7 @@ func (r *runtime) deliverReply(ctx context.Context, it state.Item, reply string)
 			case <-time.After(time.Duration(attempt) * 500 * time.Millisecond):
 			}
 		}
-		if sendErr = ch.Send(ctx, it.Conversation, channels.Outbound{Text: reply}); sendErr == nil {
+		if sendErr = ch.Send(ctx, it.Conversation, out); sendErr == nil {
 			break
 		}
 	}
@@ -498,13 +550,13 @@ func (r *runtime) event(ctx context.Context, kind events.Kind, p eventPayload) {
 
 // channelsFrom builds a live channel for each one whose secret is present in the
 // environment. A channel whose constructor fails is logged and skipped.
-func channelsFrom(settings gwconfig.Settings, gw *state.Store, out io.Writer) []channels.Channel {
+func channelsFrom(settings gwconfig.Settings, gw *state.Store, mediaDir string, out io.Writer) []channels.Channel {
 	var chs []channels.Channel
 	if tok := strings.TrimSpace(os.Getenv(gwconfig.EnvTelegramToken)); tok != "" {
-		chs = append(chs, telegram.New(tok, gw))
+		chs = append(chs, telegram.New(tok, gw, mediaDir))
 	}
 	if tok := strings.TrimSpace(os.Getenv(gwconfig.EnvDiscordToken)); tok != "" {
-		if ch, err := discord.New(tok); err != nil {
+		if ch, err := discord.New(tok, mediaDir); err != nil {
 			fmt.Fprintf(out, "gateway: discord disabled: %v\n", err)
 		} else {
 			chs = append(chs, ch)
@@ -515,7 +567,46 @@ func channelsFrom(settings gwconfig.Settings, gw *state.Store, out io.Writer) []
 	if app != "" && bot != "" {
 		chs = append(chs, slack.New(app, bot))
 	}
+	addr := strings.TrimSpace(os.Getenv(gwconfig.EnvEmailAddress))
+	pass := os.Getenv(gwconfig.EnvEmailPassword)
+	imapHost := strings.TrimSpace(os.Getenv(gwconfig.EnvEmailIMAPHost))
+	smtpHost := strings.TrimSpace(os.Getenv(gwconfig.EnvEmailSMTPHost))
+	if addr != "" && pass != "" && imapHost != "" && smtpHost != "" {
+		var poll time.Duration
+		if p := strings.TrimSpace(settings.Get("email").Poll); p != "" {
+			if d, err := time.ParseDuration(p); err == nil && d > 0 {
+				poll = d
+			} else {
+				fmt.Fprintf(out, "gateway: email.poll %q is not a duration; using default\n", p)
+			}
+		}
+		chs = append(chs, email.New(addr, pass, imapHost, smtpHost, poll, mediaDir))
+	}
+	if number := strings.TrimSpace(os.Getenv(gwconfig.EnvSignalNumber)); number != "" {
+		attDir := defaultSignalAttachments()
+		chs = append(chs, signalch.New(strings.TrimSpace(os.Getenv(gwconfig.EnvSignalCLIURL)), number, attDir, mediaDir))
+	}
+	if hs := strings.TrimSpace(os.Getenv(gwconfig.EnvMatrixHomeserver)); hs != "" {
+		if tok := strings.TrimSpace(os.Getenv(gwconfig.EnvMatrixToken)); tok != "" {
+			chs = append(chs, matrix.New(hs, tok, gw, mediaDir))
+		}
+	}
+	if mmURL := strings.TrimSpace(os.Getenv(gwconfig.EnvMattermostURL)); mmURL != "" {
+		if tok := strings.TrimSpace(os.Getenv(gwconfig.EnvMattermostToken)); tok != "" {
+			chs = append(chs, mattermost.New(mmURL, tok, mediaDir))
+		}
+	}
 	return chs
+}
+
+// defaultSignalAttachments is where signal-cli keeps received attachments on
+// this machine (the daemon and the gateway share a host by design).
+func defaultSignalAttachments() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".local", "share", "signal-cli", "attachments")
 }
 
 // startWebhooks mounts each configured inbound trigger on an HTTP server and
@@ -539,10 +630,56 @@ func startWebhooks(ctx context.Context, settings gwconfig.Settings, rt *runtime,
 		case appSecret == "":
 			fmt.Fprintf(out, "gateway: whatsapp inactive: set %s (Meta app secret) to verify inbound messages\n", gwconfig.EnvWhatsAppSecret)
 		default:
-			wc := whatsapp.New(pn, token, verify, appSecret)
+			wc := whatsapp.New(pn, token, verify, appSecret, rt.mediaDir)
 			rt.byName[wc.Name()] = wc
 			mux.Handle("/webhook/whatsapp", wc.Handler(rt))
 			fmt.Fprintf(out, "gateway: whatsapp webhook on /webhook/whatsapp\n")
+			mounted = true
+		}
+	}
+
+	// Microsoft Teams (Bot Framework): webhook in, serviceUrl replies out.
+	tAppID := strings.TrimSpace(os.Getenv(gwconfig.EnvTeamsAppID))
+	tAppPw := strings.TrimSpace(os.Getenv(gwconfig.EnvTeamsAppPassword))
+	tTenant := strings.TrimSpace(os.Getenv(gwconfig.EnvTeamsTenantID))
+	if tAppID != "" && tAppPw != "" && tTenant != "" {
+		ms := msteams.New(tAppID, tAppPw, tTenant, rt.mediaDir)
+		rt.byName[ms.Name()] = ms
+		mux.Handle("/webhook/teams", ms.Handler(rt))
+		fmt.Fprintf(out, "gateway: msteams webhook on POST /webhook/teams\n")
+		mounted = true
+	}
+
+	// Google Chat: webhook in (Google-signed JWT), Chat REST out (service account).
+	if keyPath := strings.TrimSpace(os.Getenv(gwconfig.EnvGoogleChatSAKey)); keyPath != "" {
+		switch key, err := os.ReadFile(keyPath); {
+		case err != nil:
+			fmt.Fprintf(out, "gateway: googlechat disabled: reading %s: %v\n", keyPath, err)
+		case strings.TrimSpace(settings.Get("googlechat").Audience) == "":
+			fmt.Fprintf(out, "gateway: googlechat disabled: set channels.googlechat.audience (the app's project number)\n")
+		default:
+			gc := googlechat.New(key, strings.TrimSpace(settings.Get("googlechat").Audience), rt.mediaDir)
+			rt.byName[gc.Name()] = gc
+			mux.Handle("/webhook/googlechat", gc.Handler(rt))
+			fmt.Fprintf(out, "gateway: googlechat webhook on POST /webhook/googlechat\n")
+			mounted = true
+		}
+	}
+
+	// SMS (Twilio) rides the same mux; it is also a valid github.reply_to target,
+	// so it registers in byName before GitHub validates its route.
+	tsid := strings.TrimSpace(os.Getenv(gwconfig.EnvTwilioAccountSID))
+	ttok := strings.TrimSpace(os.Getenv(gwconfig.EnvTwilioAuthToken))
+	tfrom := strings.TrimSpace(os.Getenv(gwconfig.EnvTwilioFromNumber))
+	if tsid != "" && ttok != "" && tfrom != "" {
+		hook := strings.TrimSpace(settings.Get("sms").WebhookURL)
+		if hook == "" {
+			fmt.Fprintf(out, "gateway: sms inactive: set channels.sms.webhook_url (the exact public URL) so inbound signatures can be verified\n")
+		} else {
+			sc := sms.New(tsid, ttok, tfrom, hook, rt.mediaDir)
+			rt.byName[sc.Name()] = sc
+			mux.Handle("/webhook/sms", sc.Handler(rt))
+			fmt.Fprintf(out, "gateway: sms webhook on POST /webhook/sms\n")
 			mounted = true
 		}
 	}
@@ -572,7 +709,15 @@ func startWebhooks(ctx context.Context, settings gwconfig.Settings, rt *runtime,
 	if addr == "" {
 		addr = defaultWebhookAddr
 	}
-	srv := &http.Server{Addr: addr, Handler: mux}
+	srv := &http.Server{
+		Addr:    addr,
+		Handler: mux,
+		// Bound a slow client: without a read-header deadline a slowloris
+		// connection can hold a handler open indefinitely.
+		ReadHeaderTimeout: 15 * time.Second,
+		ReadTimeout:       60 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
 	go func() {
 		<-ctx.Done()
 		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -601,13 +746,24 @@ func parseRoute(replyTo string) (channel, conversation string, ok bool) {
 
 // waitForJob polls until the job leaves the running state and returns text to post
 // back: the agent's result on success, or a pointer to the log on failure.
+// maxJobWait backstops a hung agent child: the per-conversation dispatcher is
+// serial, so a job that never finishes would block that conversation's queue
+// forever. After this the gateway stops waiting and reports back (the child is
+// still reaped by its own process lifecycle); it's generous enough that no real
+// task hits it.
+const maxJobWait = 30 * time.Minute
+
 func waitForJob(ctx context.Context, root, id string) string {
 	tick := time.NewTicker(2 * time.Second)
 	defer tick.Stop()
+	deadline := time.NewTimer(maxJobWait)
+	defer deadline.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return "Interrupted before it finished."
+		case <-deadline.C:
+			return fmt.Sprintf("That task is still running after %s — I stopped waiting. Details in .memcode/jobs/%s/log", maxJobWait, id)
 		case <-tick.C:
 			j, err := jobs.Get(root, id)
 			if err != nil {

@@ -13,6 +13,7 @@ package state
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -34,6 +35,8 @@ CREATE TABLE IF NOT EXISTS inbox (
     reply        TEXT NOT NULL DEFAULT '', -- the job's result, held durably until delivered
     agent        TEXT NOT NULL DEFAULT '', -- persona snapshot at receipt (immutable for this task)
     project      TEXT NOT NULL DEFAULT '', -- project id snapshot at receipt (immutable for this task)
+    attachments  TEXT NOT NULL DEFAULT '', -- JSON array of media spool IDs riding this message
+    voice        TEXT NOT NULL DEFAULT '', -- spool ID of the synthesized voice reply (synthesized ONCE, at job completion)
     received_at  TEXT NOT NULL,
     PRIMARY KEY (channel, message_id)
 );
@@ -42,6 +45,14 @@ CREATE INDEX IF NOT EXISTS idx_inbox_status ON inbox (status, received_at);
 CREATE TABLE IF NOT EXISTS poll_offsets (
     channel    TEXT PRIMARY KEY,
     offset_val INTEGER NOT NULL
+);
+
+-- String ack cursors for channels whose resume token isn't an integer
+-- (Matrix /sync since-token). Same contract as poll_offsets: advanced only
+-- after a durable Deliver, so a restart resumes instead of replaying.
+CREATE TABLE IF NOT EXISTS cursors (
+    channel TEXT PRIMARY KEY,
+    cursor  TEXT NOT NULL
 );
 
 -- Durable per-conversation selection: which persona and project this
@@ -98,8 +109,10 @@ type Item struct {
 	Text         string
 	Trusted      bool
 	Reply        string
-	Agent        string // persona snapshot at receipt
-	Project      string // project id snapshot at receipt
+	Agent        string   // persona snapshot at receipt
+	Project      string   // project id snapshot at receipt
+	Attachments  []string // media spool IDs (bare filenames; resolved only inside the spool)
+	Voice        string   // spool ID of the synthesized voice reply ("" = text only)
 }
 
 // Store is the gateway's durable state.
@@ -150,6 +163,8 @@ func Open(ctx context.Context, dir string) (*Store, error) {
 		`ALTER TABLE inbox ADD COLUMN reply TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE inbox ADD COLUMN agent TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE inbox ADD COLUMN project TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE inbox ADD COLUMN attachments TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE inbox ADD COLUMN voice TEXT NOT NULL DEFAULT ''`,
 	} {
 		if _, err := db.ExecContext(ctx, col); err != nil && !strings.Contains(err.Error(), "duplicate column") {
 			_ = db.Close()
@@ -206,10 +221,10 @@ func (s *Store) Close() error {
 func (s *Store) Accept(ctx context.Context, it Item, now time.Time) (bool, error) {
 	res, err := s.db.ExecContext(ctx,
 		`INSERT OR IGNORE INTO inbox
-		   (channel, message_id, conversation, principal, text, trusted, status, agent, project, received_at)
-		 VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`,
+		   (channel, message_id, conversation, principal, text, trusted, status, agent, project, attachments, received_at)
+		 VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`,
 		it.Channel, it.MessageID, it.Conversation, it.Principal, it.Text, boolInt(it.Trusted),
-		it.Agent, it.Project, now.UTC().Format(time.RFC3339Nano),
+		it.Agent, it.Project, encodeIDs(it.Attachments), now.UTC().Format(time.RFC3339Nano),
 	)
 	if err != nil {
 		return false, fmt.Errorf("accept inbound: %w", err)
@@ -225,8 +240,8 @@ func (s *Store) Accept(ctx context.Context, it Item, now time.Time) (bool, error
 // worker and, on startup, to replay anything a prior crash left unprocessed.
 func (s *Store) Pending(ctx context.Context) ([]Item, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT channel, message_id, conversation, principal, text, trusted, agent, project
-		   FROM inbox WHERE status = 'pending' ORDER BY received_at`)
+		`SELECT channel, message_id, conversation, principal, text, trusted, agent, project, attachments
+		   FROM inbox WHERE status = 'pending' ORDER BY received_at LIMIT 500`)
 	if err != nil {
 		return nil, fmt.Errorf("pending inbox: %w", err)
 	}
@@ -235,23 +250,27 @@ func (s *Store) Pending(ctx context.Context) ([]Item, error) {
 	for rows.Next() {
 		var it Item
 		var trusted int
-		if err := rows.Scan(&it.Channel, &it.MessageID, &it.Conversation, &it.Principal, &it.Text, &trusted, &it.Agent, &it.Project); err != nil {
+		var atts string
+		if err := rows.Scan(&it.Channel, &it.MessageID, &it.Conversation, &it.Principal, &it.Text, &trusted, &it.Agent, &it.Project, &atts); err != nil {
 			return nil, err
 		}
 		it.Trusted = trusted != 0
+		it.Attachments = decodeIDs(atts)
 		out = append(out, it)
 	}
 	return out, rows.Err()
 }
 
-// SetReplied durably records a finished job's reply and moves the item to
-// 'replied'. From here the job is never re-run; only the reply's delivery is
-// retried, so a send failure or a crash after the job completes cannot lose the
-// result or repeat the work.
-func (s *Store) SetReplied(ctx context.Context, channel, messageID, reply string) error {
+// SetReplied durably records a finished job's reply — and, when one was
+// synthesized, the spool ID of its voice rendition — and moves the item to
+// 'replied'. From here the job is never re-run and the voice is never
+// re-synthesized; only the reply's delivery is retried, so a send failure, a
+// crash, or a down channel cannot lose the result, repeat the work, or bill
+// TTS twice.
+func (s *Store) SetReplied(ctx context.Context, channel, messageID, reply, voice string) error {
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE inbox SET status = 'replied', reply = ? WHERE channel = ? AND message_id = ?`,
-		reply, channel, messageID)
+		`UPDATE inbox SET status = 'replied', reply = ?, voice = ? WHERE channel = ? AND message_id = ?`,
+		reply, voice, channel, messageID)
 	return err
 }
 
@@ -260,8 +279,8 @@ func (s *Store) SetReplied(ctx context.Context, channel, messageID, reply string
 // and replayed after a restart.
 func (s *Store) PendingReplies(ctx context.Context) ([]Item, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT channel, message_id, conversation, principal, text, trusted, reply
-		   FROM inbox WHERE status = 'replied' ORDER BY received_at`)
+		`SELECT channel, message_id, conversation, principal, text, trusted, reply, voice
+		   FROM inbox WHERE status = 'replied' ORDER BY received_at LIMIT 500`)
 	if err != nil {
 		return nil, fmt.Errorf("pending replies: %w", err)
 	}
@@ -270,7 +289,7 @@ func (s *Store) PendingReplies(ctx context.Context) ([]Item, error) {
 	for rows.Next() {
 		var it Item
 		var trusted int
-		if err := rows.Scan(&it.Channel, &it.MessageID, &it.Conversation, &it.Principal, &it.Text, &trusted, &it.Reply); err != nil {
+		if err := rows.Scan(&it.Channel, &it.MessageID, &it.Conversation, &it.Principal, &it.Text, &trusted, &it.Reply, &it.Voice); err != nil {
 			return nil, err
 		}
 		it.Trusted = trusted != 0
@@ -317,6 +336,31 @@ func (s *Store) SetOffset(ctx context.Context, channel string, offset int64) err
 		channel, offset)
 	if err != nil {
 		return fmt.Errorf("set offset: %w", err)
+	}
+	return nil
+}
+
+// Cursor returns the persisted string ack cursor for a channel ("" if none).
+func (s *Store) Cursor(ctx context.Context, channel string) (string, error) {
+	var v string
+	err := s.db.QueryRowContext(ctx, `SELECT cursor FROM cursors WHERE channel = ?`, channel).Scan(&v)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("read cursor: %w", err)
+	}
+	return v, nil
+}
+
+// SetCursor durably records a channel's string ack cursor.
+func (s *Store) SetCursor(ctx context.Context, channel, cursor string) error {
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO cursors (channel, cursor) VALUES (?, ?)
+		 ON CONFLICT(channel) DO UPDATE SET cursor = excluded.cursor`,
+		channel, cursor)
+	if err != nil {
+		return fmt.Errorf("set cursor: %w", err)
 	}
 	return nil
 }
@@ -435,6 +479,31 @@ func (s *Store) TakePairing(ctx context.Context, code string, now time.Time) (Pa
 		return Pairing{}, fmt.Errorf("pairing code %s expired — have them message the bot again", p.Code)
 	}
 	return p, nil
+}
+
+// encodeIDs/decodeIDs carry the media spool IDs through the inbox row as JSON.
+// IDs are bare spool filenames — never paths; the consumer resolves them only
+// inside the spool directory.
+func encodeIDs(ids []string) string {
+	if len(ids) == 0 {
+		return ""
+	}
+	b, err := json.Marshal(ids)
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
+func decodeIDs(s string) []string {
+	if strings.TrimSpace(s) == "" {
+		return nil
+	}
+	var ids []string
+	if json.Unmarshal([]byte(s), &ids) != nil {
+		return nil
+	}
+	return ids
 }
 
 func boolInt(b bool) int {

@@ -133,24 +133,25 @@ type Session struct {
 
 	planCtl *plan.Controller // plan-mode state (active/revision/models/apply), owned by EnterPlan/ExitPlan (plan.go)
 
-	metrics           metricsState     // session accounting counters (tool calls, reads, edit/verify seqs) (metricsstate.go)
-	served            servedState      // backend/routing telemetry of the last main call (servedstate.go)
-	dispMu            sync.Mutex       // guards served + turnEffort: the TUI render goroutine reads them every frame while the engine writes them mid-turn (separate from mu so a render read never blocks on output I/O)
-	turnEffort        wire.Effort      // thinking effort for THIS turn (set per turn; default off — see turnintent.go) — read under dispMu
-	servingDefault    string           // the everyday serving model (gateway cheap lane) shown before any turn runs — read under dispMu
-	turnHighRisk      bool             // THIS turn touches a high-blast-radius surface (auth/billing/secrets/destructive) → escalate the backend (see highRiskTurn)
-	turn              *turnState       // per-turn loop state, reset each runLoop (turnstate.go)
-	skills            []skills.Skill   // discovered skill catalog (own + Claude Code plugins)
-	approvedSkills    map[string]bool  // skills the user said "don't ask again" for (loaded from + persisted to .memcode/skill-approvals)
-	approvedArtifacts bool             // repo-scoped "don't ask again" for artifact publishing (.memcode/artifact-approvals)
-	nudgedSkills      map[string]bool  // skill triggers already nudged this session (nudge once, don't nag) — see skillNudge
-	scripts           []scripts.Script // saved reusable command sequences (.memcode/scripts) — see script.go, scripts_prompt.go
-	nudgedScripts     map[string]bool  // script slugs already nudged this session (nudge once, don't nag) — see scriptNudge
-	userMd            string           // user's MEMCODE.md instructions, loaded once per session, injected every turn
-	memoryMd          string           // durable memory (global + project memory.md), loaded once per session, injected every turn
-	supplemental      []ContextItem    // caller-supplied supplemental context (empty for the CLI/Desktop; set only by the agent runtime), injected every turn
-	extraSkillRoots   []string         // caller-supplied extra skill roots (a gateway persona's skills dir); empty for the CLI/Desktop
-	editsAllowed      bool             // user said "don't ask again for edits" this session (scoped: edits only, not commands; never catastrophic)
+	metrics           metricsState       // session accounting counters (tool calls, reads, edit/verify seqs) (metricsstate.go)
+	served            servedState        // backend/routing telemetry of the last main call (servedstate.go)
+	dispMu            sync.Mutex         // guards served + turnEffort: the TUI render goroutine reads them every frame while the engine writes them mid-turn (separate from mu so a render read never blocks on output I/O)
+	turnEffort        wire.Effort        // thinking effort for THIS turn (set per turn; default off — see turnintent.go) — read under dispMu
+	servingDefault    string             // the everyday serving model (gateway cheap lane) shown before any turn runs — read under dispMu
+	turnHighRisk      bool               // THIS turn touches a high-blast-radius surface (auth/billing/secrets/destructive) → escalate the backend (see highRiskTurn)
+	turn              *turnState         // per-turn loop state, reset each runLoop (turnstate.go)
+	skills            []skills.Skill     // discovered skill catalog (own + Claude Code plugins)
+	approvedSkills    map[string]bool    // skills the user said "don't ask again" for (loaded from + persisted to .memcode/skill-approvals)
+	approvedArtifacts bool               // repo-scoped "don't ask again" for artifact publishing (.memcode/artifact-approvals)
+	nudgedSkills      map[string]bool    // skill triggers already nudged this session (nudge once, don't nag) — see skillNudge
+	scripts           []scripts.Script   // saved reusable command sequences (.memcode/scripts) — see script.go, scripts_prompt.go
+	nudgedScripts     map[string]bool    // script slugs already nudged this session (nudge once, don't nag) — see scriptNudge
+	userMd            string             // user's MEMCODE.md instructions, loaded once per session, injected every turn
+	memoryMd          string             // durable memory (global + project memory.md), loaded once per session, injected every turn
+	supplemental      []ContextItem      // caller-supplied supplemental context (empty for the CLI/Desktop; set only by the agent runtime), injected every turn
+	extraSkillRoots   []string           // caller-supplied extra skill roots (a gateway persona's skills dir); empty for the CLI/Desktop
+	taskAttachments   []input.Attachment // caller-resolved attachments for the next submitted turn (gateway channel media); consumed by Submit
+	editsAllowed      bool               // user said "don't ask again for edits" this session (scoped: edits only, not commands; never catastrophic)
 
 	lastCompactSummary string // most recent in-session compaction summary (the warm layer)
 
@@ -393,6 +394,12 @@ func (s *Session) SetContext(items []ContextItem) { s.supplemental = items }
 // project or the user's global skill set. Empty for the CLI and Desktop.
 func (s *Session) SetSkillRoots(roots []string) { s.extraSkillRoots = roots }
 
+// SetTaskAttachments supplies caller-resolved attachments for the NEXT
+// submitted turn (a gateway job carrying channel media — a photo texted to the
+// bot, a PDF emailed to it). They merge into that turn's bundle and ride the
+// normal attachment path (caps, downscaling, wire blocks), then clear.
+func (s *Session) SetTaskAttachments(atts []input.Attachment) { s.taskAttachments = atts }
+
 func (s *Session) setSessionID(id string) {
 	s.sessionID = id
 	s.ckpt = checkpoint.New(s.root, id) // rewind points live per session id
@@ -580,6 +587,13 @@ func (s *Session) askApproval(ctx context.Context, req ApprovalRequest) Approval
 	if d.Interrupt {
 		s.turn.interrupted = true
 		s.emit(ctx, events.KindInputInterrupted, map[string]any{"during": req.Label})
+	}
+	if d.Redirect {
+		// Deny this action and skip its siblings this batch, but let the turn
+		// CONTINUE: the denial (carrying the user's typed feedback as Reason) goes
+		// back to the model, which reads it and responds — instead of the turn
+		// silently terminating with the feedback unread.
+		s.turn.redirected = true
 	}
 	if !d.Allow {
 		s.noteDenied(ctx, req.Title)
