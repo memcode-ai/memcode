@@ -139,9 +139,19 @@ var gatewaySetupCmd = &cobra.Command{
 // reconfiguring each by hand. The format is auto-detected (OpenClaw JSON vs Hermes
 // YAML); with no path it looks in each tool's default location.
 var gatewayImportCmd = &cobra.Command{
-	Use:   "import [config]",
-	Short: "Import channels from an existing OpenClaw or Hermes config",
-	Args:  cobra.MaximumNArgs(1),
+	Use:   "import",
+	Short: "Import channels from an existing OpenClaw or Hermes install",
+	Long: `Import your channels from an existing OpenClaw or Hermes install.
+
+Just run it — it finds the config in each tool's default location and detects the
+format automatically:
+
+  memcode gateway import
+
+Pass a path only if your config lives somewhere non-standard:
+
+  memcode gateway import /path/to/config`,
+	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		provider.LoadDotEnv() // so env-referenced credentials resolve
 
