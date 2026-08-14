@@ -23,7 +23,15 @@ import (
 	gwconfig "github.com/memcode-ai/memcode/internal/gateway/config"
 	"github.com/memcode-ai/memcode/internal/jobs"
 	githubtrigger "github.com/memcode-ai/memcode/internal/triggers/github"
+	"github.com/memcode-ai/memcode/internal/triggers/whatsapp"
 )
+
+// replySender is the one thing the router needs to post a result back: a Send.
+// Both chat channels and webhook-driven surfaces (WhatsApp) satisfy it, which is
+// why a WhatsApp adapter needn't pretend to be a Start-driven channel.
+type replySender interface {
+	Send(ctx context.Context, conversation string, msg channels.Outbound) error
+}
 
 // defaultWebhookAddr is where the inbound webhook server listens when a
 // webhook-driven trigger (GitHub, later WhatsApp) is enabled but no address is set.
@@ -37,7 +45,7 @@ const defaultWebhookAddr = ":8787"
 func Run(ctx context.Context, root string, settings gwconfig.Settings, out io.Writer) error {
 	chs := channelsFrom(settings, out)
 
-	byName := make(map[string]channels.Channel, len(chs))
+	byName := make(map[string]replySender, len(chs)+1)
 	inbound := make(chan channels.Inbound, 64)
 	for _, ch := range chs {
 		byName[ch.Name()] = ch
@@ -50,7 +58,9 @@ func Run(ctx context.Context, root string, settings gwconfig.Settings, out io.Wr
 		fmt.Fprintf(out, "gateway: %s listening\n", ch.Name())
 	}
 
-	webhooks := startWebhooks(ctx, settings, inbound, out)
+	// Webhook-driven surfaces (GitHub, WhatsApp) mount here; WhatsApp also
+	// registers its Send in byName so replies route back to it.
+	webhooks := startWebhooks(ctx, settings, byName, inbound, out)
 	if len(chs) == 0 && !webhooks {
 		return fmt.Errorf("no channels configured — run `memcode gateway setup` to add one")
 	}
@@ -93,7 +103,7 @@ func channelsFrom(settings gwconfig.Settings, out io.Writer) []channels.Channel 
 // starts it, returning whether any were mounted. The server shuts down when ctx
 // is cancelled. GitHub is the only trigger today; WhatsApp mounts here too once
 // it's active.
-func startWebhooks(ctx context.Context, settings gwconfig.Settings, inbound chan<- channels.Inbound, out io.Writer) bool {
+func startWebhooks(ctx context.Context, settings gwconfig.Settings, byName map[string]replySender, inbound chan<- channels.Inbound, out io.Writer) bool {
 	mux := http.NewServeMux()
 	mounted := false
 
@@ -106,6 +116,24 @@ func startWebhooks(ctx context.Context, settings gwconfig.Settings, inbound chan
 			mounted = true
 		}
 	}
+
+	// WhatsApp is built but stays inert until whatsapp.active is set — Meta
+	// business verification is an external state the gateway can't observe.
+	token := strings.TrimSpace(os.Getenv(gwconfig.EnvWhatsAppToken))
+	verify := strings.TrimSpace(os.Getenv(gwconfig.EnvWhatsAppVerify))
+	pn := strings.TrimSpace(settings.WhatsApp.PhoneNumberID)
+	if pn != "" && token != "" && verify != "" {
+		if !settings.WhatsApp.Active {
+			fmt.Fprintf(out, "gateway: whatsapp configured but inactive (set whatsapp.active: true after Meta verification)\n")
+		} else {
+			wc := whatsapp.New(pn, token, verify)
+			byName[wc.Name()] = wc
+			mux.Handle("/webhook/whatsapp", wc.Handler(inbound))
+			fmt.Fprintf(out, "gateway: whatsapp webhook on /webhook/whatsapp\n")
+			mounted = true
+		}
+	}
+
 	if !mounted {
 		return false
 	}
@@ -145,8 +173,9 @@ func githubReplyRoute(replyTo string) (channel, conversation string, ok bool) {
 // back to its channel. Jobs are subprocesses (a hung/panicking run can't wedge
 // the gateway or other channels); we poll to completion. Failures are reported
 // to the user, never silently dropped.
-func handle(ctx context.Context, root string, ch channels.Channel, inb channels.Inbound, out io.Writer) {
+func handle(ctx context.Context, root string, ch replySender, inb channels.Inbound, out io.Writer) {
 	if ch == nil {
+		fmt.Fprintf(out, "gateway: no route for channel %q — dropping message\n", inb.Channel)
 		return
 	}
 	// A gateway-triggered job has no TTY to answer approval prompts → Auto mode.

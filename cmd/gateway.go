@@ -91,6 +91,7 @@ var gatewaySetupCmd = &cobra.Command{
 				settings.GitHub.ReplyTo = strings.TrimSpace(prompt(in, cmd, "Route results to (e.g. telegram:123456, blank for none): "))
 			case "whatsapp":
 				cmd.Println("Note: WhatsApp stays inactive until your Meta business is verified.")
+				cmd.Println("Once verified, set `whatsapp.active: true` in gateway.yaml to enable it.")
 				settings.WhatsApp.PhoneNumberID = strings.TrimSpace(prompt(in, cmd, "Phone number ID: "))
 				secrets[gwconfig.EnvWhatsAppToken] = secret(cmd, "Access token: ")
 				secrets[gwconfig.EnvWhatsAppVerify] = secret(cmd, "Webhook verify token: ")

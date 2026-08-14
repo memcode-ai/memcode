@@ -1,0 +1,94 @@
+package whatsapp
+
+import (
+	"context"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"strings"
+	"testing"
+
+	"github.com/memcode-ai/memcode/internal/channels"
+)
+
+func TestVerifyChallenge(t *testing.T) {
+	q := func(mode, token, challenge string) url.Values {
+		v := url.Values{}
+		v.Set("hub.mode", mode)
+		v.Set("hub.verify_token", token)
+		v.Set("hub.challenge", challenge)
+		return v
+	}
+	if got, ok := verifyChallenge(q("subscribe", "vt", "42"), "vt"); !ok || got != "42" {
+		t.Errorf("valid handshake: got (%q,%v)", got, ok)
+	}
+	if _, ok := verifyChallenge(q("subscribe", "wrong", "42"), "vt"); ok {
+		t.Error("wrong token accepted")
+	}
+	if _, ok := verifyChallenge(q("unsubscribe", "vt", "42"), "vt"); ok {
+		t.Error("wrong mode accepted")
+	}
+	if _, ok := verifyChallenge(q("subscribe", "", "42"), ""); ok {
+		t.Error("empty verify token accepted")
+	}
+}
+
+func TestToInbounds(t *testing.T) {
+	payload := `{"entry":[{"changes":[{"value":{"messages":[
+		{"from":"15551230000","type":"text","text":{"body":"do it"}},
+		{"from":"15551230000","type":"image","text":{"body":""}},
+		{"from":"15559990000","type":"text","text":{"body":"hi"}}
+	]}}]}]}`
+	got := toInbounds([]byte(payload))
+	if len(got) != 2 {
+		t.Fatalf("want 2 text messages, got %d: %+v", len(got), got)
+	}
+	want := channels.Inbound{Channel: "whatsapp", Conversation: "15551230000", Principal: "15551230000", Text: "do it"}
+	if got[0] != want {
+		t.Errorf("got %+v, want %+v", got[0], want)
+	}
+	if n := len(toInbounds([]byte("not json"))); n != 0 {
+		t.Errorf("bad json yielded %d inbounds", n)
+	}
+}
+
+func TestSend(t *testing.T) {
+	var gotAuth, gotPath string
+	var body map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		gotPath = r.URL.Path
+		b, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(b, &body)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	c := New("PN123", "TOKEN", "vt")
+	c.base = srv.URL
+	if err := c.Send(context.Background(), "15551230000", channels.Outbound{Text: "yo"}); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	if gotAuth != "Bearer TOKEN" {
+		t.Errorf("auth = %q", gotAuth)
+	}
+	if !strings.HasSuffix(gotPath, "/PN123/messages") {
+		t.Errorf("path = %q", gotPath)
+	}
+	if body["to"] != "15551230000" || body["messaging_product"] != "whatsapp" {
+		t.Errorf("body = %+v", body)
+	}
+}
+
+func TestHandlerGET(t *testing.T) {
+	c := New("PN", "tok", "vt")
+	h := c.Handler(make(chan channels.Inbound, 1))
+	req := httptest.NewRequest(http.MethodGet, "/webhook/whatsapp?hub.mode=subscribe&hub.verify_token=vt&hub.challenge=99", nil)
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK || rr.Body.String() != "99" {
+		t.Errorf("GET verify: code %d body %q", rr.Code, rr.Body.String())
+	}
+}

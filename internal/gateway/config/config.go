@@ -51,8 +51,13 @@ type GitHub struct {
 }
 
 // WhatsApp: the non-secret phone number ID. Access + verify tokens live in .env.
+// Active gates the adapter: it stays inert (built but not mounted) until the
+// Meta business is verified and the operator flips this to true — verification
+// is an external account state with no programmatic signal, so it's a manual
+// switch, not something the gateway can detect.
 type WhatsApp struct {
 	PhoneNumberID string `yaml:"phone_number_id,omitempty"`
+	Active        bool   `yaml:"active,omitempty"`
 }
 
 // Path returns the gateway settings file: $XDG_CONFIG_HOME/memcode/gateway.yaml
