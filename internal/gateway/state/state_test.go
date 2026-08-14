@@ -234,3 +234,25 @@ func TestOffsetRoundTrip(t *testing.T) {
 		t.Errorf("offset after upsert = %d, want 99999", v)
 	}
 }
+
+// Attachments (media spool IDs) ride the durable inbox row as JSON.
+func TestItemAttachmentsRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	gw, err := Open(ctx, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer gw.Close()
+	it := Item{Channel: "telegram", MessageID: "m1", Conversation: "c", Principal: "p", Text: "look",
+		Attachments: []string{"abc.png", "def.ogg"}}
+	if _, err := gw.Accept(ctx, it, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	got, err := gw.Pending(ctx)
+	if err != nil || len(got) != 1 {
+		t.Fatalf("pending: %v %d", err, len(got))
+	}
+	if len(got[0].Attachments) != 2 || got[0].Attachments[0] != "abc.png" || got[0].Attachments[1] != "def.ogg" {
+		t.Errorf("attachments = %+v", got[0].Attachments)
+	}
+}

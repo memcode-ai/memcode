@@ -63,6 +63,7 @@ type runtime struct {
 	mainStore store.Store // main .memcode event log; may be nil (events best-effort)
 	mu        sync.RWMutex
 	settings  gwconfig.Settings // guarded by mu; hot-reloaded from gateway.yaml (see maybeReload)
+	mediaDir  string            // the media spool (attachments in, synthesized voice out)
 	byName    map[string]replySender
 	disp      *dispatcher
 	out       io.Writer
@@ -99,18 +100,25 @@ func Run(ctx context.Context, root string, mainStore store.Store, settings gwcon
 
 	warnOpenSurfaces(settings, out)
 
+	mediaDir, err := gwconfig.MediaDir()
+	if err != nil {
+		return err
+	}
+	pruneSpool(mediaDir, time.Now().Add(-30*24*time.Hour)) // same retention as the inbox
+
 	rt := &runtime{
 		root:      root,
 		gw:        gw,
 		mainStore: mainStore,
 		settings:  settings,
+		mediaDir:  mediaDir,
 		byName:    make(map[string]replySender, 4),
 		disp:      newDispatcher(),
 		out:       out,
 		notify:    make(chan struct{}, 1),
 	}
 
-	chs := channelsFrom(settings, gw, out)
+	chs := channelsFrom(settings, gw, mediaDir, out)
 	for _, ch := range chs {
 		rt.byName[ch.Name()] = ch
 		ch := ch
@@ -292,10 +300,14 @@ func (r *runtime) Deliver(ctx context.Context, inb channels.Inbound) error {
 	// Snapshot the conversation's current persona + project at receipt, so a later
 	// /project changes only the NEXT task, never this queued one.
 	agent, project := r.resolveSelection(ctx, inb.Channel, inb.Conversation)
+	ids := make([]string, 0, len(inb.Attachments))
+	for _, a := range inb.Attachments {
+		ids = append(ids, a.ID()) // spool IDs only — paths never enter the durable row
+	}
 	fresh, err := r.gw.Accept(ctx, state.Item{
 		Channel: inb.Channel, MessageID: inb.MessageID, Conversation: inb.Conversation,
 		Principal: inb.Principal, Text: inb.Text, Trusted: inb.Trusted,
-		Agent: agent, Project: project,
+		Agent: agent, Project: project, Attachments: ids,
 	}, time.Now())
 	if err != nil {
 		return err // NOT durably recorded — adapter must not ack
@@ -418,10 +430,13 @@ func (r *runtime) runJob(ctx context.Context, it state.Item) {
 			fmt.Fprintf(r.out, "gateway: project %q for %s no longer resolves (%v); using default\n", it.Project, it.Channel, rerr)
 		}
 	}
-	// Compose the snapshotted persona's context + skill roots and persist it keyed
-	// by session; the spawned child self-discovers it (no jobs.Spawn signature
-	// change). No persona → empty envelope → the coding engine runs exactly as the CLI.
-	if err := writeContext(session, jobContextFor(it.Agent)); err != nil {
+	// Compose the snapshotted persona's context + skill roots + this message's
+	// media (as spool IDs) and persist it keyed by session; the spawned child
+	// self-discovers it (no jobs.Spawn signature change). No persona and no media
+	// → empty envelope → the coding engine runs exactly as the CLI.
+	jc := jobContextFor(it.Agent)
+	jc.Attachments = it.Attachments
+	if err := writeContext(session, jc); err != nil {
 		fmt.Fprintf(r.out, "gateway: composing context for %s: %v\n", it.Channel, err)
 	}
 	job, err := jobs.Spawn(root, it.Text, string(permissions.ModeAuto), cfg.Tier, false, true, session)
@@ -498,13 +513,13 @@ func (r *runtime) event(ctx context.Context, kind events.Kind, p eventPayload) {
 
 // channelsFrom builds a live channel for each one whose secret is present in the
 // environment. A channel whose constructor fails is logged and skipped.
-func channelsFrom(settings gwconfig.Settings, gw *state.Store, out io.Writer) []channels.Channel {
+func channelsFrom(settings gwconfig.Settings, gw *state.Store, mediaDir string, out io.Writer) []channels.Channel {
 	var chs []channels.Channel
 	if tok := strings.TrimSpace(os.Getenv(gwconfig.EnvTelegramToken)); tok != "" {
-		chs = append(chs, telegram.New(tok, gw))
+		chs = append(chs, telegram.New(tok, gw, mediaDir))
 	}
 	if tok := strings.TrimSpace(os.Getenv(gwconfig.EnvDiscordToken)); tok != "" {
-		if ch, err := discord.New(tok); err != nil {
+		if ch, err := discord.New(tok, mediaDir); err != nil {
 			fmt.Fprintf(out, "gateway: discord disabled: %v\n", err)
 		} else {
 			chs = append(chs, ch)
@@ -539,7 +554,7 @@ func startWebhooks(ctx context.Context, settings gwconfig.Settings, rt *runtime,
 		case appSecret == "":
 			fmt.Fprintf(out, "gateway: whatsapp inactive: set %s (Meta app secret) to verify inbound messages\n", gwconfig.EnvWhatsAppSecret)
 		default:
-			wc := whatsapp.New(pn, token, verify, appSecret)
+			wc := whatsapp.New(pn, token, verify, appSecret, rt.mediaDir)
 			rt.byName[wc.Name()] = wc
 			mux.Handle("/webhook/whatsapp", wc.Handler(rt))
 			fmt.Fprintf(out, "gateway: whatsapp webhook on /webhook/whatsapp\n")

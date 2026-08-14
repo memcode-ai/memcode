@@ -37,23 +37,27 @@ type OffsetStore interface {
 
 // Channel is a Telegram bot connection.
 type Channel struct {
-	token  string
-	base   string // API base; overridable in tests
-	client *http.Client
-	store  OffsetStore
+	token    string
+	base     string // API base; overridable in tests
+	client   *http.Client
+	store    OffsetStore
+	mediaDir string // media spool; "" disables attachment downloads
 }
 
 // New builds a Telegram channel for the given bot token. store may be nil, in
 // which case the poll offset lives only in memory (and a restart re-reads the
-// backlog, which the router's dedup then discards).
-func New(token string, store OffsetStore) *Channel {
+// backlog, which the router's dedup then discards). mediaDir is the gateway
+// media spool photos/voice notes/documents are downloaded into; "" disables
+// attachment handling (messages still flow as text).
+func New(token string, store OffsetStore, mediaDir string) *Channel {
 	return &Channel{
 		token: token,
 		base:  defaultBase,
 		// The HTTP timeout must exceed the long-poll timeout so getUpdates can
 		// block server-side for the full window without the client giving up.
-		client: &http.Client{Timeout: 65 * time.Second},
-		store:  store,
+		client:   &http.Client{Timeout: 65 * time.Second},
+		store:    store,
+		mediaDir: mediaDir,
 	}
 }
 
@@ -68,11 +72,27 @@ type update struct {
 }
 
 type tgMessage struct {
-	From           *tgUser    `json:"from"`
-	Chat           *tgChat    `json:"chat"`
-	Text           string     `json:"text"`
-	Entities       []tgEntity `json:"entities"`
-	ReplyToMessage *tgMessage `json:"reply_to_message"`
+	From           *tgUser       `json:"from"`
+	Chat           *tgChat       `json:"chat"`
+	Text           string        `json:"text"`
+	Caption        string        `json:"caption"`
+	Entities       []tgEntity    `json:"entities"`
+	ReplyToMessage *tgMessage    `json:"reply_to_message"`
+	Photo          []tgPhotoSize `json:"photo"`
+	Voice          *tgFileMeta   `json:"voice"`
+	Audio          *tgFileMeta   `json:"audio"`
+	Document       *tgFileMeta   `json:"document"`
+}
+
+type tgPhotoSize struct {
+	FileID   string `json:"file_id"`
+	FileSize int64  `json:"file_size"`
+}
+
+type tgFileMeta struct {
+	FileID   string `json:"file_id"`
+	MimeType string `json:"mime_type"`
+	FileName string `json:"file_name"`
 }
 
 type tgUser struct {
@@ -130,7 +150,8 @@ func (c *Channel) Start(ctx context.Context, sink channels.Sink) error {
 		}
 		backoff = time.Second // recovered — reset the ladder
 		for _, u := range ups {
-			if inb, ok := toInbound(u, botID, botUsername); ok {
+			if inb, refs, ok := toInbound(u, botID, botUsername); ok {
+				inb.Attachments = c.download(ctx, refs)
 				if err := sink.Deliver(ctx, inb); err != nil {
 					if ctx.Err() != nil {
 						return ctx.Err()
@@ -157,29 +178,133 @@ func jitter(d time.Duration) time.Duration {
 	return time.Duration(float64(d) * (0.75 + rand.Float64()*0.5))
 }
 
-// toInbound converts a Telegram update to a normalized Inbound, or ok=false if
-// it carries no usable text message. botID/botUsername identify this bot so a
-// group message can be recognized as addressed to it.
-func toInbound(u update, botID int64, botUsername string) (channels.Inbound, bool) {
-	if u.Message == nil || u.Message.Chat == nil || u.Message.Text == "" {
-		return channels.Inbound{}, false
+// fileRef names one downloadable piece of media on a message.
+type fileRef struct {
+	fileID string
+	mime   string
+	name   string
+}
+
+// toInbound converts a Telegram update to a normalized Inbound plus the media
+// it references, or ok=false if it carries neither text nor media.
+// botID/botUsername identify this bot so a group message can be recognized as
+// addressed to it.
+func toInbound(u update, botID int64, botUsername string) (channels.Inbound, []fileRef, bool) {
+	if u.Message == nil || u.Message.Chat == nil {
+		return channels.Inbound{}, nil, false
+	}
+	m := u.Message
+	text := m.Text
+	if text == "" {
+		text = m.Caption // a photo/voice with a caption: the caption is the task text
+	}
+	var refs []fileRef
+	if len(m.Photo) > 0 {
+		best := m.Photo[0]
+		for _, p := range m.Photo[1:] { // Telegram lists sizes ascending; take the largest
+			if p.FileSize >= best.FileSize {
+				best = p
+			}
+		}
+		refs = append(refs, fileRef{fileID: best.FileID, mime: "image/jpeg", name: "photo.jpg"})
+	}
+	if v := m.Voice; v != nil && v.FileID != "" {
+		refs = append(refs, fileRef{fileID: v.FileID, mime: orMime(v.MimeType, "audio/ogg"), name: "voice.ogg"})
+	}
+	if a := m.Audio; a != nil && a.FileID != "" {
+		refs = append(refs, fileRef{fileID: a.FileID, mime: orMime(a.MimeType, "audio/mpeg"), name: orName(a.FileName, "audio")})
+	}
+	if d := m.Document; d != nil && d.FileID != "" {
+		refs = append(refs, fileRef{fileID: d.FileID, mime: d.MimeType, name: orName(d.FileName, "document")})
+	}
+	if text == "" && len(refs) == 0 {
+		return channels.Inbound{}, nil, false
 	}
 	// Principal is the STABLE numeric user id, never the mutable @username — the
 	// allow-list authorizes on ids so a username change (or a lookalike handle)
 	// can't grant or revoke access.
 	principal := ""
-	if f := u.Message.From; f != nil {
+	if f := m.From; f != nil {
 		principal = strconv.FormatInt(f.ID, 10)
 	}
 	return channels.Inbound{
 		Channel:      "telegram",
-		Conversation: strconv.FormatInt(u.Message.Chat.ID, 10),
+		Conversation: strconv.FormatInt(m.Chat.ID, 10),
 		Principal:    principal,
-		Text:         u.Message.Text,
+		Text:         text,
 		MessageID:    strconv.FormatInt(u.UpdateID, 10),
-		IsDirect:     u.Message.Chat.Type == "private",
+		IsDirect:     m.Chat.Type == "private",
 		Mentioned:    mentionsBot(u, botID, botUsername),
-	}, true
+	}, refs, true
+}
+
+func orMime(v, fallback string) string {
+	if v != "" {
+		return v
+	}
+	return fallback
+}
+
+func orName(v, fallback string) string {
+	if v != "" {
+		return v
+	}
+	return fallback
+}
+
+// download fetches each referenced file into the media spool (getFile → file
+// download endpoint), best-effort: a failed download drops that attachment, the
+// message itself still flows.
+func (c *Channel) download(ctx context.Context, refs []fileRef) []channels.Attachment {
+	if c.mediaDir == "" || len(refs) == 0 {
+		return nil
+	}
+	var out []channels.Attachment
+	for _, ref := range refs {
+		att, err := c.downloadOne(ctx, ref)
+		if err != nil {
+			continue
+		}
+		out = append(out, att)
+	}
+	return out
+}
+
+func (c *Channel) downloadOne(ctx context.Context, ref fileRef) (channels.Attachment, error) {
+	// getFile resolves the file_id to a downloadable path.
+	endpoint := fmt.Sprintf("%s/bot%s/getFile?file_id=%s", c.base, c.token, url.QueryEscape(ref.fileID))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return channels.Attachment{}, err
+	}
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return channels.Attachment{}, err
+	}
+	defer resp.Body.Close()
+	var out struct {
+		OK     bool `json:"ok"`
+		Result struct {
+			FilePath string `json:"file_path"`
+		} `json:"result"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil || !out.OK || out.Result.FilePath == "" {
+		return channels.Attachment{}, fmt.Errorf("telegram getFile failed")
+	}
+	dl := fmt.Sprintf("%s/file/bot%s/%s", c.base, c.token, out.Result.FilePath)
+	dreq, err := http.NewRequestWithContext(ctx, http.MethodGet, dl, nil)
+	if err != nil {
+		return channels.Attachment{}, err
+	}
+	dresp, err := c.client.Do(dreq)
+	if err != nil {
+		return channels.Attachment{}, err
+	}
+	defer dresp.Body.Close()
+	if dresp.StatusCode/100 != 2 {
+		return channels.Attachment{}, fmt.Errorf("telegram file download: status %d", dresp.StatusCode)
+	}
+	return channels.SaveToSpool(c.mediaDir, dresp.Body, ref.mime, ref.name)
 }
 
 // mentionsBot reports whether the message addresses this bot: a reply to one of

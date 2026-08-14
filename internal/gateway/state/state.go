@@ -13,6 +13,7 @@ package state
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -34,6 +35,7 @@ CREATE TABLE IF NOT EXISTS inbox (
     reply        TEXT NOT NULL DEFAULT '', -- the job's result, held durably until delivered
     agent        TEXT NOT NULL DEFAULT '', -- persona snapshot at receipt (immutable for this task)
     project      TEXT NOT NULL DEFAULT '', -- project id snapshot at receipt (immutable for this task)
+    attachments  TEXT NOT NULL DEFAULT '', -- JSON array of media spool IDs riding this message
     received_at  TEXT NOT NULL,
     PRIMARY KEY (channel, message_id)
 );
@@ -98,8 +100,9 @@ type Item struct {
 	Text         string
 	Trusted      bool
 	Reply        string
-	Agent        string // persona snapshot at receipt
-	Project      string // project id snapshot at receipt
+	Agent        string   // persona snapshot at receipt
+	Project      string   // project id snapshot at receipt
+	Attachments  []string // media spool IDs (bare filenames; resolved only inside the spool)
 }
 
 // Store is the gateway's durable state.
@@ -150,6 +153,7 @@ func Open(ctx context.Context, dir string) (*Store, error) {
 		`ALTER TABLE inbox ADD COLUMN reply TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE inbox ADD COLUMN agent TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE inbox ADD COLUMN project TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE inbox ADD COLUMN attachments TEXT NOT NULL DEFAULT ''`,
 	} {
 		if _, err := db.ExecContext(ctx, col); err != nil && !strings.Contains(err.Error(), "duplicate column") {
 			_ = db.Close()
@@ -206,10 +210,10 @@ func (s *Store) Close() error {
 func (s *Store) Accept(ctx context.Context, it Item, now time.Time) (bool, error) {
 	res, err := s.db.ExecContext(ctx,
 		`INSERT OR IGNORE INTO inbox
-		   (channel, message_id, conversation, principal, text, trusted, status, agent, project, received_at)
-		 VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`,
+		   (channel, message_id, conversation, principal, text, trusted, status, agent, project, attachments, received_at)
+		 VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`,
 		it.Channel, it.MessageID, it.Conversation, it.Principal, it.Text, boolInt(it.Trusted),
-		it.Agent, it.Project, now.UTC().Format(time.RFC3339Nano),
+		it.Agent, it.Project, encodeIDs(it.Attachments), now.UTC().Format(time.RFC3339Nano),
 	)
 	if err != nil {
 		return false, fmt.Errorf("accept inbound: %w", err)
@@ -225,7 +229,7 @@ func (s *Store) Accept(ctx context.Context, it Item, now time.Time) (bool, error
 // worker and, on startup, to replay anything a prior crash left unprocessed.
 func (s *Store) Pending(ctx context.Context) ([]Item, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT channel, message_id, conversation, principal, text, trusted, agent, project
+		`SELECT channel, message_id, conversation, principal, text, trusted, agent, project, attachments
 		   FROM inbox WHERE status = 'pending' ORDER BY received_at`)
 	if err != nil {
 		return nil, fmt.Errorf("pending inbox: %w", err)
@@ -235,10 +239,12 @@ func (s *Store) Pending(ctx context.Context) ([]Item, error) {
 	for rows.Next() {
 		var it Item
 		var trusted int
-		if err := rows.Scan(&it.Channel, &it.MessageID, &it.Conversation, &it.Principal, &it.Text, &trusted, &it.Agent, &it.Project); err != nil {
+		var atts string
+		if err := rows.Scan(&it.Channel, &it.MessageID, &it.Conversation, &it.Principal, &it.Text, &trusted, &it.Agent, &it.Project, &atts); err != nil {
 			return nil, err
 		}
 		it.Trusted = trusted != 0
+		it.Attachments = decodeIDs(atts)
 		out = append(out, it)
 	}
 	return out, rows.Err()
@@ -435,6 +441,31 @@ func (s *Store) TakePairing(ctx context.Context, code string, now time.Time) (Pa
 		return Pairing{}, fmt.Errorf("pairing code %s expired — have them message the bot again", p.Code)
 	}
 	return p, nil
+}
+
+// encodeIDs/decodeIDs carry the media spool IDs through the inbox row as JSON.
+// IDs are bare spool filenames — never paths; the consumer resolves them only
+// inside the spool directory.
+func encodeIDs(ids []string) string {
+	if len(ids) == 0 {
+		return ""
+	}
+	b, err := json.Marshal(ids)
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
+func decodeIDs(s string) []string {
+	if strings.TrimSpace(s) == "" {
+		return nil
+	}
+	var ids []string
+	if json.Unmarshal([]byte(s), &ids) != nil {
+		return nil
+	}
+	return ids
 }
 
 func boolInt(b bool) int {

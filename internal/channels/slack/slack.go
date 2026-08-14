@@ -93,9 +93,12 @@ func (c *Channel) Start(ctx context.Context, sink channels.Sink) error {
 
 // toInbound converts a Slack message event to a normalized Inbound. It skips bot
 // messages (including our own replies, which carry a bot id), message subtypes
-// (edits/joins/etc.), and empty or userless messages.
+// (edits/joins/etc.), and empty or userless messages. "file_share" is the one
+// subtype allowed through: a message with an uploaded file still carries its
+// text (this SDK version doesn't surface the file list, so the file itself is
+// not downloaded — a known limitation, better than dropping the message).
 func toInbound(me *slackevents.MessageEvent, botID string) (channels.Inbound, bool) {
-	if me == nil || me.BotID != "" || me.SubType != "" {
+	if me == nil || me.BotID != "" || (me.SubType != "" && me.SubType != "file_share") {
 		return channels.Inbound{}, false
 	}
 	if me.User == "" || strings.TrimSpace(me.Text) == "" {

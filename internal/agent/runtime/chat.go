@@ -175,6 +175,12 @@ func (s *Session) Submit(ctx context.Context, st *ChatState, line string) {
 		return
 	}
 	dec := input.Parse(line, s.root)
+	// Caller-resolved media (gateway channel attachments) ride this turn's bundle
+	// through the normal attachment path, then clear — next turns carry nothing.
+	if len(s.taskAttachments) > 0 {
+		dec.Bundle.Attachments = append(dec.Bundle.Attachments, s.taskAttachments...)
+		s.taskAttachments = nil
+	}
 	// Did the user explicitly authorize changing tests/specs/behavior this turn? If so,
 	// editing tests is the WORK; if not, weakening a test is gated as a self-heal cheat.
 	s.testEditIntent = userIntendsTestChange(dec.Bundle.Text)

@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -61,7 +62,7 @@ func TestToInbound(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, ok := toInbound(tt.u, 0, "")
+			got, _, ok := toInbound(tt.u, 0, "")
 			if ok != tt.wantOK {
 				t.Fatalf("ok = %v, want %v", ok, tt.wantOK)
 			}
@@ -69,7 +70,7 @@ func TestToInbound(t *testing.T) {
 				return
 			}
 			want := channels.Inbound{Channel: "telegram", Conversation: tt.wantConvo, Principal: tt.wantPrincipal, Text: tt.wantText, MessageID: "1"}
-			if got != want {
+			if !reflect.DeepEqual(got, want) {
 				t.Errorf("got %+v, want %+v", got, want)
 			}
 		})
@@ -85,7 +86,7 @@ func TestGetUpdates(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := New("TOKEN", nil)
+	c := New("TOKEN", nil, "")
 	c.base = srv.URL
 	ups, err := c.getUpdates(context.Background(), 0)
 	if err != nil {
@@ -102,7 +103,7 @@ func TestGetUpdatesAPIError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := New("TOKEN", nil)
+	c := New("TOKEN", nil, "")
 	c.base = srv.URL
 	if _, err := c.getUpdates(context.Background(), 0); err == nil || !strings.Contains(err.Error(), "unauthorized") {
 		t.Fatalf("want unauthorized error, got %v", err)
@@ -122,7 +123,7 @@ func TestStartLoadsPersistedOffset(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := New("TOKEN", &fakeOffsetStore{offset: 100})
+	c := New("TOKEN", &fakeOffsetStore{offset: 100}, "")
 	c.base = srv.URL
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -145,7 +146,7 @@ func TestDoSendRetryAfter(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := New("TOKEN", nil)
+	c := New("TOKEN", nil, "")
 	c.base = srv.URL
 	status, retryAfter, err := c.doSend(context.Background(), "42", "hi")
 	if err != nil {
@@ -172,7 +173,7 @@ func TestSend(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := New("TOKEN", nil)
+	c := New("TOKEN", nil, "")
 	c.base = srv.URL
 	if err := c.Send(context.Background(), "42", channels.Outbound{Text: "yo"}); err != nil {
 		t.Fatalf("Send: %v", err)
@@ -190,7 +191,7 @@ func TestGatingSignals(t *testing.T) {
 	priv := update{UpdateID: 1, Message: &tgMessage{
 		Text: "do it", Chat: &tgChat{ID: 1, Type: "private"}, From: &tgUser{ID: 7},
 	}}
-	if inb, _ := toInbound(priv, botID, botUser); !inb.IsDirect || inb.Mentioned {
+	if inb, _, _ := toInbound(priv, botID, botUser); !inb.IsDirect || inb.Mentioned {
 		t.Errorf("private: IsDirect=%v Mentioned=%v, want true/false", inb.IsDirect, inb.Mentioned)
 	}
 
@@ -198,7 +199,7 @@ func TestGatingSignals(t *testing.T) {
 	plain := update{UpdateID: 2, Message: &tgMessage{
 		Text: "hi all", Chat: &tgChat{ID: -100, Type: "supergroup"}, From: &tgUser{ID: 7},
 	}}
-	if inb, _ := toInbound(plain, botID, botUser); inb.IsDirect || inb.Mentioned {
+	if inb, _, _ := toInbound(plain, botID, botUser); inb.IsDirect || inb.Mentioned {
 		t.Errorf("group plain: IsDirect=%v Mentioned=%v, want false/false", inb.IsDirect, inb.Mentioned)
 	}
 
@@ -208,7 +209,7 @@ func TestGatingSignals(t *testing.T) {
 		Text: text, Chat: &tgChat{ID: -100, Type: "supergroup"}, From: &tgUser{ID: 7},
 		Entities: []tgEntity{{Type: "mention", Offset: 0, Length: len([]rune("@memcodebot"))}},
 	}}
-	if inb, _ := toInbound(mentioned, botID, botUser); !inb.Mentioned {
+	if inb, _, _ := toInbound(mentioned, botID, botUser); !inb.Mentioned {
 		t.Error("group @mention not detected")
 	}
 
@@ -218,7 +219,7 @@ func TestGatingSignals(t *testing.T) {
 		Text: cmd, Chat: &tgChat{ID: -100, Type: "group"}, From: &tgUser{ID: 7},
 		Entities: []tgEntity{{Type: "bot_command", Offset: 0, Length: len([]rune(cmd))}},
 	}}
-	if inb, _ := toInbound(command, botID, botUser); !inb.Mentioned {
+	if inb, _, _ := toInbound(command, botID, botUser); !inb.Mentioned {
 		t.Error("/command@bot not detected")
 	}
 
@@ -227,7 +228,7 @@ func TestGatingSignals(t *testing.T) {
 		Text: "thanks", Chat: &tgChat{ID: -100, Type: "group"}, From: &tgUser{ID: 7},
 		ReplyToMessage: &tgMessage{From: &tgUser{ID: botID}},
 	}}
-	if inb, _ := toInbound(reply, botID, botUser); !inb.Mentioned {
+	if inb, _, _ := toInbound(reply, botID, botUser); !inb.Mentioned {
 		t.Error("reply-to-bot not treated as a mention")
 	}
 
@@ -237,7 +238,7 @@ func TestGatingSignals(t *testing.T) {
 		Text: other, Chat: &tgChat{ID: -100, Type: "group"}, From: &tgUser{ID: 7},
 		Entities: []tgEntity{{Type: "mention", Offset: 0, Length: len([]rune("@someoneelse"))}},
 	}}
-	if inb, _ := toInbound(othermention, botID, botUser); inb.Mentioned {
+	if inb, _, _ := toInbound(othermention, botID, botUser); inb.Mentioned {
 		t.Error("mention of another user should not count as addressing this bot")
 	}
 }

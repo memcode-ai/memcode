@@ -141,9 +141,10 @@ for local gateway development. Never store keys in .memcode.`,
 			// Uses the chat seams (which load + save the transcript) instead of Run.
 			if sessionID, _ := cmd.Flags().GetString("session"); sessionID != "" {
 				sess.SetSessionID(sessionID)
-				if jc := loadJobContext(sessionID); len(jc.Items) > 0 || len(jc.SkillRoots) > 0 {
-					sess.SetContext(jc.Items)         // gateway-supplied persona/user context for this run
-					sess.SetSkillRoots(jc.SkillRoots) // persona's own skills join discovery
+				if jc := loadJobContext(sessionID); len(jc.Items) > 0 || len(jc.SkillRoots) > 0 || len(jc.Attachments) > 0 {
+					sess.SetContext(jc.Items)                                      // gateway-supplied persona/user context for this run
+					sess.SetSkillRoots(jc.SkillRoots)                              // persona's own skills join discovery
+					sess.SetTaskAttachments(resolveJobAttachments(jc.Attachments)) // channel media rides this turn
 				}
 				if _, err := runtime.ResolveSession(cfg.Root, sessionID); err == nil {
 					sess.SetResume(sessionID)

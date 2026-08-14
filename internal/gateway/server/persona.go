@@ -16,9 +16,16 @@ import (
 type jobContext struct {
 	Items      []agentrt.ContextItem `json:"items,omitempty"`
 	SkillRoots []string              `json:"skill_roots,omitempty"`
+	// Attachments are media spool IDs (bare <sha256>.<ext> filenames) riding this
+	// task. IDs, never paths: the child resolves them strictly inside the gateway
+	// media spool, so a corrupted or stale context file cannot point a job at
+	// arbitrary local files.
+	Attachments []string `json:"attachments,omitempty"`
 }
 
-func (jc jobContext) empty() bool { return len(jc.Items) == 0 && len(jc.SkillRoots) == 0 }
+func (jc jobContext) empty() bool {
+	return len(jc.Items) == 0 && len(jc.SkillRoots) == 0 && len(jc.Attachments) == 0
+}
 
 // jobContextFor composes everything a bound persona layers onto a run: its
 // instructions and memory as generic ContextItems, and its own skills dir as an

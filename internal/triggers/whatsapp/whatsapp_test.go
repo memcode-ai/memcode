@@ -41,16 +41,21 @@ func TestVerifyChallenge(t *testing.T) {
 func TestToInbounds(t *testing.T) {
 	payload := `{"entry":[{"changes":[{"value":{"messages":[
 		{"id":"wamid.1","from":"15551230000","type":"text","text":{"body":"do it"}},
-		{"id":"wamid.2","from":"15551230000","type":"image","text":{"body":""}},
-		{"id":"wamid.3","from":"15559990000","type":"text","text":{"body":"hi"}}
+		{"id":"wamid.2","from":"15551230000","type":"image","image":{"id":"m9","mime_type":"image/jpeg","caption":"what is this?"}},
+		{"id":"wamid.3","from":"15559990000","type":"text","text":{"body":"hi"}},
+		{"id":"wamid.4","from":"","type":"text","text":{"body":"orphan"}}
 	]}}]}]}`
 	got := toInbounds([]byte(payload))
-	if len(got) != 2 {
-		t.Fatalf("want 2 text messages, got %d: %+v", len(got), got)
+	if len(got) != 3 {
+		t.Fatalf("want 3 messages, got %d: %+v", len(got), got)
 	}
 	want := channels.Inbound{Channel: "whatsapp", Conversation: "15551230000", Principal: "15551230000", Text: "do it", MessageID: "wamid.1", IsDirect: true}
-	if got[0] != want {
-		t.Errorf("got %+v, want %+v", got[0], want)
+	if got[0].inb.Channel != want.Channel || got[0].inb.Text != want.Text || got[0].inb.MessageID != want.MessageID || got[0].inb.Conversation != want.Conversation {
+		t.Errorf("got %+v, want %+v", got[0].inb, want)
+	}
+	// An image message carries its media reference and uses the caption as text.
+	if len(got[1].media) != 1 || got[1].media[0].ID != "m9" || got[1].inb.Text != "what is this?" {
+		t.Errorf("image message parsed wrong: %+v", got[1])
 	}
 	if n := len(toInbounds([]byte("not json"))); n != 0 {
 		t.Errorf("bad json yielded %d inbounds", n)
@@ -69,7 +74,7 @@ func TestSend(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := New("PN123", "TOKEN", "vt", "sekret")
+	c := New("PN123", "TOKEN", "vt", "sekret", "")
 	c.base = srv.URL
 	if err := c.Send(context.Background(), "15551230000", channels.Outbound{Text: "yo"}); err != nil {
 		t.Fatalf("Send: %v", err)
@@ -94,7 +99,7 @@ func (s *recSink) Deliver(_ context.Context, inb channels.Inbound) error {
 }
 
 func TestHandlerGET(t *testing.T) {
-	c := New("PN", "tok", "vt", "sekret")
+	c := New("PN", "tok", "vt", "sekret", "")
 	h := c.Handler(&recSink{})
 	req := httptest.NewRequest(http.MethodGet, "/webhook/whatsapp?hub.mode=subscribe&hub.verify_token=vt&hub.challenge=99", nil)
 	rr := httptest.NewRecorder()
@@ -106,7 +111,7 @@ func TestHandlerGET(t *testing.T) {
 
 func TestHandlerPOSTSignature(t *testing.T) {
 	const secret = "sekret"
-	c := New("PN", "tok", "vt", secret)
+	c := New("PN", "tok", "vt", secret, "")
 	sink := &recSink{}
 	h := c.Handler(sink)
 

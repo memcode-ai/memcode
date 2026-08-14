@@ -1,6 +1,7 @@
 package slack
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/slack-go/slack/slackevents"
@@ -34,7 +35,7 @@ func TestToInbound(t *testing.T) {
 				return
 			}
 			want := channels.Inbound{Channel: "slack", Conversation: tt.wantConvo, Principal: tt.wantWho, Text: tt.wantText, MessageID: "ts1"}
-			if got != want {
+			if !reflect.DeepEqual(got, want) {
 				t.Errorf("got %+v, want %+v", got, want)
 			}
 		})

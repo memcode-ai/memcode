@@ -266,6 +266,19 @@ func ContextPath(session string) (string, error) {
 	return filepath.Join(dir, "context", session+".json"), nil
 }
 
+// MediaDir is the gateway's media spool: downloaded inbound attachments and
+// synthesized voice replies, content-addressed (<sha256>.<ext>). Gateway-owned
+// and global like the rest of the operational state; pruned with the inbox.
+// The spool is the TRUST BOUNDARY for job media: jobs receive spool IDs, never
+// paths, and resolve them only inside this directory.
+func MediaDir() (string, error) {
+	dir, err := Dir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "media"), nil
+}
+
 // PersonaHome is a persona's state directory: ~/.memcode/agents/<id>, holding its
 // own memory.md, MEMCODE.md, and skills. Distinct from the project (the cwd) and
 // from user-global ~/.memcode (shared by all personas).
