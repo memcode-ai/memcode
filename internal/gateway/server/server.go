@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -21,6 +22,7 @@ import (
 	"github.com/memcode-ai/memcode/internal/channels/slack"
 	"github.com/memcode-ai/memcode/internal/channels/telegram"
 	gwconfig "github.com/memcode-ai/memcode/internal/gateway/config"
+	"github.com/memcode-ai/memcode/internal/gateway/state"
 	"github.com/memcode-ai/memcode/internal/jobs"
 	githubtrigger "github.com/memcode-ai/memcode/internal/triggers/github"
 	"github.com/memcode-ai/memcode/internal/triggers/whatsapp"
@@ -43,6 +45,15 @@ const defaultWebhookAddr = ":8787"
 // settings holds the non-secret gateway config (secrets come from the
 // environment, loaded from the global .env upstream).
 func Run(ctx context.Context, root string, settings gwconfig.Settings, out io.Writer) error {
+	st, err := state.Open(ctx, filepath.Join(root, ".memcode"))
+	if err != nil {
+		return fmt.Errorf("opening gateway state: %w", err)
+	}
+	defer st.Close()
+	// Forget dedup records older than 30 days so the table can't grow unbounded;
+	// duplicate deliveries only ever arrive close in time to the original.
+	_ = st.PruneProcessed(ctx, time.Now().Add(-30*24*time.Hour))
+
 	chs := channelsFrom(settings, out)
 
 	byName := make(map[string]replySender, len(chs)+1)
@@ -70,7 +81,7 @@ func Run(ctx context.Context, root string, settings gwconfig.Settings, out io.Wr
 		case <-ctx.Done():
 			return ctx.Err()
 		case inb := <-inbound:
-			go handle(ctx, root, byName[inb.Channel], inb, out)
+			go handle(ctx, root, st, byName[inb.Channel], inb, out)
 		}
 	}
 }
@@ -173,10 +184,23 @@ func githubReplyRoute(replyTo string) (channel, conversation string, ok bool) {
 // back to its channel. Jobs are subprocesses (a hung/panicking run can't wedge
 // the gateway or other channels); we poll to completion. Failures are reported
 // to the user, never silently dropped.
-func handle(ctx context.Context, root string, ch replySender, inb channels.Inbound, out io.Writer) {
+func handle(ctx context.Context, root string, st *state.Store, ch replySender, inb channels.Inbound, out io.Writer) {
 	if ch == nil {
 		fmt.Fprintf(out, "gateway: no route for channel %q — dropping message\n", inb.Channel)
 		return
+	}
+	// Durable idempotency: a redelivery (provider retry, reconnect, or restart)
+	// must never re-run as a fresh agent turn. MarkProcessed is atomic, so it also
+	// guards two concurrent deliveries of the same id. A message with no id can't
+	// be deduped — process it, but say so.
+	if inb.MessageID != "" {
+		fresh, err := st.MarkProcessed(ctx, inb.Channel, inb.MessageID, time.Now())
+		if err != nil {
+			fmt.Fprintf(out, "gateway: dedup check failed (%s %s): %v — proceeding\n", inb.Channel, inb.MessageID, err)
+		} else if !fresh {
+			fmt.Fprintf(out, "gateway: duplicate %s message %s — skipping\n", inb.Channel, inb.MessageID)
+			return
+		}
 	}
 	// A gateway-triggered job has no TTY to answer approval prompts → Auto mode.
 	job, err := jobs.Spawn(root, inb.Text, string(permissions.ModeAuto), "", false, true)

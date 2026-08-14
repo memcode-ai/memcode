@@ -11,6 +11,7 @@ import (
 
 func msg(content, chanID, authorID, username string, bot bool) *discordgo.MessageCreate {
 	return &discordgo.MessageCreate{Message: &discordgo.Message{
+		ID:        "m1",
 		ChannelID: chanID,
 		Content:   content,
 		Author:    &discordgo.User{ID: authorID, Username: username, Bot: bot},
@@ -43,7 +44,7 @@ func TestToInbound(t *testing.T) {
 			if !ok {
 				return
 			}
-			want := channels.Inbound{Channel: "discord", Conversation: tt.wantConvo, Principal: tt.wantPrincipal, Text: tt.wantText}
+			want := channels.Inbound{Channel: "discord", Conversation: tt.wantConvo, Principal: tt.wantPrincipal, Text: tt.wantText, MessageID: "m1"}
 			if got != want {
 				t.Errorf("got %+v, want %+v", got, want)
 			}

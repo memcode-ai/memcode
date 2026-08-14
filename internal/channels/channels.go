@@ -12,8 +12,14 @@ import "context"
 type Inbound struct {
 	Channel      string // adapter name, matches Channel.Name() ("telegram", …)
 	Conversation string // opaque per-channel chat/thread id the reply routes back to
-	Principal    string // who sent it (id or @handle) — for authz + audit later
+	Principal    string // who sent it (id or @handle) — for authz + audit
 	Text         string // the message body: the task handed to the agent
+	// MessageID is the platform's stable, unique id for this delivery (Telegram
+	// update_id, Discord message id, Slack event ts, GitHub delivery, WhatsApp
+	// wamid). The router dedups on (Channel, MessageID) so a redelivery — after a
+	// restart, reconnect, or provider retry — never re-runs as a fresh agent turn.
+	// Empty means the adapter couldn't supply one; the router then can't dedup it.
+	MessageID string
 }
 
 // Outbound is a reply to post back to a conversation.

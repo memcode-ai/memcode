@@ -54,7 +54,8 @@ func (t *Trigger) Handler(inbound chan<- channels.Inbound) http.Handler {
 			http.Error(w, "bad signature", http.StatusUnauthorized)
 			return
 		}
-		if id := r.Header.Get("X-GitHub-Delivery"); id != "" && t.dedup.seenBefore(id) {
+		delivery := r.Header.Get("X-GitHub-Delivery")
+		if delivery != "" && t.dedup.seenBefore(delivery) {
 			w.WriteHeader(http.StatusOK) // already processed — ack and ignore
 			return
 		}
@@ -71,7 +72,10 @@ func (t *Trigger) Handler(inbound chan<- channels.Inbound) http.Handler {
 			return
 		}
 
-		inb := channels.Inbound{Channel: ch, Conversation: convo, Principal: "github", Text: task}
+		// MessageID carries the delivery id so the router's durable dedup also
+		// guards against re-runs across a restart (the in-memory dedup above does
+		// not survive one — hardened separately).
+		inb := channels.Inbound{Channel: ch, Conversation: convo, Principal: "github", Text: task, MessageID: "github:" + delivery}
 		select {
 		case inbound <- inb:
 			w.WriteHeader(http.StatusAccepted)

@@ -90,6 +90,7 @@ func toInbound(m *discordgo.MessageCreate, selfID string) (channels.Inbound, boo
 		Conversation: m.ChannelID,
 		Principal:    principal,
 		Text:         m.Content,
+		MessageID:    m.ID,
 	}, true
 }
 

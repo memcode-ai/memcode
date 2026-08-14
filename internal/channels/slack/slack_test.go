@@ -17,7 +17,7 @@ func TestToInbound(t *testing.T) {
 		wantWho   string
 		wantText  string
 	}{
-		{"plain user message", &slackevents.MessageEvent{User: "U7", Channel: "C1", Text: "do it"}, true, "C1", "U7", "do it"},
+		{"plain user message", &slackevents.MessageEvent{User: "U7", Channel: "C1", Text: "do it", TimeStamp: "ts1"}, true, "C1", "U7", "do it"},
 		{"bot message skipped", &slackevents.MessageEvent{User: "U7", Channel: "C1", Text: "hi", BotID: "B9"}, false, "", "", ""},
 		{"subtype skipped", &slackevents.MessageEvent{User: "U7", Channel: "C1", Text: "hi", SubType: "message_changed"}, false, "", "", ""},
 		{"empty text skipped", &slackevents.MessageEvent{User: "U7", Channel: "C1", Text: "  "}, false, "", "", ""},
@@ -33,7 +33,7 @@ func TestToInbound(t *testing.T) {
 			if !ok {
 				return
 			}
-			want := channels.Inbound{Channel: "slack", Conversation: tt.wantConvo, Principal: tt.wantWho, Text: tt.wantText}
+			want := channels.Inbound{Channel: "slack", Conversation: tt.wantConvo, Principal: tt.wantWho, Text: tt.wantText, MessageID: "ts1"}
 			if got != want {
 				t.Errorf("got %+v, want %+v", got, want)
 			}

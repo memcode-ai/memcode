@@ -37,15 +37,15 @@ func TestVerifyChallenge(t *testing.T) {
 
 func TestToInbounds(t *testing.T) {
 	payload := `{"entry":[{"changes":[{"value":{"messages":[
-		{"from":"15551230000","type":"text","text":{"body":"do it"}},
-		{"from":"15551230000","type":"image","text":{"body":""}},
-		{"from":"15559990000","type":"text","text":{"body":"hi"}}
+		{"id":"wamid.1","from":"15551230000","type":"text","text":{"body":"do it"}},
+		{"id":"wamid.2","from":"15551230000","type":"image","text":{"body":""}},
+		{"id":"wamid.3","from":"15559990000","type":"text","text":{"body":"hi"}}
 	]}}]}]}`
 	got := toInbounds([]byte(payload))
 	if len(got) != 2 {
 		t.Fatalf("want 2 text messages, got %d: %+v", len(got), got)
 	}
-	want := channels.Inbound{Channel: "whatsapp", Conversation: "15551230000", Principal: "15551230000", Text: "do it"}
+	want := channels.Inbound{Channel: "whatsapp", Conversation: "15551230000", Principal: "15551230000", Text: "do it", MessageID: "wamid.1"}
 	if got[0] != want {
 		t.Errorf("got %+v, want %+v", got[0], want)
 	}

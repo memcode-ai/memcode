@@ -106,6 +106,7 @@ type inboundPayload struct {
 		Changes []struct {
 			Value struct {
 				Messages []struct {
+					ID   string `json:"id"`
 					From string `json:"from"`
 					Type string `json:"type"`
 					Text struct {
@@ -136,6 +137,7 @@ func toInbounds(body []byte) []channels.Inbound {
 					Conversation: m.From,
 					Principal:    m.From,
 					Text:         m.Text.Body,
+					MessageID:    m.ID,
 				})
 			}
 		}

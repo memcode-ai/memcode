@@ -110,6 +110,7 @@ func toInbound(u update) (channels.Inbound, bool) {
 		Conversation: strconv.FormatInt(u.Message.Chat.ID, 10),
 		Principal:    principal,
 		Text:         u.Message.Text,
+		MessageID:    strconv.FormatInt(u.UpdateID, 10),
 	}, true
 }
 
