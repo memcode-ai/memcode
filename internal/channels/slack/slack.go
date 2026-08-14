@@ -94,8 +94,20 @@ func toInbound(me *slackevents.MessageEvent) (channels.Inbound, bool) {
 	}, true
 }
 
-// Send posts a reply to a channel or DM.
+// slackMaxMessage keeps each posted message well under Slack's hard limit so a
+// long reply is split rather than truncated.
+const slackMaxMessage = 3900
+
+// Send posts a reply to a channel or DM, splitting long text with the shared
+// chunker so it goes through the same egress as every other channel.
 func (c *Channel) Send(ctx context.Context, conversation string, msg channels.Outbound) error {
-	_, _, err := c.api.PostMessageContext(ctx, conversation, slack.MsgOptionText(msg.Text, false))
-	return err
+	for _, part := range channels.Chunk(msg.Text, slackMaxMessage) {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if _, _, err := c.api.PostMessageContext(ctx, conversation, slack.MsgOptionText(part, false)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
