@@ -2,10 +2,8 @@ package cmd
 
 import (
 	"bufio"
-	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -13,7 +11,6 @@ import (
 
 	"github.com/memcode-ai/memcode/internal/authflow"
 	gwconfig "github.com/memcode-ai/memcode/internal/gateway/config"
-	"github.com/memcode-ai/memcode/internal/gateway/importer"
 	gwserver "github.com/memcode-ai/memcode/internal/gateway/server"
 	"github.com/memcode-ai/memcode/internal/provider"
 )
@@ -134,174 +131,6 @@ var gatewaySetupCmd = &cobra.Command{
 	},
 }
 
-// gatewayImportCmd migrates an existing OpenClaw or Hermes configuration into
-// memcode's gateway config — bring your channels over with one command instead of
-// reconfiguring each by hand. The format is auto-detected (OpenClaw JSON vs Hermes
-// YAML); with no path it looks in each tool's default location.
-var gatewayImportCmd = &cobra.Command{
-	Use:   "import",
-	Short: "Import channels from an existing OpenClaw or Hermes install",
-	Long: `Import your channels from an existing OpenClaw or Hermes install.
-
-Just run it — it finds the config in each tool's default location and detects the
-format automatically:
-
-  memcode gateway import
-
-Pass a path only if your config lives somewhere non-standard:
-
-  memcode gateway import /path/to/config`,
-	Args: cobra.MaximumNArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		provider.LoadDotEnv() // so env-referenced credentials resolve
-
-		arg := ""
-		if len(args) == 1 {
-			arg = args[0]
-		}
-		res, source, err := resolveImport(arg)
-		if err != nil {
-			return err
-		}
-
-		// Merge into the existing gateway config: set each imported channel's
-		// allow-list, preserving any per-channel settings already present.
-		cur, err := gwconfig.Load()
-		if err != nil {
-			return err
-		}
-		if cur.Channels == nil {
-			cur.Channels = map[string]gwconfig.Channel{}
-		}
-		var imported []string
-		for name, ch := range res.Settings.Channels {
-			existing := cur.Channels[name]
-			existing.AllowFrom = ch.AllowFrom
-			cur.Channels[name] = existing
-			imported = append(imported, name)
-		}
-		if err := gwconfig.Save(cur); err != nil {
-			return err
-		}
-		if len(res.Secrets) > 0 {
-			if err := authflow.SetGlobalEnv(res.Secrets); err != nil {
-				return err
-			}
-		}
-
-		cmd.Printf("Imported from %s\n", source)
-		if len(imported) > 0 {
-			cmd.Printf("Channels: %s\n", strings.Join(imported, ", "))
-		}
-		cmd.Printf("Credentials written to the global .env: %d\n", len(res.Secrets))
-		for _, note := range res.Notes {
-			cmd.Printf("  note: %s\n", note)
-		}
-		cmd.Println("Review with `memcode gateway setup`, then run `memcode gateway`.")
-		return nil
-	},
-}
-
-// resolveImport finds and imports a config, auto-detecting OpenClaw vs Hermes. An
-// explicit path is detected by content; with no path it tries OpenClaw's default
-// location, then Hermes's. Returns the mapped result and a human-readable source.
-func resolveImport(arg string) (importer.Result, string, error) {
-	if arg != "" {
-		data, err := os.ReadFile(arg)
-		if err != nil {
-			return importer.Result{}, "", err
-		}
-		return importByContent(arg, data)
-	}
-	if path, _ := openClawConfigPath(""); path != "" {
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return importer.Result{}, "", err
-		}
-		res, err := importer.FromOpenClaw(data, os.Getenv)
-		return res, "OpenClaw (" + path + ")", err
-	}
-	if path := hermesConfigPath(); path != "" {
-		return importHermesFile(path)
-	}
-	return importer.Result{}, "", fmt.Errorf("no OpenClaw or Hermes config found (looked in ~/.openclaw/openclaw.json and ~/.hermes/config.yaml); pass a path explicitly")
-}
-
-// importByContent picks the importer by what the file contains: OpenClaw is JSON
-// with a top-level "channels" object; anything else is treated as a Hermes YAML.
-func importByContent(path string, data []byte) (importer.Result, string, error) {
-	var probe map[string]json.RawMessage
-	if json.Unmarshal(data, &probe) == nil {
-		if _, ok := probe["channels"]; ok {
-			res, err := importer.FromOpenClaw(data, os.Getenv)
-			return res, "OpenClaw (" + path + ")", err
-		}
-	}
-	res, err := importHermesData(path, data)
-	return res, "Hermes (" + path + ")", err
-}
-
-// importHermesFile reads a Hermes config.yaml and imports it.
-func importHermesFile(path string) (importer.Result, string, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return importer.Result{}, "", err
-	}
-	res, err := importHermesData(path, data)
-	return res, "Hermes (" + path + ")", err
-}
-
-// importHermesData maps a Hermes config plus the .env sitting beside it (its
-// canonical token home) into memcode's config.
-func importHermesData(path string, configYAML []byte) (importer.Result, error) {
-	env := map[string]string{}
-	if b, err := os.ReadFile(filepath.Join(filepath.Dir(path), ".env")); err == nil {
-		env = importer.ParseEnv(b)
-	}
-	return importer.FromHermes(configYAML, env)
-}
-
-// hermesConfigPath returns the default Hermes config path if it exists, else "".
-func hermesConfigPath() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ""
-	}
-	p := filepath.Join(home, ".hermes", "config.yaml")
-	if _, err := os.Stat(p); err == nil {
-		return p
-	}
-	return ""
-}
-
-// openClawConfigPath resolves the OpenClaw config to import: an explicit arg, then
-// OpenClaw's own default locations. Returns the found path (or "") and the list
-// of locations searched.
-func openClawConfigPath(arg string) (string, []string) {
-	if arg != "" {
-		return arg, []string{arg}
-	}
-	var candidates []string
-	if p := os.Getenv("OPENCLAW_CONFIG_PATH"); p != "" {
-		candidates = append(candidates, p)
-	}
-	if d := os.Getenv("OPENCLAW_STATE_DIR"); d != "" {
-		candidates = append(candidates, filepath.Join(d, "openclaw.json"))
-	}
-	if home, err := os.UserHomeDir(); err == nil {
-		candidates = append(candidates,
-			filepath.Join(home, ".openclaw", "openclaw.json"),
-			filepath.Join(home, ".clawdbot", "openclaw.json"), // legacy
-		)
-	}
-	for _, c := range candidates {
-		if _, err := os.Stat(c); err == nil {
-			return c, candidates
-		}
-	}
-	return "", candidates
-}
-
 // allowList prompts for the principals allowed to drive the agent through this
 // channel. The gateway is default-deny, so an empty answer means no one can use
 // the channel yet; "*" allows anyone who can reach it.
@@ -341,6 +170,5 @@ func secret(cmd *cobra.Command, label string) string {
 
 func init() {
 	gatewayCmd.AddCommand(gatewaySetupCmd)
-	gatewayCmd.AddCommand(gatewayImportCmd)
 	rootCmd.AddCommand(gatewayCmd)
 }
