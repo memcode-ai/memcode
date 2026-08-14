@@ -709,7 +709,15 @@ func startWebhooks(ctx context.Context, settings gwconfig.Settings, rt *runtime,
 	if addr == "" {
 		addr = defaultWebhookAddr
 	}
-	srv := &http.Server{Addr: addr, Handler: mux}
+	srv := &http.Server{
+		Addr:    addr,
+		Handler: mux,
+		// Bound a slow client: without a read-header deadline a slowloris
+		// connection can hold a handler open indefinitely.
+		ReadHeaderTimeout: 15 * time.Second,
+		ReadTimeout:       60 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
 	go func() {
 		<-ctx.Done()
 		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -738,13 +746,24 @@ func parseRoute(replyTo string) (channel, conversation string, ok bool) {
 
 // waitForJob polls until the job leaves the running state and returns text to post
 // back: the agent's result on success, or a pointer to the log on failure.
+// maxJobWait backstops a hung agent child: the per-conversation dispatcher is
+// serial, so a job that never finishes would block that conversation's queue
+// forever. After this the gateway stops waiting and reports back (the child is
+// still reaped by its own process lifecycle); it's generous enough that no real
+// task hits it.
+const maxJobWait = 30 * time.Minute
+
 func waitForJob(ctx context.Context, root, id string) string {
 	tick := time.NewTicker(2 * time.Second)
 	defer tick.Stop()
+	deadline := time.NewTimer(maxJobWait)
+	defer deadline.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return "Interrupted before it finished."
+		case <-deadline.C:
+			return fmt.Sprintf("That task is still running after %s — I stopped waiting. Details in .memcode/jobs/%s/log", maxJobWait, id)
 		case <-tick.C:
 			j, err := jobs.Get(root, id)
 			if err != nil {

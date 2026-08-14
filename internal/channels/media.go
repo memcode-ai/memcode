@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // MaxAttachmentBytes caps a single downloaded attachment. Keeps a hostile or
@@ -70,6 +71,11 @@ func SaveToSpool(dir string, r io.Reader, mimeType, name string) (Attachment, er
 	id := hex.EncodeToString(h.Sum(nil)) + spoolExt(mimeType, name)
 	final := filepath.Join(dir, id)
 	if _, statErr := os.Stat(final); statErr == nil {
+		// Content-addressed dedup hit: refresh the mtime so the spool pruner
+		// (which evicts by age) doesn't reclaim a file a still-pending task
+		// references. Best-effort.
+		now := time.Now()
+		_ = os.Chtimes(final, now, now)
 		return Attachment{Path: final, Kind: KindForMime(mimeType, name), Mime: mimeType, Name: name}, nil
 	}
 	if err := os.Rename(tmp.Name(), final); err != nil {

@@ -34,7 +34,7 @@ func TestToInbound(t *testing.T) {
 			if !ok {
 				return
 			}
-			want := channels.Inbound{Channel: "slack", Conversation: tt.wantConvo, Principal: tt.wantWho, Text: tt.wantText, MessageID: "ts1"}
+			want := channels.Inbound{Channel: "slack", Conversation: tt.wantConvo, Principal: tt.wantWho, Text: tt.wantText, MessageID: tt.wantConvo + ":ts1"}
 			if !reflect.DeepEqual(got, want) {
 				t.Errorf("got %+v, want %+v", got, want)
 			}

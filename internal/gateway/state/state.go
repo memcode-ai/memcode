@@ -241,7 +241,7 @@ func (s *Store) Accept(ctx context.Context, it Item, now time.Time) (bool, error
 func (s *Store) Pending(ctx context.Context) ([]Item, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT channel, message_id, conversation, principal, text, trusted, agent, project, attachments
-		   FROM inbox WHERE status = 'pending' ORDER BY received_at`)
+		   FROM inbox WHERE status = 'pending' ORDER BY received_at LIMIT 500`)
 	if err != nil {
 		return nil, fmt.Errorf("pending inbox: %w", err)
 	}
@@ -280,7 +280,7 @@ func (s *Store) SetReplied(ctx context.Context, channel, messageID, reply, voice
 func (s *Store) PendingReplies(ctx context.Context) ([]Item, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT channel, message_id, conversation, principal, text, trusted, reply, voice
-		   FROM inbox WHERE status = 'replied' ORDER BY received_at`)
+		   FROM inbox WHERE status = 'replied' ORDER BY received_at LIMIT 500`)
 	if err != nil {
 		return nil, fmt.Errorf("pending replies: %w", err)
 	}

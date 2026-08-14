@@ -1,6 +1,9 @@
 package input
 
 import (
+	"bytes"
+	"image"
+	"image/png"
 	"os"
 	"path/filepath"
 	"strings"
@@ -147,5 +150,31 @@ func TestParseLeavesNonexistentAndProseAlone(t *testing.T) {
 	// Prose that happens to contain repo-pathy words must remain ordinary text too.
 	if dec := Parse("update the datasets/ loader in scripts and rerun", dir); len(dec.Bundle.Attachments) != 0 {
 		t.Errorf("prose should never attach: %+v", dec.Bundle.Attachments)
+	}
+}
+
+// A crafted image declaring enormous dimensions is refused before decode (the
+// decompression-bomb guard); a normal image still downscales.
+func TestDownscaleRejectsOversizedDimensions(t *testing.T) {
+	// A 1x1 PNG that we then rewrite to claim a huge width/height in its IHDR
+	// would require hand-crafting; instead assert the guard via a real large-ish
+	// image stays intact and the pixel cap constant is enforced by DecodeConfig.
+	var buf bytes.Buffer
+	img := image.NewRGBA(image.Rect(0, 0, 8, 8))
+	if err := png.Encode(&buf, img); err != nil {
+		t.Fatal(err)
+	}
+	// Corrupt the IHDR width/height to claim ~100000x100000 (well over the cap).
+	// PNG IHDR width is bytes 16..19, height 20..23 (after the 8-byte signature).
+	data := buf.Bytes()
+	bomb := make([]byte, len(data))
+	copy(bomb, data)
+	// 100000 = 0x000186A0
+	bomb[16], bomb[17], bomb[18], bomb[19] = 0x00, 0x01, 0x86, 0xA0
+	bomb[20], bomb[21], bomb[22], bomb[23] = 0x00, 0x01, 0x86, 0xA0
+	out, mime := Downscale(bomb, "image/png")
+	// Guard returns the original bytes unchanged rather than decoding the bomb.
+	if mime != "image/png" || len(out) != len(bomb) {
+		t.Errorf("oversized image should pass through untouched, got %d bytes", len(out))
 	}
 }

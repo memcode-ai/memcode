@@ -113,7 +113,7 @@ func toInbound(me *slackevents.MessageEvent, botID string) (channels.Inbound, bo
 		Conversation: me.Channel,
 		Principal:    me.User,
 		Text:         me.Text,
-		MessageID:    me.TimeStamp, // Slack's per-message ts, unique within a channel
+		MessageID:    me.Channel + ":" + me.TimeStamp, // channel-qualified: ts is unique only WITHIN a channel
 		IsDirect:     isDirect,
 		Mentioned:    mentioned,
 	}, true

@@ -19,6 +19,13 @@ import (
 // bandwidth + latency — on EVERY turn the image rides in the conversation history.
 const maxImageEdge = 2576
 
+// maxDecodePixels caps the pixel count we're willing to decode. A crafted PNG
+// can declare enormous dimensions in a few compressed bytes (a decompression
+// bomb) that expand to gigabytes of RGBA on Decode — so we read only the header
+// (DecodeConfig) first and refuse an over-large image before allocating. 50MP
+// comfortably clears any real screenshot or phone photo while stopping the bomb.
+const maxDecodePixels = 50_000_000
+
 // Downscale shrinks an image's long edge to maxImageEdge (re-encoding in the same format) when
 // it's larger, returning the smaller bytes. It's a best-effort optimization: any decode/encode
 // failure, an already-small image, or a result that isn't actually smaller returns the original
@@ -28,6 +35,14 @@ func Downscale(data []byte, mime string) ([]byte, string) {
 	switch mime {
 	case "image/png", "image/jpeg": // resize only the formats stdlib decodes losslessly here
 	default:
+		return data, mime
+	}
+	// Read only the header first: a hostile image can declare huge dimensions
+	// that would balloon to gigabytes of pixels on a full decode. Refuse an
+	// over-large image before decoding (it rides on as the original bytes; the
+	// downstream base64 caps still bound what actually reaches the model).
+	if cfg, _, err := image.DecodeConfig(bytes.NewReader(data)); err != nil ||
+		int64(cfg.Width)*int64(cfg.Height) > maxDecodePixels {
 		return data, mime
 	}
 	img, _, err := image.Decode(bytes.NewReader(data))
