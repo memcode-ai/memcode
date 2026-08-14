@@ -1,0 +1,249 @@
+// Package state is the gateway's durable bookkeeping — the state that MUST
+// survive a restart for the gateway to behave correctly: a durable INBOX of
+// accepted-but-not-yet-processed messages (so a message is never lost between
+// being acked to the provider and being run), and each polling channel's ack
+// cursor (so a restart resumes where it left off). Both Hermes and OpenClaw's
+// worst, money-losing bugs trace to keeping this state in memory; we keep it in a
+// dedicated SQLite file, separate from the core event store.
+//
+// The inbox row's (channel, message_id) primary key also serves as the dedup
+// key: a redelivery inserts nothing (fresh=false) and is dropped.
+package state
+
+import (
+	"context"
+	"database/sql"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	_ "modernc.org/sqlite"
+)
+
+const schema = `
+CREATE TABLE IF NOT EXISTS inbox (
+    channel      TEXT NOT NULL,
+    message_id   TEXT NOT NULL,
+    conversation TEXT NOT NULL,
+    principal    TEXT NOT NULL,
+    text         TEXT NOT NULL,
+    trusted      INTEGER NOT NULL,
+    status       TEXT NOT NULL,          -- 'pending' | 'replied' | 'done'
+    reply        TEXT NOT NULL DEFAULT '', -- the job's result, held durably until delivered
+    received_at  TEXT NOT NULL,
+    PRIMARY KEY (channel, message_id)
+);
+CREATE INDEX IF NOT EXISTS idx_inbox_status ON inbox (status, received_at);
+
+CREATE TABLE IF NOT EXISTS poll_offsets (
+    channel    TEXT PRIMARY KEY,
+    offset_val INTEGER NOT NULL
+);
+`
+
+// Item is one inbound message durably recorded for processing. Reply is set only
+// for items returned by PendingReplies (the job finished; the reply awaits
+// delivery).
+type Item struct {
+	Channel      string
+	MessageID    string
+	Conversation string
+	Principal    string
+	Text         string
+	Trusted      bool
+	Reply        string
+}
+
+// Store is the gateway's durable state.
+type Store struct {
+	db   *sql.DB
+	lock *os.File // exclusive project lock; nil on platforms without file locking
+}
+
+// Open opens (creating if needed) the gateway state DB at dir/gateway.db. It also
+// takes an exclusive lock on the project so a second `memcode gateway` for the
+// same repo cannot start and double-process the shared inbox — the in-memory
+// dedup guard only protects a single process. The lock releases when the Store is
+// closed or the process exits.
+func Open(ctx context.Context, dir string) (*Store, error) {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, fmt.Errorf("creating %s: %w", dir, err)
+	}
+	lock, err := acquireLock(filepath.Join(dir, "gateway.lock"))
+	if err != nil {
+		return nil, err
+	}
+	path := filepath.Join(dir, "gateway.db")
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		releaseLock(lock)
+		return nil, fmt.Errorf("opening %s: %w", path, err)
+	}
+	// busy_timeout first, then WAL — the gateway and detached agent jobs may touch
+	// the project concurrently, so the WAL switch must wait for a lock, not fail.
+	for _, pragma := range []string{
+		"PRAGMA busy_timeout=5000",
+		"PRAGMA journal_mode=WAL",
+	} {
+		if _, err := db.ExecContext(ctx, pragma); err != nil {
+			_ = db.Close()
+			releaseLock(lock)
+			return nil, fmt.Errorf("%s: %w", pragma, err)
+		}
+	}
+	if _, err := db.ExecContext(ctx, schema); err != nil {
+		_ = db.Close()
+		releaseLock(lock)
+		return nil, fmt.Errorf("applying gateway schema: %w", err)
+	}
+	// Bring an inbox created before the reply column forward. A fresh table
+	// already has it, so ignore the duplicate-column error on the older shape.
+	if _, err := db.ExecContext(ctx, `ALTER TABLE inbox ADD COLUMN reply TEXT NOT NULL DEFAULT ''`); err != nil &&
+		!strings.Contains(err.Error(), "duplicate column") {
+		_ = db.Close()
+		releaseLock(lock)
+		return nil, fmt.Errorf("migrating inbox: %w", err)
+	}
+	return &Store{db: db, lock: lock}, nil
+}
+
+// Close closes the database and releases the project lock.
+func (s *Store) Close() error {
+	err := s.db.Close()
+	releaseLock(s.lock)
+	return err
+}
+
+// Accept durably records an inbound message as pending and reports whether this
+// call is the one that recorded it. fresh=true means "you own this message, ack
+// the provider and it will be processed"; fresh=false means it was already seen
+// (a duplicate delivery or a concurrent racer) and must be dropped. The insert is
+// atomic, so it also guards two concurrent deliveries of the same id. Callers ack
+// the provider only after Accept returns without error, so a crash before the
+// durable write re-delivers rather than loses the message.
+func (s *Store) Accept(ctx context.Context, it Item, now time.Time) (bool, error) {
+	res, err := s.db.ExecContext(ctx,
+		`INSERT OR IGNORE INTO inbox
+		   (channel, message_id, conversation, principal, text, trusted, status, received_at)
+		 VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)`,
+		it.Channel, it.MessageID, it.Conversation, it.Principal, it.Text, boolInt(it.Trusted),
+		now.UTC().Format(time.RFC3339Nano),
+	)
+	if err != nil {
+		return false, fmt.Errorf("accept inbound: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return n == 1, nil
+}
+
+// Pending returns the still-to-process items, oldest first. Used to feed the
+// worker and, on startup, to replay anything a prior crash left unprocessed.
+func (s *Store) Pending(ctx context.Context) ([]Item, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT channel, message_id, conversation, principal, text, trusted
+		   FROM inbox WHERE status = 'pending' ORDER BY received_at`)
+	if err != nil {
+		return nil, fmt.Errorf("pending inbox: %w", err)
+	}
+	defer rows.Close()
+	var out []Item
+	for rows.Next() {
+		var it Item
+		var trusted int
+		if err := rows.Scan(&it.Channel, &it.MessageID, &it.Conversation, &it.Principal, &it.Text, &trusted); err != nil {
+			return nil, err
+		}
+		it.Trusted = trusted != 0
+		out = append(out, it)
+	}
+	return out, rows.Err()
+}
+
+// SetReplied durably records a finished job's reply and moves the item to
+// 'replied'. From here the job is never re-run; only the reply's delivery is
+// retried, so a send failure or a crash after the job completes cannot lose the
+// result or repeat the work.
+func (s *Store) SetReplied(ctx context.Context, channel, messageID, reply string) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE inbox SET status = 'replied', reply = ? WHERE channel = ? AND message_id = ?`,
+		reply, channel, messageID)
+	return err
+}
+
+// PendingReplies returns items whose job finished but whose reply has not yet
+// been delivered, oldest first — the outbound retry queue, drained on every tick
+// and replayed after a restart.
+func (s *Store) PendingReplies(ctx context.Context) ([]Item, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT channel, message_id, conversation, principal, text, trusted, reply
+		   FROM inbox WHERE status = 'replied' ORDER BY received_at`)
+	if err != nil {
+		return nil, fmt.Errorf("pending replies: %w", err)
+	}
+	defer rows.Close()
+	var out []Item
+	for rows.Next() {
+		var it Item
+		var trusted int
+		if err := rows.Scan(&it.Channel, &it.MessageID, &it.Conversation, &it.Principal, &it.Text, &trusted, &it.Reply); err != nil {
+			return nil, err
+		}
+		it.Trusted = trusted != 0
+		out = append(out, it)
+	}
+	return out, rows.Err()
+}
+
+// MarkDone marks an item fully processed (reply delivered) so it is not run or
+// re-sent again.
+func (s *Store) MarkDone(ctx context.Context, channel, messageID string) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE inbox SET status = 'done' WHERE channel = ? AND message_id = ?`, channel, messageID)
+	return err
+}
+
+// PruneDone deletes processed items older than the cutoff, so the inbox can't
+// grow without bound. Only 'done' rows are pruned; pending work is never dropped.
+func (s *Store) PruneDone(ctx context.Context, before time.Time) error {
+	_, err := s.db.ExecContext(ctx,
+		`DELETE FROM inbox WHERE status = 'done' AND received_at < ?`,
+		before.UTC().Format(time.RFC3339Nano))
+	return err
+}
+
+// Offset returns the persisted ack cursor for a polling channel, or 0 if none.
+func (s *Store) Offset(ctx context.Context, channel string) (int64, error) {
+	var v int64
+	err := s.db.QueryRowContext(ctx, `SELECT offset_val FROM poll_offsets WHERE channel = ?`, channel).Scan(&v)
+	if err == sql.ErrNoRows {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("read offset: %w", err)
+	}
+	return v, nil
+}
+
+// SetOffset durably records a polling channel's ack cursor.
+func (s *Store) SetOffset(ctx context.Context, channel string, offset int64) error {
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO poll_offsets (channel, offset_val) VALUES (?, ?)
+		 ON CONFLICT(channel) DO UPDATE SET offset_val = excluded.offset_val`,
+		channel, offset)
+	if err != nil {
+		return fmt.Errorf("set offset: %w", err)
+	}
+	return nil
+}
+
+func boolInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}

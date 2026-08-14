@@ -54,6 +54,46 @@ func TestLoadInstructions(t *testing.T) {
 	}
 }
 
+func TestLoadMemory(t *testing.T) {
+	root := t.TempDir()
+	home := t.TempDir()
+
+	// Nothing present → empty.
+	if got := loadMemory(root, home); got != "" {
+		t.Errorf("no memory.md should yield no memory, got %q", got)
+	}
+
+	// Global only.
+	gdir := filepath.Join(home, ".memcode")
+	if err := os.MkdirAll(gdir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(gdir, memoryMdName), []byte("The user prefers Go.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := loadMemory(root, home)
+	if !strings.Contains(got, "The user prefers Go.") || !strings.Contains(got, "USER MEMORY") {
+		t.Errorf("global memory missing or unlabeled: %q", got)
+	}
+
+	// Global + project: additive (both present), global before project.
+	pdir := filepath.Join(root, ".memcode")
+	if err := os.MkdirAll(pdir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pdir, memoryMdName), []byte("This repo ships via tags.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got = loadMemory(root, home)
+	gi, pi := strings.Index(got, "The user prefers Go."), strings.Index(got, "This repo ships via tags.")
+	if gi < 0 || pi < 0 {
+		t.Fatalf("memory should be additive (both scopes present), got %q", got)
+	}
+	if gi > pi {
+		t.Errorf("global memory should come before project memory, got %q", got)
+	}
+}
+
 func TestLoadInstructionsFallsThroughToClaudeMd(t *testing.T) {
 	root := t.TempDir()
 	home := t.TempDir()

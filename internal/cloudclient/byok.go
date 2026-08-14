@@ -1,4 +1,4 @@
-package client
+package cloudclient
 
 // BYOK key management — the /v1/byok surface. Plain JSON calls (not
 // turn-shaped): list is read-only metadata, put/delete/validate are explicit

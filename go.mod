@@ -8,6 +8,7 @@ require (
 	github.com/BurntSushi/toml v1.6.0
 	github.com/alecthomas/chroma/v2 v2.26.1
 	github.com/anthropics/anthropic-sdk-go v1.50.1
+	github.com/bwmarrin/discordgo v0.29.0
 	github.com/charmbracelet/colorprofile v0.4.3
 	github.com/charmbracelet/x/ansi v0.11.7
 	github.com/charmbracelet/x/term v0.2.2
@@ -16,8 +17,11 @@ require (
 	github.com/mattn/go-runewidth v0.0.24
 	github.com/modelcontextprotocol/go-sdk v1.6.1
 	github.com/openai/openai-go/v3 v3.41.1
+	github.com/robfig/cron/v3 v3.0.1
 	github.com/rockorager/go-uucode v1.2.0
+	github.com/slack-go/slack v0.27.0
 	github.com/spf13/cobra v1.10.2
+	go.yaml.in/yaml/v4 v4.0.0-rc.2
 	golang.org/x/image v0.43.0
 	golang.org/x/net v0.56.0
 	golang.org/x/sys v0.46.0
@@ -79,7 +83,6 @@ require (
 	go.opentelemetry.io/otel v1.44.0 // indirect
 	go.opentelemetry.io/otel/metric v1.44.0 // indirect
 	go.opentelemetry.io/otel/trace v1.44.0 // indirect
-	go.yaml.in/yaml/v4 v4.0.0-rc.2 // indirect
 	golang.org/x/crypto v0.53.0 // indirect
 	golang.org/x/oauth2 v0.36.0 // indirect
 	golang.org/x/sync v0.21.0 // indirect

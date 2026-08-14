@@ -105,7 +105,7 @@ for local gateway development. Never store keys in .memcode.`,
 				mode = permissions.ModeAuto // a backgrounded job can't answer prompts
 				fmt.Println("note: background jobs run in --auto (can't prompt); pass --allow-all to widen")
 			}
-			job, err := jobs.Spawn(cfg.Root, task, string(mode), "", chrome, false)
+			job, err := jobs.Spawn(cfg.Root, task, string(mode), "", chrome, false, "")
 			if err != nil {
 				return err
 			}
@@ -135,6 +135,29 @@ for local gateway development. Never store keys in .memcode.`,
 				sess.SetForceFrontier(true) // long-running background agent → top strong tier
 			case "strong":
 				sess.SetForceEscalate(true) // strong-tier background agent → strong vendor's balanced tier
+			}
+			// --session: a gateway conversation job. Pin the id and resume the prior
+			// transcript if it exists, so follow-up messages continue the same session.
+			// Uses the chat seams (which load + save the transcript) instead of Run.
+			if sessionID, _ := cmd.Flags().GetString("session"); sessionID != "" {
+				sess.SetSessionID(sessionID)
+				if _, err := runtime.ResolveSession(cfg.Root, sessionID); err == nil {
+					sess.SetResume(sessionID)
+				}
+				fmt.Printf("memcode job %s · model %s · mode %s · session %s\n", jobID, model, mode, sessionID)
+				chat := sess.StartChat(ctx)
+				sess.Submit(ctx, chat, task)
+				sess.EndChat(ctx)
+				code := 0
+				if sess.LastError() != nil {
+					code = 1
+				}
+				result := ""
+				if rb, _ := cmd.Flags().GetBool("report-back"); rb {
+					result = sess.LastText()
+				}
+				_ = jobs.Finish(cfg.Root, jobID, code, result)
+				return sess.LastError()
 			}
 			fmt.Printf("memcode job %s · model %s · mode %s\n", jobID, model, mode)
 			_, runErr := sess.Run(ctx, task)
@@ -233,5 +256,6 @@ func init() {
 	agentCmd.Flags().String("protocol", "", "machine control protocol: stream-json (newline-delimited JSON on stdio, for SDK wrappers)")
 	agentCmd.Flags().BoolP("continue", "c", false, "resume the most recent session with its full conversation")
 	agentCmd.Flags().String("resume", "", "resume a session by id or prefix (see `memcode session recent`)")
+	agentCmd.Flags().String("session", "", "run a --job in this session id, resuming it if it exists (gateway conversation continuity)")
 	rootCmd.AddCommand(agentCmd)
 }

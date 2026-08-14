@@ -67,15 +67,15 @@ func TestCatalogIsStdlibOnly(t *testing.T) {
 // chrome), the transport layer is leaking upward.
 func TestSideChannelClientStaysThin(t *testing.T) {
 	allowed := map[string]bool{
-		modulePrefix + "/internal/gateway/client": true,
-		modulePrefix + "/internal/wire":           true,
-		modulePrefix + "/catalog":                 true,
+		modulePrefix + "/internal/cloudclient": true,
+		modulePrefix + "/internal/wire":        true,
+		modulePrefix + "/catalog":              true,
 	}
-	for _, p := range deps(t, modulePrefix+"/internal/gateway/client") {
+	for _, p := range deps(t, modulePrefix+"/internal/cloudclient") {
 		if isStdlib(p) || allowed[p] {
 			continue
 		}
-		t.Errorf("internal/gateway/client must stay thin (stdlib + wire/catalog), but depends on %q", p)
+		t.Errorf("internal/cloudclient must stay thin (stdlib + wire/catalog), but depends on %q", p)
 	}
 }
 
@@ -86,6 +86,8 @@ var vendorSDKs = map[string]string{
 	"github.com/openai/openai-go":            modulePrefix + "/internal/providers/openai",
 	"github.com/anthropics/anthropic-sdk-go": modulePrefix + "/internal/providers/anthropic",
 	"google.golang.org/genai":                modulePrefix + "/internal/providers/gemini",
+	"github.com/bwmarrin/discordgo":          modulePrefix + "/internal/channels/discord",
+	"github.com/slack-go/slack":              modulePrefix + "/internal/channels/slack",
 }
 
 func directImports(t *testing.T, pkg string) []string {

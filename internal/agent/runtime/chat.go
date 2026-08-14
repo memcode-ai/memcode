@@ -47,7 +47,14 @@ func (s *Session) StartChat(ctx context.Context) *ChatState {
 		}
 		s.resumeID = ""
 	}
-	if s.sessionID == "" || resumedMsgs == nil {
+	// A caller-pinned id (SetSessionID) wins: use it verbatim so the gateway can
+	// resume-or-create a stable per-conversation session. Otherwise mint a fresh id
+	// for a brand-new or non-resumed chat — including the case where sessionID is
+	// left over from a prior chat on this same Session (resumedMsgs == nil).
+	switch {
+	case s.pinnedID != "":
+		s.setSessionID(s.pinnedID)
+	case s.sessionID == "" || resumedMsgs == nil:
 		s.setSessionID(newSessionID())
 	}
 	s.bgCtx = ctx // long-lived: background jobs survive turns, die with the session
@@ -68,6 +75,7 @@ func (s *Session) StartChat(ctx context.Context) *ChatState {
 	s.nudgedScripts = map[string]bool{} // per-session: a matched script is nudged once, not every turn
 	s.connectMCP(ctx, true)             // connect .mcp.json servers (interactive: prompts + OAuth allowed)
 	s.userMd = s.userInstructions(ctx)  // MEMCODE.md (or CLAUDE.md) — standing instructions, injected every turn (see runTurn)
+	s.memoryMd = s.userMemory(ctx)      // durable memory (global + project memory.md) — facts, injected every turn
 	sys := s.chatSpec(s.repoOverview(ctx))
 	// Skills are NOT dumped into context — the prompt only POINTS at the skill dirs (a blurb
 	// for every installed skill, ≈100+ with host plugins, would be wasted context == money).
@@ -388,6 +396,9 @@ func (s *Session) runTurn(ctx context.Context, st *ChatState, b input.Bundle) {
 	}
 	if s.userMd != "" { // user's MEMCODE.md rides every turn (chat + plan), as standing doctrine
 		base = base.withExtra(s.userMd)
+	}
+	if s.memoryMd != "" { // durable memory (global + project) rides every turn as background facts
+		base = base.withExtra(s.memoryMd)
 	}
 	if nudge := s.skillNudge(b.Text); nudge != "" { // request names an installed skill → point right at it
 		base = base.withExtra(nudge)

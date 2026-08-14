@@ -104,6 +104,7 @@ type Session struct {
 	lastText          string                                        // most recent assistant text (for Answer)
 	lastErr           error                                         // terminal error of the most recent turn (for one-shot exit codes)
 	sessionID         string
+	pinnedID          string                      // caller-chosen session id (SetSessionID): StartChat uses it verbatim instead of minting, for gateway conversation continuity
 	headSHA           string                      // repo HEAD at session start — provenance stamp for signals emitted this session
 	resumeID          string                      // when set, the next StartChat re-enters this session with its saved transcript (see transcript.go)
 	allowPending      string                      // permission-provenance note awaiting its surface's header (see allowNote/flushAllowNote)
@@ -146,6 +147,7 @@ type Session struct {
 	scripts           []scripts.Script // saved reusable command sequences (.memcode/scripts) — see script.go, scripts_prompt.go
 	nudgedScripts     map[string]bool  // script slugs already nudged this session (nudge once, don't nag) — see scriptNudge
 	userMd            string           // user's MEMCODE.md instructions, loaded once per session, injected every turn
+	memoryMd          string           // durable memory (global + project memory.md), loaded once per session, injected every turn
 	editsAllowed      bool             // user said "don't ask again for edits" this session (scoped: edits only, not commands; never catastrophic)
 
 	lastCompactSummary string // most recent in-session compaction summary (the warm layer)
@@ -369,6 +371,13 @@ func (s *Session) diffWidth() int {
 // every model call carries the session on the wire (the compat `user` field) for
 // serving affinity + telemetry. Use this everywhere instead of writing
 // s.sessionID directly.
+// SetSessionID pins the session id used by the next StartChat, so a caller can
+// control continuity itself: the gateway derives a stable id per conversation and
+// pins it, and StartChat then does resume-or-create under that id instead of
+// minting a fresh one. (Distinct from a leftover sessionID between two chats on
+// one Session, which must still mint a new id.)
+func (s *Session) SetSessionID(id string) { s.pinnedID = id }
+
 func (s *Session) setSessionID(id string) {
 	s.sessionID = id
 	s.ckpt = checkpoint.New(s.root, id) // rewind points live per session id
@@ -436,6 +445,9 @@ func (s *Session) Run(ctx context.Context, task string) (Result, error) {
 	}
 	if s.userMd = s.userInstructions(ctx); s.userMd != "" { // MEMCODE.md / CLAUDE.md standing instructions
 		sys = sys.withExtra(s.userMd)
+	}
+	if s.memoryMd = s.userMemory(ctx); s.memoryMd != "" { // durable memory (global + project), facts not rules
+		sys = sys.withExtra(s.memoryMd)
 	}
 	if nudge := s.skillNudge(task); nudge != "" { // the task names an installed skill → point right at it
 		sys = sys.withExtra(nudge)

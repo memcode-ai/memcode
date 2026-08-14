@@ -9,21 +9,21 @@ import (
 	"context"
 	"os"
 
-	"github.com/memcode-ai/memcode/internal/gateway/client"
+	"github.com/memcode-ai/memcode/internal/cloudclient"
 )
 
-func byokClient() (*client.Client, error) {
+func byokClient() (*cloudclient.Client, error) {
 	if os.Getenv(EnvAPIToken) == "" {
 		return nil, ErrNotLoggedIn
 	}
-	return client.New(APIURL(), os.Getenv(EnvAPIToken)), nil
+	return cloudclient.New(APIURL(), os.Getenv(EnvAPIToken)), nil
 }
 
 // ByokList fetches the provider roster + the user's masked key rows.
-func ByokList(ctx context.Context) (client.ByokKeys, error) {
+func ByokList(ctx context.Context) (cloudclient.ByokKeys, error) {
 	c, err := byokClient()
 	if err != nil {
-		return client.ByokKeys{}, err
+		return cloudclient.ByokKeys{}, err
 	}
 	return c.ByokList(ctx)
 }
@@ -31,10 +31,10 @@ func ByokList(ctx context.Context) (client.ByokKeys, error) {
 // ByokPut stores/replaces the user's key for a provider (gateway live-probes
 // it first). The caller is responsible for redacting the key from any UI/log
 // surfaces BEFORE calling.
-func ByokPut(ctx context.Context, providerID, key string) (client.ByokPutResult, error) {
+func ByokPut(ctx context.Context, providerID, key string) (cloudclient.ByokPutResult, error) {
 	c, err := byokClient()
 	if err != nil {
-		return client.ByokPutResult{}, err
+		return cloudclient.ByokPutResult{}, err
 	}
 	return c.ByokPut(ctx, providerID, key)
 }

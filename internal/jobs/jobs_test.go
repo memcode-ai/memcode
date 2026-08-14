@@ -152,7 +152,7 @@ func TestIsTestBinary(t *testing.T) {
 // Spawn-reaching test in it spawned another detached child, exponentially.
 func TestSpawnFromTestBinaryChildExitsImmediately(t *testing.T) {
 	root := t.TempDir()
-	job, err := Spawn(root, "regression: do nothing", "auto", "", false, false)
+	job, err := Spawn(root, "regression: do nothing", "auto", "", false, false, "")
 	if err != nil {
 		t.Fatalf("Spawn: %v", err)
 	}

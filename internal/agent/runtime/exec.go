@@ -509,7 +509,7 @@ func (s *Session) agentTool(ctx context.Context, input json.RawMessage) toolResu
 	// A long-running background agent runs unattended on a substantial task, so it uses the
 	// FRONTIER (top strong) tier regardless of the requested fast/strong param.
 	if in.Background {
-		job, err := detachedjobs.Spawn(s.root, task, string(permissions.ModeAuto), "frontier", s.browserEnabled, true)
+		job, err := detachedjobs.Spawn(s.root, task, string(permissions.ModeAuto), "frontier", s.browserEnabled, true, "")
 		if err != nil {
 			s.toolLine(true, "Agent", clip(task, 60), "failed", true)
 			return errResult("agent (background) failed to start: " + err.Error())
@@ -573,7 +573,7 @@ func (s *Session) dispatchTool(ctx context.Context, input json.RawMessage) toolR
 			return errResult("dispatch denied: " + orEmpty(d.Reason, "the user did not approve launching the sub-agent"))
 		}
 	}
-	job, err := detachedjobs.Spawn(s.root, task, mode, "", s.browserEnabled, false)
+	job, err := detachedjobs.Spawn(s.root, task, mode, "", s.browserEnabled, false, "")
 	if err != nil {
 		s.toolLine(true, "Dispatch", clip(task, 60), "failed", true)
 		s.printf("%s\n", metaStyle.Render("  ⎿ failed: "+clip(err.Error(), 200)))

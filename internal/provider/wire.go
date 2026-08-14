@@ -15,8 +15,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/memcode-ai/memcode/internal/cloudclient"
 	"github.com/memcode-ai/memcode/internal/doctrine"
-	"github.com/memcode-ai/memcode/internal/gateway/client"
 	compat "github.com/memcode-ai/memcode/internal/providers/compat"
 	memcodeprov "github.com/memcode-ai/memcode/internal/providers/memcode"
 	"github.com/memcode-ai/memcode/internal/wire"
@@ -49,7 +49,7 @@ type turnTransport interface {
 // already degrade on error).
 type conn struct {
 	turn turnTransport
-	side *client.Client
+	side *cloudclient.Client
 	ep   *Endpoint // non-nil = arbitrary-endpoint mode (no memcode backend)
 }
 
@@ -63,7 +63,7 @@ func dial(url, token string) *conn {
 			Token:   token,
 			Compose: composeDoctrine,
 		}),
-		side: client.New(url, token),
+		side: cloudclient.New(url, token),
 	}
 }
 

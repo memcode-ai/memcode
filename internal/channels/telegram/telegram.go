@@ -1,0 +1,347 @@
+// Package telegram is the gateway's Telegram channel adapter. It talks to the
+// Bot API directly over net/http (long-poll getUpdates + sendMessage) — no SDK,
+// matching the repo's thin-dependency ethos. The user creates their own bot via
+// @BotFather and puts the token in the global .env as TELEGRAM_BOT_TOKEN;
+// messages and the token never leave the machine running the gateway.
+package telegram
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"math/rand/v2"
+	"net/http"
+	"net/url"
+	"strconv"
+	"strings"
+	"time"
+	"unicode/utf16"
+
+	"github.com/memcode-ai/memcode/internal/channels"
+)
+
+const (
+	defaultBase        = "https://api.telegram.org"
+	telegramMaxMessage = 4096 // Telegram's per-message character limit
+	maxPollBackoff     = 60 * time.Second
+)
+
+// OffsetStore persists the getUpdates ack cursor so a restart resumes where it
+// left off instead of re-fetching (and re-running) the whole backlog. Satisfied
+// by the gateway's state store; nil in tests / when no persistence is wired.
+type OffsetStore interface {
+	Offset(ctx context.Context, channel string) (int64, error)
+	SetOffset(ctx context.Context, channel string, offset int64) error
+}
+
+// Channel is a Telegram bot connection.
+type Channel struct {
+	token  string
+	base   string // API base; overridable in tests
+	client *http.Client
+	store  OffsetStore
+}
+
+// New builds a Telegram channel for the given bot token. store may be nil, in
+// which case the poll offset lives only in memory (and a restart re-reads the
+// backlog, which the router's dedup then discards).
+func New(token string, store OffsetStore) *Channel {
+	return &Channel{
+		token: token,
+		base:  defaultBase,
+		// The HTTP timeout must exceed the long-poll timeout so getUpdates can
+		// block server-side for the full window without the client giving up.
+		client: &http.Client{Timeout: 65 * time.Second},
+		store:  store,
+	}
+}
+
+// Name returns the adapter identifier.
+func (c *Channel) Name() string { return "telegram" }
+
+// update mirrors the fields we use from a Telegram Update. Named sub-types (not
+// anonymous structs) so they're straightforward to build in tests.
+type update struct {
+	UpdateID int64      `json:"update_id"`
+	Message  *tgMessage `json:"message"`
+}
+
+type tgMessage struct {
+	From           *tgUser    `json:"from"`
+	Chat           *tgChat    `json:"chat"`
+	Text           string     `json:"text"`
+	Entities       []tgEntity `json:"entities"`
+	ReplyToMessage *tgMessage `json:"reply_to_message"`
+}
+
+type tgUser struct {
+	ID       int64  `json:"id"`
+	Username string `json:"username"`
+}
+
+type tgChat struct {
+	ID   int64  `json:"id"`
+	Type string `json:"type"` // "private" for a DM; "group"/"supergroup"/… otherwise
+}
+
+type tgEntity struct {
+	Type   string `json:"type"` // "mention", "bot_command", …
+	Offset int    `json:"offset"`
+	Length int    `json:"length"`
+}
+
+// Start long-polls getUpdates and forwards each text message as an Inbound until
+// ctx is cancelled. The ack cursor is loaded from (and saved to) the offset store
+// so a restart resumes where it left off. Transient errors back off with jitter
+// rather than returning, so a flaky network never takes the gateway down.
+func (c *Channel) Start(ctx context.Context, sink channels.Sink) error {
+	// Learn our own id and username so we can detect being addressed in a group.
+	// If getMe fails the bot still serves DMs; group messages just won't be seen
+	// as mentions (so they won't trigger unless respond_to_all) — the safe default.
+	botID, botUsername := c.getMe(ctx)
+
+	var offset int64
+	if c.store != nil {
+		if v, err := c.store.Offset(ctx, "telegram"); err == nil {
+			offset = v
+		}
+	}
+	backoff := time.Second
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		ups, err := c.getUpdates(ctx, offset)
+		if err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			// Exponential backoff with jitter, capped. The jitter matters: a fixed
+			// backoff can resonate with Telegram's ~30s server-side session TTL and
+			// keep 409-conflicting with a stale poll forever.
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(jitter(backoff)):
+			}
+			backoff = min(backoff*2, maxPollBackoff)
+			continue
+		}
+		backoff = time.Second // recovered — reset the ladder
+		for _, u := range ups {
+			if inb, ok := toInbound(u, botID, botUsername); ok {
+				if err := sink.Deliver(ctx, inb); err != nil {
+					if ctx.Err() != nil {
+						return ctx.Err()
+					}
+					// Not durably recorded — don't advance past this update; the
+					// next poll re-fetches it from the un-advanced offset.
+					break
+				}
+			}
+			// Advance the ack cursor only after the message was durably recorded
+			// (or it wasn't a message). Persisted so a restart resumes here.
+			offset = u.UpdateID + 1
+			if c.store != nil {
+				_ = c.store.SetOffset(ctx, "telegram", offset)
+			}
+		}
+	}
+}
+
+// jitter returns d scaled by a random factor in [0.75, 1.25) so concurrent
+// pollers don't retry in lockstep and no fixed period resonates with a server
+// session TTL.
+func jitter(d time.Duration) time.Duration {
+	return time.Duration(float64(d) * (0.75 + rand.Float64()*0.5))
+}
+
+// toInbound converts a Telegram update to a normalized Inbound, or ok=false if
+// it carries no usable text message. botID/botUsername identify this bot so a
+// group message can be recognized as addressed to it.
+func toInbound(u update, botID int64, botUsername string) (channels.Inbound, bool) {
+	if u.Message == nil || u.Message.Chat == nil || u.Message.Text == "" {
+		return channels.Inbound{}, false
+	}
+	// Principal is the STABLE numeric user id, never the mutable @username — the
+	// allow-list authorizes on ids so a username change (or a lookalike handle)
+	// can't grant or revoke access.
+	principal := ""
+	if f := u.Message.From; f != nil {
+		principal = strconv.FormatInt(f.ID, 10)
+	}
+	return channels.Inbound{
+		Channel:      "telegram",
+		Conversation: strconv.FormatInt(u.Message.Chat.ID, 10),
+		Principal:    principal,
+		Text:         u.Message.Text,
+		MessageID:    strconv.FormatInt(u.UpdateID, 10),
+		IsDirect:     u.Message.Chat.Type == "private",
+		Mentioned:    mentionsBot(u, botID, botUsername),
+	}, true
+}
+
+// mentionsBot reports whether the message addresses this bot: a reply to one of
+// its messages, a @mention entity for its username, or a /command@botusername.
+// Entity text is sliced with UTF-16 offsets (Telegram's unit), not bytes.
+func mentionsBot(u update, botID int64, botUsername string) bool {
+	m := u.Message
+	if botID != 0 && m.ReplyToMessage != nil && m.ReplyToMessage.From != nil && m.ReplyToMessage.From.ID == botID {
+		return true
+	}
+	if botUsername == "" {
+		return false
+	}
+	want := "@" + strings.ToLower(botUsername)
+	for _, e := range m.Entities {
+		switch e.Type {
+		case "mention":
+			if strings.ToLower(entityText(m.Text, e.Offset, e.Length)) == want {
+				return true
+			}
+		case "bot_command":
+			if strings.Contains(strings.ToLower(entityText(m.Text, e.Offset, e.Length)), want) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// entityText extracts the substring a Telegram entity covers. Offsets/lengths are
+// in UTF-16 code units, so we encode to UTF-16 before slicing.
+func entityText(text string, offset, length int) string {
+	u := utf16.Encode([]rune(text))
+	if offset < 0 || length < 0 || offset+length > len(u) {
+		return ""
+	}
+	return string(utf16.Decode(u[offset : offset+length]))
+}
+
+// getMe fetches this bot's id and username. On any error it returns zero values,
+// and the caller degrades safely (DMs still work; group mentions won't match).
+func (c *Channel) getMe(ctx context.Context) (int64, string) {
+	endpoint := fmt.Sprintf("%s/bot%s/getMe", c.base, c.token)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return 0, ""
+	}
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return 0, ""
+	}
+	defer resp.Body.Close()
+	var out struct {
+		OK     bool `json:"ok"`
+		Result struct {
+			ID       int64  `json:"id"`
+			Username string `json:"username"`
+		} `json:"result"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil || !out.OK {
+		return 0, ""
+	}
+	return out.Result.ID, out.Result.Username
+}
+
+func (c *Channel) getUpdates(ctx context.Context, offset int64) ([]update, error) {
+	q := url.Values{}
+	q.Set("timeout", "30")
+	if offset > 0 {
+		q.Set("offset", strconv.FormatInt(offset, 10))
+	}
+	endpoint := fmt.Sprintf("%s/bot%s/getUpdates?%s", c.base, c.token, q.Encode())
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	var out struct {
+		OK          bool     `json:"ok"`
+		Result      []update `json:"result"`
+		Description string   `json:"description"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, err
+	}
+	if !out.OK {
+		return nil, fmt.Errorf("telegram getUpdates: %s", out.Description)
+	}
+	return out.Result, nil
+}
+
+// Send posts a text reply to a chat, split with the shared chunker to respect
+// Telegram's per-message limit. Each part honors a 429 flood-wait; a permanent
+// error (any other non-2xx) fails fast instead of retrying forever.
+func (c *Channel) Send(ctx context.Context, conversation string, msg channels.Outbound) error {
+	for _, part := range channels.Chunk(msg.Text, telegramMaxMessage) {
+		if err := c.sendOne(ctx, conversation, part); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// sendOne posts a single (already length-bounded) message, retrying only on a
+// 429 for the flood-wait Telegram asks for. Never spawn a fallback send on a
+// rate limit — that's the burst that escalates the penalty.
+func (c *Channel) sendOne(ctx context.Context, conversation, text string) error {
+	const maxAttempts = 3
+	for attempt := 1; ; attempt++ {
+		status, retryAfter, err := c.doSend(ctx, conversation, text)
+		if err != nil {
+			return err
+		}
+		if status/100 == 2 {
+			return nil
+		}
+		if status == http.StatusTooManyRequests && attempt < maxAttempts {
+			wait := time.Duration(retryAfter) * time.Second
+			if wait <= 0 {
+				wait = time.Second
+			}
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(wait):
+			}
+			continue
+		}
+		return fmt.Errorf("telegram sendMessage: status %d", status)
+	}
+}
+
+// doSend performs one sendMessage call, returning the HTTP status and, on a 429,
+// the flood-wait seconds Telegram reports in parameters.retry_after.
+func (c *Channel) doSend(ctx context.Context, conversation, text string) (status, retryAfter int, err error) {
+	body, err := json.Marshal(map[string]any{"chat_id": conversation, "text": text})
+	if err != nil {
+		return 0, 0, err
+	}
+	endpoint := fmt.Sprintf("%s/bot%s/sendMessage", c.base, c.token)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return 0, 0, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return 0, 0, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusTooManyRequests {
+		var out struct {
+			Parameters struct {
+				RetryAfter int `json:"retry_after"`
+			} `json:"parameters"`
+		}
+		_ = json.NewDecoder(resp.Body).Decode(&out)
+		return resp.StatusCode, out.Parameters.RetryAfter, nil
+	}
+	return resp.StatusCode, 0, nil
+}
