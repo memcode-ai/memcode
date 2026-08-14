@@ -87,3 +87,16 @@ func TestFireScheduleUnknownChannelDropped(t *testing.T) {
 		t.Errorf("a schedule to an unconfigured channel must not enqueue, got %+v", pending)
 	}
 }
+
+func TestConversationSessionStable(t *testing.T) {
+	a := conversationSession("telegram", "42")
+	if a != conversationSession("telegram", "42") {
+		t.Error("session id must be deterministic for a conversation")
+	}
+	if a == conversationSession("telegram", "43") || a == conversationSession("discord", "42") {
+		t.Error("distinct conversations must get distinct session ids")
+	}
+	if len(a) < 6 || a[:5] != "sess_" {
+		t.Errorf("session id must match the sess_ shape, got %q", a)
+	}
+}

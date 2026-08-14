@@ -62,7 +62,7 @@ func LogPath(root, id string) string { return filepath.Join(jobDir(root, id), "l
 // --job <id> so it acquires the writer lock and records its own completion.
 // When chrome is true, --chrome is forwarded so backgrounded browser jobs keep
 // the capability (Chrome always launches with a visible window).
-func Spawn(root, task, mode, tier string, chrome, reportBack bool) (Job, error) {
+func Spawn(root, task, mode, tier string, chrome, reportBack bool, session string) (Job, error) {
 	self, err := os.Executable()
 	if err != nil {
 		return Job{}, fmt.Errorf("locating memcode binary: %w", err)
@@ -86,6 +86,9 @@ func Spawn(root, task, mode, tier string, chrome, reportBack bool) (Job, error) 
 	}
 	if chrome {
 		argv = append(argv, "--chrome")
+	}
+	if session != "" {
+		argv = append(argv, "--session", session) // continue this conversation's session (resume-or-create)
 	}
 	if isTestBinary(self) {
 		// Under `go test`, os.Executable() is the package's TEST binary, not memcode.

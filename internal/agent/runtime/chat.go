@@ -47,7 +47,14 @@ func (s *Session) StartChat(ctx context.Context) *ChatState {
 		}
 		s.resumeID = ""
 	}
-	if s.sessionID == "" || resumedMsgs == nil {
+	// A caller-pinned id (SetSessionID) wins: use it verbatim so the gateway can
+	// resume-or-create a stable per-conversation session. Otherwise mint a fresh id
+	// for a brand-new or non-resumed chat — including the case where sessionID is
+	// left over from a prior chat on this same Session (resumedMsgs == nil).
+	switch {
+	case s.pinnedID != "":
+		s.setSessionID(s.pinnedID)
+	case s.sessionID == "" || resumedMsgs == nil:
 		s.setSessionID(newSessionID())
 	}
 	s.bgCtx = ctx // long-lived: background jobs survive turns, die with the session

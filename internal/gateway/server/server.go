@@ -10,6 +10,8 @@ package server
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
@@ -166,6 +168,16 @@ func (r *runtime) fireSchedule(ctx context.Context, sch gwconfig.Schedule, chann
 	}
 }
 
+// conversationSession derives a stable session id for a (channel, conversation)
+// so every message in that conversation resumes the same agent session. It's
+// deterministic, so no mapping needs to be stored; the child resumes it if the
+// transcript exists and creates it under this id otherwise. Matches the "sess_"
+// id shape the runtime uses.
+func conversationSession(channel, conversation string) string {
+	sum := sha256.Sum256([]byte(channel + ":" + conversation))
+	return "sess_" + hex.EncodeToString(sum[:8])
+}
+
 // scheduleSpec turns a Schedule into a cron spec: a raw cron expression, or an
 // "@every <duration>" from Every. Exactly one of the two must be set.
 func scheduleSpec(sch gwconfig.Schedule) (string, bool) {
@@ -276,7 +288,9 @@ func (r *runtime) process(ctx context.Context, it state.Item) {
 		return
 	}
 	// A gateway-triggered job has no TTY to answer approval prompts → Auto mode.
-	job, err := jobs.Spawn(r.root, it.Text, string(permissions.ModeAuto), "", false, true)
+	// Continuity: a stable session id per conversation, so follow-up messages
+	// resume the same session (the child does resume-or-create on this id).
+	job, err := jobs.Spawn(r.root, it.Text, string(permissions.ModeAuto), "", false, true, conversationSession(it.Channel, it.Conversation))
 	if err != nil {
 		_ = ch.Send(ctx, it.Conversation, channels.Outbound{Text: "Couldn't start that: " + err.Error()})
 		_ = r.gw.MarkDone(ctx, it.Channel, it.MessageID) // a spawn failure won't succeed on replay
