@@ -33,6 +33,13 @@ const (
 	EnvWhatsAppToken  = "WHATSAPP_ACCESS_TOKEN"
 	EnvWhatsAppVerify = "WHATSAPP_VERIFY_TOKEN"
 	EnvWhatsAppSecret = "WHATSAPP_APP_SECRET" // Meta app secret — signs inbound POSTs
+	// Email: a DEDICATED mailbox the agent answers (app password for Gmail/
+	// Outlook), never your personal inbox. Hosts may carry :port (defaults
+	// 993 IMAP-SSL / 587 SMTP-STARTTLS).
+	EnvEmailAddress  = "EMAIL_ADDRESS"
+	EnvEmailPassword = "EMAIL_PASSWORD"
+	EnvEmailIMAPHost = "EMAIL_IMAP_HOST"
+	EnvEmailSMTPHost = "EMAIL_SMTP_HOST"
 )
 
 // Settings is the NON-secret gateway configuration (gateway.yaml). A channel's
@@ -187,6 +194,9 @@ type Channel struct {
 	// until the Meta business is verified and the operator flips this to true —
 	// verification is an external account state the gateway can't detect.
 	Active bool `yaml:"active,omitempty"`
+	// Poll (email) is the mailbox poll cadence as a Go duration ("15s", "1m").
+	// Empty uses the adapter default.
+	Poll string `yaml:"poll,omitempty"`
 }
 
 // Get returns the settings for a channel (a zero Channel if unset), so callers
@@ -345,6 +355,10 @@ func EnabledChannels() []string {
 	}
 	if os.Getenv(EnvWhatsAppToken) != "" {
 		names = append(names, "whatsapp")
+	}
+	if os.Getenv(EnvEmailAddress) != "" && os.Getenv(EnvEmailPassword) != "" &&
+		os.Getenv(EnvEmailIMAPHost) != "" && os.Getenv(EnvEmailSMTPHost) != "" {
+		names = append(names, "email")
 	}
 	return names
 }

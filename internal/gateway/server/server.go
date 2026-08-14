@@ -25,6 +25,7 @@ import (
 	"github.com/memcode-ai/memcode/internal/agent/permissions"
 	"github.com/memcode-ai/memcode/internal/channels"
 	"github.com/memcode-ai/memcode/internal/channels/discord"
+	"github.com/memcode-ai/memcode/internal/channels/email"
 	"github.com/memcode-ai/memcode/internal/channels/slack"
 	"github.com/memcode-ai/memcode/internal/channels/telegram"
 	"github.com/memcode-ai/memcode/internal/events"
@@ -529,6 +530,21 @@ func channelsFrom(settings gwconfig.Settings, gw *state.Store, mediaDir string, 
 	bot := strings.TrimSpace(os.Getenv(gwconfig.EnvSlackBotToken))
 	if app != "" && bot != "" {
 		chs = append(chs, slack.New(app, bot))
+	}
+	addr := strings.TrimSpace(os.Getenv(gwconfig.EnvEmailAddress))
+	pass := os.Getenv(gwconfig.EnvEmailPassword)
+	imapHost := strings.TrimSpace(os.Getenv(gwconfig.EnvEmailIMAPHost))
+	smtpHost := strings.TrimSpace(os.Getenv(gwconfig.EnvEmailSMTPHost))
+	if addr != "" && pass != "" && imapHost != "" && smtpHost != "" {
+		var poll time.Duration
+		if p := strings.TrimSpace(settings.Get("email").Poll); p != "" {
+			if d, err := time.ParseDuration(p); err == nil && d > 0 {
+				poll = d
+			} else {
+				fmt.Fprintf(out, "gateway: email.poll %q is not a duration; using default\n", p)
+			}
+		}
+		chs = append(chs, email.New(addr, pass, imapHost, smtpHost, poll, mediaDir))
 	}
 	return chs
 }
