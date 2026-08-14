@@ -16,7 +16,7 @@ import (
 // baseVersion is the current development semver — the version the NEXT release will carry.
 // Bump it when cutting a release/tag. It anchors dev builds to a real version number so the
 // footer never shows a bare "dev"; the VCS commit is appended as the per-build identifier.
-const baseVersion = "0.7.0"
+const baseVersion = "0.12.0"
 
 // These are overridden at release time, e.g.:
 //
