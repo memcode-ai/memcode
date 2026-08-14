@@ -61,7 +61,7 @@ func (c *Channel) Name() string { return "whatsapp" }
 
 // Handler returns the webhook HTTP handler: GET performs Meta's verification
 // handshake; POST parses inbound messages and forwards them as Inbound.
-func (c *Channel) Handler(inbound chan<- channels.Inbound) http.Handler {
+func (c *Channel) Handler(sink channels.Sink) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
@@ -86,10 +86,8 @@ func (c *Channel) Handler(inbound chan<- channels.Inbound) http.Handler {
 				return
 			}
 			for _, inb := range toInbounds(body) {
-				select {
-				case inbound <- inb:
-				case <-r.Context().Done():
-					w.WriteHeader(http.StatusServiceUnavailable)
+				if err := sink.Deliver(r.Context(), inb); err != nil {
+					w.WriteHeader(http.StatusServiceUnavailable) // not recorded — Meta retries
 					return
 				}
 			}

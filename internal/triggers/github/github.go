@@ -39,7 +39,7 @@ func New(secret, replyTo string) *Trigger {
 // Handler returns the webhook HTTP handler. It validates the signature, drops
 // duplicates and events we don't act on, and forwards actionable events as an
 // Inbound routed to the configured reply conversation.
-func (t *Trigger) Handler(inbound chan<- channels.Inbound) http.Handler {
+func (t *Trigger) Handler(sink channels.Sink) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -79,12 +79,11 @@ func (t *Trigger) Handler(inbound chan<- channels.Inbound) http.Handler {
 		// this bypasses the reply-channel's allow-list (the delivery isn't from a
 		// chat principal that could be listed).
 		inb := channels.Inbound{Channel: ch, Conversation: convo, Principal: "github", Text: task, MessageID: "github:" + delivery, Trusted: true}
-		select {
-		case inbound <- inb:
-			w.WriteHeader(http.StatusAccepted)
-		case <-r.Context().Done():
-			w.WriteHeader(http.StatusServiceUnavailable)
+		if err := sink.Deliver(r.Context(), inb); err != nil {
+			w.WriteHeader(http.StatusServiceUnavailable) // not recorded — GitHub will retry
+			return
 		}
+		w.WriteHeader(http.StatusAccepted)
 	})
 }
 

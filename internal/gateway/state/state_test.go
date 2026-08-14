@@ -2,7 +2,6 @@ package state
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
 	"time"
 )
@@ -17,26 +16,52 @@ func openTemp(t *testing.T) *Store {
 	return s
 }
 
-func TestMarkProcessedDedup(t *testing.T) {
+func item(channel, id string) Item {
+	return Item{Channel: channel, MessageID: id, Conversation: "c", Principal: "p", Text: "hi"}
+}
+
+func TestAcceptDedup(t *testing.T) {
 	s := openTemp(t)
 	ctx := context.Background()
 	now := time.Unix(1000, 0)
 
-	fresh, err := s.MarkProcessed(ctx, "telegram", "42", now)
-	if err != nil || !fresh {
-		t.Fatalf("first mark: fresh=%v err=%v, want fresh", fresh, err)
+	if fresh, err := s.Accept(ctx, item("telegram", "42"), now); err != nil || !fresh {
+		t.Fatalf("first accept: fresh=%v err=%v, want fresh", fresh, err)
 	}
-	fresh, err = s.MarkProcessed(ctx, "telegram", "42", now)
-	if err != nil || fresh {
-		t.Fatalf("second mark: fresh=%v err=%v, want not-fresh", fresh, err)
+	if fresh, err := s.Accept(ctx, item("telegram", "42"), now); err != nil || fresh {
+		t.Fatalf("second accept: fresh=%v err=%v, want not-fresh", fresh, err)
 	}
-	// Same id on a different channel is a distinct message.
-	if fresh, _ := s.MarkProcessed(ctx, "discord", "42", now); !fresh {
-		t.Error("same id on different channel should be fresh")
+	if fresh, _ := s.Accept(ctx, item("discord", "42"), now); !fresh {
+		t.Error("same id on a different channel should be fresh")
 	}
 }
 
-func TestMarkProcessedSurvivesReopen(t *testing.T) {
+func TestPendingAndDone(t *testing.T) {
+	s := openTemp(t)
+	ctx := context.Background()
+	now := time.Unix(1000, 0)
+
+	s.Accept(ctx, item("telegram", "1"), now)
+	s.Accept(ctx, item("telegram", "2"), now.Add(time.Second))
+
+	pending, err := s.Pending(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pending) != 2 || pending[0].MessageID != "1" || pending[1].MessageID != "2" {
+		t.Fatalf("pending not oldest-first: %+v", pending)
+	}
+
+	if err := s.MarkDone(ctx, "telegram", "1"); err != nil {
+		t.Fatal(err)
+	}
+	pending, _ = s.Pending(ctx)
+	if len(pending) != 1 || pending[0].MessageID != "2" {
+		t.Fatalf("after done, pending = %+v", pending)
+	}
+}
+
+func TestPendingSurvivesReopen(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 	now := time.Unix(1000, 0)
@@ -45,47 +70,42 @@ func TestMarkProcessedSurvivesReopen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if fresh, _ := s1.MarkProcessed(ctx, "telegram", "7", now); !fresh {
-		t.Fatal("first mark should be fresh")
-	}
+	s1.Accept(ctx, item("telegram", "7"), now)
 	s1.Close()
 
-	// A restart must still see the message as already processed.
+	// A crash-and-restart must still see the unprocessed message as pending.
 	s2, err := Open(ctx, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer s2.Close()
-	if fresh, _ := s2.MarkProcessed(ctx, "telegram", "7", now); fresh {
-		t.Error("after reopen the message should NOT be fresh (durable dedup)")
-	}
-	// Sanity: the db file actually landed where we expect.
-	if _, err := Open(ctx, dir); err != nil {
-		t.Fatalf("reopen: %v", err)
-	}
-	if got := filepath.Join(dir, "gateway.db"); got == "" {
-		t.Fatal("unreachable")
+	pending, _ := s2.Pending(ctx)
+	if len(pending) != 1 || pending[0].MessageID != "7" {
+		t.Errorf("pending after reopen = %+v, want the unprocessed item", pending)
 	}
 }
 
-func TestPruneProcessed(t *testing.T) {
+func TestPruneDone(t *testing.T) {
 	s := openTemp(t)
 	ctx := context.Background()
 	old := time.Unix(1000, 0)
 	recent := time.Unix(1_000_000, 0)
 
-	s.MarkProcessed(ctx, "telegram", "old", old)
-	s.MarkProcessed(ctx, "telegram", "new", recent)
+	s.Accept(ctx, item("telegram", "old"), old)
+	s.Accept(ctx, item("telegram", "new"), recent)
+	s.MarkDone(ctx, "telegram", "old")
+	s.MarkDone(ctx, "telegram", "new")
 
-	if err := s.PruneProcessed(ctx, time.Unix(500_000, 0)); err != nil {
+	if err := s.PruneDone(ctx, time.Unix(500_000, 0)); err != nil {
 		t.Fatalf("prune: %v", err)
 	}
-	// The old record is gone (marking it again is fresh); the recent one remains.
-	if fresh, _ := s.MarkProcessed(ctx, "telegram", "old", recent); !fresh {
-		t.Error("pruned record should be forgotten")
+	// The old done row is forgotten (re-accepting it is fresh); the recent one is
+	// still there (re-accept not fresh).
+	if fresh, _ := s.Accept(ctx, item("telegram", "old"), recent); !fresh {
+		t.Error("pruned row should be forgotten")
 	}
-	if fresh, _ := s.MarkProcessed(ctx, "telegram", "new", recent); fresh {
-		t.Error("recent record should have survived prune")
+	if fresh, _ := s.Accept(ctx, item("telegram", "new"), recent); fresh {
+		t.Error("recent done row should have survived prune")
 	}
 }
 
@@ -102,7 +122,6 @@ func TestOffsetRoundTrip(t *testing.T) {
 	if v, _ := s.Offset(ctx, "telegram"); v != 12345 {
 		t.Errorf("offset = %d, want 12345", v)
 	}
-	// Upsert overwrites.
 	s.SetOffset(ctx, "telegram", 99999)
 	if v, _ := s.Offset(ctx, "telegram"); v != 99999 {
 		t.Errorf("offset after upsert = %d, want 99999", v)

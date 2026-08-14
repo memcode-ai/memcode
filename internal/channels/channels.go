@@ -40,15 +40,27 @@ type Outbound struct {
 	Text string
 }
 
+// Sink receives inbound messages from an adapter. Deliver applies the gateway's
+// gating and authorization and, for a message that should run, durably records
+// it for processing. A nil return means the adapter may acknowledge the provider
+// (the message was recorded, was a duplicate, or was intentionally dropped); a
+// non-nil error means it was NOT durably recorded, so the adapter must NOT ack —
+// the provider will redeliver. Acking only after a nil return is what makes
+// delivery durable: a crash before the record simply causes a redelivery.
+type Sink interface {
+	Deliver(ctx context.Context, inb Inbound) error
+}
+
 // Channel is a bidirectional chat surface.
 type Channel interface {
 	// Name is the adapter's stable identifier (matches Inbound.Channel).
 	Name() string
-	// Start owns the connection and delivers inbound messages on the channel
-	// until ctx is cancelled, returning ctx.Err() on clean shutdown. It must
-	// NOT return on transient network errors — reconnect/back off instead, so a
-	// flaky platform never takes the gateway down.
-	Start(ctx context.Context, inbound chan<- Inbound) error
+	// Start owns the connection and hands each inbound message to the sink until
+	// ctx is cancelled, returning ctx.Err() on clean shutdown. It must NOT return
+	// on transient network errors — reconnect/back off instead, so a flaky
+	// platform never takes the gateway down. It acknowledges the provider only
+	// after Deliver returns nil.
+	Start(ctx context.Context, sink Sink) error
 	// Send posts a reply to the given conversation. Safe to call while Start runs.
 	Send(ctx context.Context, conversation string, msg Outbound) error
 }

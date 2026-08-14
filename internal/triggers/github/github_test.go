@@ -1,6 +1,7 @@
 package github
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
@@ -112,11 +113,19 @@ func TestDedup(t *testing.T) {
 	}
 }
 
+// recSink records delivered inbounds.
+type recSink struct{ got []channels.Inbound }
+
+func (s *recSink) Deliver(_ context.Context, inb channels.Inbound) error {
+	s.got = append(s.got, inb)
+	return nil
+}
+
 func TestHandler(t *testing.T) {
 	secret := "s3cr3t"
 	tr := New(secret, "telegram:42")
-	inbound := make(chan channels.Inbound, 1)
-	h := tr.Handler(inbound)
+	sink := &recSink{}
+	h := tr.Handler(sink)
 
 	body := mkRun("completed", "failure", "main", "alice")
 	post := func(sig, delivery, event, b string) *httptest.ResponseRecorder {
@@ -129,29 +138,22 @@ func TestHandler(t *testing.T) {
 		return rr
 	}
 
-	// Bad signature → 401, nothing forwarded.
+	// Bad signature → 401, nothing delivered.
 	if rr := post("sha256=00", "d1", "workflow_run", body); rr.Code != http.StatusUnauthorized {
 		t.Fatalf("bad sig: got %d", rr.Code)
 	}
-	// Good delivery → 202 and an Inbound routed to telegram:42.
+	// Good delivery → 202 and an Inbound routed to telegram:42, marked trusted.
 	if rr := post(sign(secret, body), "d2", "workflow_run", body); rr.Code != http.StatusAccepted {
 		t.Fatalf("good delivery: got %d", rr.Code)
 	}
-	select {
-	case inb := <-inbound:
-		if inb.Channel != "telegram" || inb.Conversation != "42" {
-			t.Errorf("routed to %s:%s, want telegram:42", inb.Channel, inb.Conversation)
-		}
-	default:
-		t.Fatal("no inbound forwarded")
+	if len(sink.got) != 1 || sink.got[0].Channel != "telegram" || sink.got[0].Conversation != "42" || !sink.got[0].Trusted {
+		t.Fatalf("delivered %+v", sink.got)
 	}
-	// Duplicate delivery id → 200 and NOT forwarded again.
+	// Duplicate delivery id → 200 and NOT delivered again.
 	if rr := post(sign(secret, body), "d2", "workflow_run", body); rr.Code != http.StatusOK {
 		t.Fatalf("dup delivery: got %d", rr.Code)
 	}
-	select {
-	case <-inbound:
-		t.Fatal("duplicate delivery forwarded")
-	default:
+	if len(sink.got) != 1 {
+		t.Fatalf("duplicate delivery forwarded: %+v", sink.got)
 	}
 }

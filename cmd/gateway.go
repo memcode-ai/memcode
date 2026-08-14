@@ -48,7 +48,7 @@ result is posted back to the channel it came from. Runs until interrupted.`,
 		defer st.Close()
 
 		cmd.Printf("memcode gateway — %s (channels: %s)\n", cfg.Root, strings.Join(gwconfig.EnabledChannels(), ", "))
-		return gwserver.Run(ctx, cfg.Root, settings, cmd.OutOrStdout())
+		return gwserver.Run(ctx, cfg.Root, st, settings, cmd.OutOrStdout())
 	},
 }
 

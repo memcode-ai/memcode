@@ -85,9 +85,17 @@ func TestSend(t *testing.T) {
 	}
 }
 
+// recSink records delivered inbounds.
+type recSink struct{ got []channels.Inbound }
+
+func (s *recSink) Deliver(_ context.Context, inb channels.Inbound) error {
+	s.got = append(s.got, inb)
+	return nil
+}
+
 func TestHandlerGET(t *testing.T) {
 	c := New("PN", "tok", "vt", "sekret")
-	h := c.Handler(make(chan channels.Inbound, 1))
+	h := c.Handler(&recSink{})
 	req := httptest.NewRequest(http.MethodGet, "/webhook/whatsapp?hub.mode=subscribe&hub.verify_token=vt&hub.challenge=99", nil)
 	rr := httptest.NewRecorder()
 	h.ServeHTTP(rr, req)
@@ -99,8 +107,8 @@ func TestHandlerGET(t *testing.T) {
 func TestHandlerPOSTSignature(t *testing.T) {
 	const secret = "sekret"
 	c := New("PN", "tok", "vt", secret)
-	inbound := make(chan channels.Inbound, 1)
-	h := c.Handler(inbound)
+	sink := &recSink{}
+	h := c.Handler(sink)
 
 	body := `{"entry":[{"changes":[{"value":{"messages":[{"id":"wamid.9","from":"15550001111","type":"text","text":{"body":"hi"}}]}}]}]}`
 	sign := func(s string) string {
@@ -116,26 +124,19 @@ func TestHandlerPOSTSignature(t *testing.T) {
 		return rr
 	}
 
-	// Bad signature → 401, nothing forwarded.
+	// Bad signature → 401, nothing delivered.
 	if rr := post("sha256=00"); rr.Code != http.StatusUnauthorized {
 		t.Fatalf("bad sig: got %d", rr.Code)
 	}
-	select {
-	case <-inbound:
-		t.Fatal("unsigned message was forwarded")
-	default:
+	if len(sink.got) != 0 {
+		t.Fatal("unsigned message was delivered")
 	}
 
-	// Valid signature → 200 and the message is forwarded.
+	// Valid signature → 200 and the message is delivered.
 	if rr := post(sign(body)); rr.Code != http.StatusOK {
 		t.Fatalf("good sig: got %d", rr.Code)
 	}
-	select {
-	case inb := <-inbound:
-		if inb.MessageID != "wamid.9" || inb.Conversation != "15550001111" {
-			t.Errorf("forwarded %+v", inb)
-		}
-	default:
-		t.Fatal("signed message not forwarded")
+	if len(sink.got) != 1 || sink.got[0].MessageID != "wamid.9" || sink.got[0].Conversation != "15550001111" {
+		t.Fatalf("delivered %+v", sink.got)
 	}
 }

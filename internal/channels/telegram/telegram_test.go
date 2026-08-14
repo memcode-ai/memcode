@@ -13,6 +13,11 @@ import (
 	"github.com/memcode-ai/memcode/internal/channels"
 )
 
+// fakeSink collects delivered inbounds for tests.
+type fakeSink struct{}
+
+func (fakeSink) Deliver(ctx context.Context, inb channels.Inbound) error { return nil }
+
 // fakeOffsetStore is an in-memory OffsetStore for tests.
 type fakeOffsetStore struct {
 	offset int64
@@ -121,7 +126,7 @@ func TestStartLoadsPersistedOffset(t *testing.T) {
 	c.base = srv.URL
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go c.Start(ctx, make(chan channels.Inbound, 1))
+	go c.Start(ctx, fakeSink{})
 
 	select {
 	case off := <-gotOffset:

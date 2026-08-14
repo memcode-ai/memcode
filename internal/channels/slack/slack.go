@@ -37,7 +37,7 @@ func (c *Channel) Name() string { return "slack" }
 // Start runs the Socket Mode loop and forwards each user message as an Inbound
 // until ctx is cancelled. socketmode reconnects internally; RunContext only
 // returns on ctx cancellation or a fatal error.
-func (c *Channel) Start(ctx context.Context, inbound chan<- channels.Inbound) error {
+func (c *Channel) Start(ctx context.Context, sink channels.Sink) error {
 	// Learn our own user id so we can detect being @mentioned. If this fails the
 	// bot still serves DMs; group messages just won't be seen as mentions (so they
 	// won't trigger unless the channel is set to respond to all) — the safe default.
@@ -56,26 +56,35 @@ func (c *Channel) Start(ctx context.Context, inbound chan<- channels.Inbound) er
 				if evt.Type != socketmode.EventTypeEventsAPI {
 					continue
 				}
-				if evt.Request != nil {
-					_ = c.client.Ack(*evt.Request) // Slack requires prompt ack of each request
+				ack := func() {
+					if evt.Request != nil {
+						_ = c.client.Ack(*evt.Request)
+					}
 				}
 				api, ok := evt.Data.(slackevents.EventsAPIEvent)
 				if !ok {
+					ack()
 					continue
 				}
 				me, ok := api.InnerEvent.Data.(*slackevents.MessageEvent)
 				if !ok {
+					ack()
 					continue
 				}
 				inb, ok := toInbound(me, c.botID)
 				if !ok {
+					ack()
 					continue
 				}
-				select {
-				case inbound <- inb:
-				case <-ctx.Done():
-					return
+				// Ack (which advances Slack's delivery) ONLY after the message is
+				// durably recorded; on failure leave it unacked so Slack redelivers.
+				if err := sink.Deliver(ctx, inb); err != nil {
+					if ctx.Err() != nil {
+						return
+					}
+					continue
 				}
+				ack()
 			}
 		}
 	}()

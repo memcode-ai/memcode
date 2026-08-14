@@ -42,7 +42,7 @@ func (c *Channel) Name() string { return "discord" }
 // Start opens the gateway websocket, forwards each user message as an Inbound,
 // and blocks until ctx is cancelled. discordgo reconnects internally, so a
 // dropped socket doesn't return an error and take the gateway down.
-func (c *Channel) Start(ctx context.Context, inbound chan<- channels.Inbound) error {
+func (c *Channel) Start(ctx context.Context, sink channels.Sink) error {
 	remove := c.session.AddHandler(func(s *discordgo.Session, m *discordgo.MessageCreate) {
 		self := ""
 		if s.State != nil && s.State.User != nil {
@@ -52,10 +52,9 @@ func (c *Channel) Start(ctx context.Context, inbound chan<- channels.Inbound) er
 		if !ok {
 			return
 		}
-		select {
-		case inbound <- inb:
-		case <-ctx.Done():
-		}
+		// The Discord gateway has no per-message replay, so a Deliver failure can't
+		// be retried — the durable record is best-effort here.
+		_ = sink.Deliver(ctx, inb)
 	})
 	defer remove()
 

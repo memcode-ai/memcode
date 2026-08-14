@@ -95,7 +95,7 @@ type tgEntity struct {
 // ctx is cancelled. The ack cursor is loaded from (and saved to) the offset store
 // so a restart resumes where it left off. Transient errors back off with jitter
 // rather than returning, so a flaky network never takes the gateway down.
-func (c *Channel) Start(ctx context.Context, inbound chan<- channels.Inbound) error {
+func (c *Channel) Start(ctx context.Context, sink channels.Sink) error {
 	// Learn our own id and username so we can detect being addressed in a group.
 	// If getMe fails the bot still serves DMs; group messages just won't be seen
 	// as mentions (so they won't trigger unless respond_to_all) — the safe default.
@@ -130,16 +130,19 @@ func (c *Channel) Start(ctx context.Context, inbound chan<- channels.Inbound) er
 		}
 		backoff = time.Second // recovered — reset the ladder
 		for _, u := range ups {
-			offset = u.UpdateID + 1 // ack: next poll starts past this update
 			if inb, ok := toInbound(u, botID, botUsername); ok {
-				select {
-				case inbound <- inb:
-				case <-ctx.Done():
-					return ctx.Err()
+				if err := sink.Deliver(ctx, inb); err != nil {
+					if ctx.Err() != nil {
+						return ctx.Err()
+					}
+					// Not durably recorded — don't advance past this update; the
+					// next poll re-fetches it from the un-advanced offset.
+					break
 				}
 			}
-			// Persist AFTER forwarding: on a crash we re-fetch rather than skip,
-			// and the router's dedup discards the re-delivery.
+			// Advance the ack cursor only after the message was durably recorded
+			// (or it wasn't a message). Persisted so a restart resumes here.
+			offset = u.UpdateID + 1
 			if c.store != nil {
 				_ = c.store.SetOffset(ctx, "telegram", offset)
 			}

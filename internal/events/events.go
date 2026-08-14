@@ -77,6 +77,17 @@ const (
 	// were re-read. The deterministic substrate for retrospective cost/efficiency
 	// analysis (/analyze) — so an expensive turn is diagnosable from data, not vibes.
 	KindGatherSummary Kind = "gather_summary"
+
+	// Gateway — the self-hosted channel gateway (Telegram/Discord/Slack/GitHub/
+	// WhatsApp → agent). These make gateway activity visible in the main event log
+	// without pretending an inbound chat message is a project objective. Payloads
+	// carry {channel, conversation, principal_id, message_id, job_id, status} as
+	// relevant.
+	KindGatewayMessageReceived Kind = "gateway_message_received"
+	KindGatewayJobSpawned      Kind = "gateway_job_spawned"
+	KindGatewayResultPosted    Kind = "gateway_result_posted"
+	KindGatewayMessageDropped  Kind = "gateway_message_dropped" // not a trigger (e.g. no mention in a group)
+	KindGatewayUnauthorized    Kind = "gateway_unauthorized"    // sender not allow-listed
 )
 
 // Append records an event with a JSON-encodable payload and returns its id.
