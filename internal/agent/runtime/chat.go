@@ -400,6 +400,9 @@ func (s *Session) runTurn(ctx context.Context, st *ChatState, b input.Bundle) {
 	if s.memoryMd != "" { // durable memory (global + project) rides every turn as background facts
 		base = base.withExtra(s.memoryMd)
 	}
+	if blk := supplementalBlock(s.supplemental); blk != "" { // caller-supplied context (agent runtime); empty for CLI
+		base = base.withExtra(blk)
+	}
 	if nudge := s.skillNudge(b.Text); nudge != "" { // request names an installed skill → point right at it
 		base = base.withExtra(nudge)
 	}

@@ -55,6 +55,18 @@ type Settings struct {
 	// DefaultProject is the project id the gateway executes against when a task
 	// carries no explicit project (all of them, until conversations land).
 	DefaultProject string `yaml:"default_project,omitempty"`
+	// Agents is the registry of durable personas (internally Persona) — an
+	// assistant identity with its own home (memory/skills/instructions), distinct
+	// from any project. A channel binds to one by name (Channel.Agent).
+	Agents map[string]Persona `yaml:"agents,omitempty"`
+}
+
+// Persona is a durable agent identity: a home directory (~/.memcode/agents/<id>)
+// holding its own memory.md, MEMCODE.md, and skills, plus a coarse type. It is NOT
+// a project and NOT the `memcode agent` CLI command — the persona's context is
+// composed and handed to the coding engine as generic supplemental context.
+type Persona struct {
+	Type string `yaml:"type,omitempty"` // assistant | coding | research (coarse behavior hint)
 }
 
 // Project is a registered working directory. Path is the configured location;
@@ -157,6 +169,9 @@ type Channel struct {
 	// routing (cheap for routine work). Lets a code-review channel run strong while
 	// a status channel stays cheap.
 	Tier string `yaml:"tier,omitempty"`
+	// Agent binds this channel to a persona by id (see Settings.Agents). Empty
+	// means the gateway's plain default (no persona context layered on).
+	Agent string `yaml:"agent,omitempty"`
 	// ReplyTo (GitHub) routes an autonomous result to a chat conversation, e.g.
 	// "telegram:123456".
 	ReplyTo string `yaml:"reply_to,omitempty"`
@@ -214,6 +229,29 @@ func Path() (string, error) {
 		return "", err
 	}
 	return filepath.Join(dir, "gateway.yaml"), nil
+}
+
+// ContextPath is where the gateway writes a job's composed supplemental context,
+// keyed by session id. Global and gateway-owned (never under a repo's .memcode);
+// the spawned agent child self-discovers it by session id — so no jobs.Spawn
+// signature change is needed to carry per-task context.
+func ContextPath(session string) (string, error) {
+	dir, err := Dir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "context", session+".json"), nil
+}
+
+// PersonaHome is a persona's state directory: ~/.memcode/agents/<id>, holding its
+// own memory.md, MEMCODE.md, and skills. Distinct from the project (the cwd) and
+// from user-global ~/.memcode (shared by all personas).
+func PersonaHome(id string) (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".memcode", "agents", id), nil
 }
 
 // Load reads gateway.yaml, returning zero Settings if the file does not exist.
