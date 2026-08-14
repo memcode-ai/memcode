@@ -50,7 +50,8 @@ webhook:
   addr: ":8787"          # inbound listener for GitHub/WhatsApp
 channels:
   telegram:
-    allow_from: ["@you", "123456789"]   # ids or @handles; "*" = anyone
+    allow_from: ["123456789"]           # STABLE user ids (not @handles); "*" = anyone
+    # respond_to_all: true              # act on every message in a group (default: mention required)
   github:
     reply_to: "telegram:123456789"      # where CI-failure results are posted
   whatsapp:
@@ -59,13 +60,22 @@ channels:
     allow_from: ["+15555550123"]
 ```
 
-## Authorization
+## Authorization and triggering
 
-The gateway is **default-deny**: a chat message is dropped unless its sender is
-in that channel's `allow_from` (or `allow_all: true` is set). This is the one
-thing that keeps a bot in a shared channel from letting anyone drive the agent in
-your repo. Signature-verified webhooks (GitHub) are exempt — their HMAC already
-authenticates the sender.
+Two independent checks gate a chat message, matching what Hermes and OpenClaw do:
+
+- **Who** — the gateway is **default-deny**: a message is dropped unless its
+  sender is in that channel's `allow_from` (or `allow_all: true`). Authorization
+  is on the sender's **stable id**, never the mutable @handle, so a renamed or
+  lookalike handle can't gain or lose access.
+- **When** — a **direct message always triggers**; in a group or channel the bot
+  acts only when it's **addressed** (@mentioned or replied-to), so ordinary
+  chatter doesn't spawn agent jobs. Set `respond_to_all: true` on a channel to
+  act on every message. Mention detection is structural (Telegram message
+  entities, Discord mentions, Slack `<@BOTID>`), not substring.
+
+Signature-verified webhooks (GitHub) skip both — their HMAC already authenticates
+the sender.
 
 ## Import from OpenClaw
 
@@ -117,11 +127,14 @@ The gateway is built around the invariants that a message-driven agent needs to
 be correct, not just to demo — the failure modes both Hermes and OpenClaw hit
 repeatedly:
 
-- **Idempotent dispatch.** Every message carries a stable platform id (Telegram
-  `update_id`, Discord message id, Slack event ts, GitHub delivery, WhatsApp
-  `wamid`). A dedicated SQLite store records what's been dispatched, so a
-  redelivery — after a restart, reconnect, or provider retry — is dropped, never
-  re-run as a fresh (paid) agent turn.
+- **Durable inbox (at-least-once).** Every accepted message is written to a durable
+  SQLite inbox *before* the provider is acknowledged (Telegram advances its offset,
+  Slack acks the socket, GitHub/WhatsApp return 2xx only after the write). A worker
+  drains the inbox and replays anything a crash left pending, so a message is never
+  lost between ack and execution. The inbox `(channel, message_id)` key is the
+  dedup: a redelivery after a restart, reconnect, or provider retry is dropped,
+  never re-run as a fresh paid turn. A job is marked done only after it completes,
+  so at worst a crash re-runs an *interrupted* job.
 - **Per-conversation ordering, bounded concurrency.** One conversation's messages
   are handled one at a time in order; a global cap keeps a flood from spawning
   unbounded agent subprocesses.
@@ -129,11 +142,16 @@ repeatedly:
   resumes where it left off instead of replaying the backlog.
 - **Resilient reconnect.** Transient errors back off exponentially with jitter,
   capped, so a poll can't resonate with the server's session TTL.
-- **One egress.** All outbound text goes through a single length-aware chunker;
-  sends honor rate-limit `retry_after` instead of hammering.
+- **One egress.** All outbound text (Telegram, Discord, Slack) goes through a
+  single length-aware chunker; sends honor rate-limit `retry_after` instead of
+  hammering.
 - **Authenticated webhooks.** GitHub and WhatsApp POSTs are HMAC-verified against
   their secrets; the verification handshake is a separate path from the
   per-message signature check.
+- **Visible in memcode.** Gateway activity is logged to the main event store
+  (`gateway_message_received` / `job_spawned` / `result_posted` / `dropped` /
+  `unauthorized`) — but an inbound chat message is never turned into a project
+  objective.
 
 State lives in the project's `.memcode/gateway.db` (SQLite, WAL) — copyable with
 the rest of `.memcode`.
