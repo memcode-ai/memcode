@@ -80,6 +80,11 @@ type Channel struct {
 	// doesn't spawn a paid agent job for ordinary chatter. Direct messages always
 	// trigger regardless of this setting.
 	RespondToAll bool `yaml:"respond_to_all,omitempty"`
+	// Tier routes this channel's agent runs to a stronger model tier: "strong"
+	// (the strong vendor's balanced tier) or "frontier" (top). Empty is automatic
+	// routing (cheap for routine work). Lets a code-review channel run strong while
+	// a status channel stays cheap.
+	Tier string `yaml:"tier,omitempty"`
 	// ReplyTo (GitHub) routes an autonomous result to a chat conversation, e.g.
 	// "telegram:123456".
 	ReplyTo string `yaml:"reply_to,omitempty"`

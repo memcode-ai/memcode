@@ -289,8 +289,10 @@ func (r *runtime) process(ctx context.Context, it state.Item) {
 	}
 	// A gateway-triggered job has no TTY to answer approval prompts → Auto mode.
 	// Continuity: a stable session id per conversation, so follow-up messages
-	// resume the same session (the child does resume-or-create on this id).
-	job, err := jobs.Spawn(r.root, it.Text, string(permissions.ModeAuto), "", false, true, conversationSession(it.Channel, it.Conversation))
+	// resume the same session (the child does resume-or-create on this id). Tier
+	// routes this channel to a stronger model when configured.
+	tier := r.settings.Get(it.Channel).Tier
+	job, err := jobs.Spawn(r.root, it.Text, string(permissions.ModeAuto), tier, false, true, conversationSession(it.Channel, it.Conversation))
 	if err != nil {
 		_ = ch.Send(ctx, it.Conversation, channels.Outbound{Text: "Couldn't start that: " + err.Error()})
 		_ = r.gw.MarkDone(ctx, it.Channel, it.MessageID) // a spawn failure won't succeed on replay
