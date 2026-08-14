@@ -19,6 +19,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/robfig/cron/v3"
+
 	"github.com/memcode-ai/memcode/internal/agent/permissions"
 	"github.com/memcode-ai/memcode/internal/channels"
 	"github.com/memcode-ai/memcode/internal/channels/discord"
@@ -104,8 +106,77 @@ func Run(ctx context.Context, root string, mainStore store.Store, settings gwcon
 		return fmt.Errorf("no channels configured — run `memcode gateway setup` to add one")
 	}
 
+	rt.startSchedules(ctx) // time-triggered tasks feed the same inbox
+
 	rt.runWorker(ctx) // blocks until ctx is cancelled
 	return ctx.Err()
+}
+
+// startSchedules runs each configured schedule on its cadence. A fire produces a
+// Trusted synthetic message routed to the schedule's deliver_to, so it flows
+// through the exact same Deliver → inbox → worker → reply path as a chat message.
+func (r *runtime) startSchedules(ctx context.Context) {
+	if len(r.settings.Schedules) == 0 {
+		return
+	}
+	c := cron.New()
+	added := 0
+	for _, sch := range r.settings.Schedules {
+		sch := sch
+		spec, ok := scheduleSpec(sch)
+		if !ok {
+			fmt.Fprintf(r.out, "gateway: schedule %q skipped: set exactly one of every/cron\n", sch.Name)
+			continue
+		}
+		ch, convo, ok := parseRoute(sch.DeliverTo)
+		if !ok {
+			fmt.Fprintf(r.out, "gateway: schedule %q skipped: deliver_to must be \"channel:conversation\"\n", sch.Name)
+			continue
+		}
+		if _, err := c.AddFunc(spec, func() { r.fireSchedule(ctx, sch, ch, convo) }); err != nil {
+			fmt.Fprintf(r.out, "gateway: schedule %q skipped: bad schedule %q: %v\n", sch.Name, spec, err)
+			continue
+		}
+		fmt.Fprintf(r.out, "gateway: schedule %q → %s (%s)\n", sch.Name, sch.DeliverTo, spec)
+		added++
+	}
+	if added == 0 {
+		return
+	}
+	c.Start()
+	go func() {
+		<-ctx.Done()
+		c.Stop()
+	}()
+}
+
+// fireSchedule enqueues one scheduled run as a Trusted inbound. Each fire gets a
+// unique id so the inbox dedup treats repeats as distinct work.
+func (r *runtime) fireSchedule(ctx context.Context, sch gwconfig.Schedule, channel, conversation string) {
+	inb := channels.Inbound{
+		Channel:      channel,
+		Conversation: conversation,
+		Principal:    "schedule:" + sch.Name,
+		Text:         sch.Task,
+		Trusted:      true,
+		MessageID:    fmt.Sprintf("cron:%s:%d", sch.Name, time.Now().UnixNano()),
+	}
+	if err := r.Deliver(ctx, inb); err != nil {
+		fmt.Fprintf(r.out, "gateway: schedule %q enqueue failed: %v\n", sch.Name, err)
+	}
+}
+
+// scheduleSpec turns a Schedule into a cron spec: a raw cron expression, or an
+// "@every <duration>" from Every. Exactly one of the two must be set.
+func scheduleSpec(sch gwconfig.Schedule) (string, bool) {
+	switch {
+	case sch.Cron != "" && sch.Every == "":
+		return sch.Cron, true
+	case sch.Every != "" && sch.Cron == "":
+		return "@every " + sch.Every, true
+	default:
+		return "", false
+	}
 }
 
 // Deliver applies gating and authorization, and durably records a message that
@@ -269,7 +340,7 @@ func startWebhooks(ctx context.Context, settings gwconfig.Settings, rt *runtime,
 	mounted := false
 
 	if secret := strings.TrimSpace(os.Getenv(gwconfig.EnvGitHubSecret)); secret != "" {
-		if _, _, ok := githubReplyRoute(settings.Get("github").ReplyTo); !ok {
+		if _, _, ok := parseRoute(settings.Get("github").ReplyTo); !ok {
 			fmt.Fprintf(out, "gateway: github disabled: set github.reply_to (e.g. telegram:123456) in gateway.yaml\n")
 		} else {
 			mux.Handle("/webhook/github", githubtrigger.New(secret, settings.Get("github").ReplyTo).Handler(rt))
@@ -323,9 +394,9 @@ func startWebhooks(ctx context.Context, settings gwconfig.Settings, rt *runtime,
 	return true
 }
 
-// githubReplyRoute reports whether a usable "<channel>:<conversation>" reply route
+// parseRoute reports whether a usable "<channel>:<conversation>" reply route
 // is configured for the GitHub trigger.
-func githubReplyRoute(replyTo string) (channel, conversation string, ok bool) {
+func parseRoute(replyTo string) (channel, conversation string, ok bool) {
 	channel, conversation, ok = strings.Cut(strings.TrimSpace(replyTo), ":")
 	channel, conversation = strings.TrimSpace(channel), strings.TrimSpace(conversation)
 	if channel == "" || conversation == "" {

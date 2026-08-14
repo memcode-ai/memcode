@@ -43,9 +43,23 @@ type Settings struct {
 	// AllowAll disables the per-channel allow-list entirely — anyone who can reach
 	// a channel may drive the agent. Defaults false: the gateway is default-deny,
 	// so an unconfigured channel answers no one until you add yourself.
-	AllowAll bool               `yaml:"allow_all,omitempty"`
-	Webhook  Webhook            `yaml:"webhook,omitempty"`
-	Channels map[string]Channel `yaml:"channels,omitempty"`
+	AllowAll  bool               `yaml:"allow_all,omitempty"`
+	Webhook   Webhook            `yaml:"webhook,omitempty"`
+	Channels  map[string]Channel `yaml:"channels,omitempty"`
+	Schedules []Schedule         `yaml:"schedules,omitempty"`
+}
+
+// Schedule is a time-triggered task: the gateway runs Task on the given cadence
+// and posts the result to DeliverTo ("<channel>:<conversation>", e.g.
+// "telegram:123456"). Set exactly one of Every (a Go duration like "24h" or
+// "30m") or Cron (a 5-field cron expression like "0 9 * * 1-5"). This is what
+// turns the gateway from purely reactive into autonomous.
+type Schedule struct {
+	Name      string `yaml:"name"`
+	Every     string `yaml:"every,omitempty"`
+	Cron      string `yaml:"cron,omitempty"`
+	Task      string `yaml:"task"`
+	DeliverTo string `yaml:"deliver_to"`
 }
 
 // Webhook is the inbound HTTP listener shared by GitHub/WhatsApp. Defaults to
