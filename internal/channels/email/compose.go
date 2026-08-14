@@ -35,6 +35,9 @@ func composeReply(from, to string, th threadInfo, body string) []byte {
 	if refs := stripCRLF(threadReferences(th)); refs != "" {
 		fmt.Fprintf(&b, "References: %s\r\n", refs)
 	}
+	// Mark our replies as auto-generated so another auto-responder (or a second
+	// memcode bot) won't ping-pong with us — inbound honors this too (shouldIgnore).
+	b.WriteString("Auto-Submitted: auto-replied\r\n")
 	b.WriteString("MIME-Version: 1.0\r\n")
 	b.WriteString("Content-Type: text/plain; charset=utf-8\r\n")
 	b.WriteString("Content-Transfer-Encoding: 8bit\r\n")

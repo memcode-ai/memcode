@@ -28,6 +28,17 @@ import (
 // botFrameworkIssuer is the issuer every Bot Framework connector token carries.
 const botFrameworkIssuer = "https://api.botframework.com"
 
+// msServiceSuffixes are the host suffixes a legitimate Bot Framework serviceUrl
+// or attachment lives under. The connector bearer is sent ONLY to these, and a
+// reply is refused to any other host — so a manipulated serviceUrl or
+// contentUrl can't redirect the agent's output (and its Authorization header)
+// to an attacker.
+var msServiceSuffixes = []string{
+	".botframework.com", ".skype.com", "smba.trafficmanager.net",
+	".sharepoint.com", ".office.com", ".microsoft.com", ".microsoftonline.com",
+	".core.windows.net", ".azureedge.net",
+}
+
 // defaultMetadataURL is the Bot Framework OpenID metadata document; it points
 // at the JWKS the connector signs inbound tokens with.
 const defaultMetadataURL = "https://login.botframework.com/v1/.well-known/openidconfiguration"
@@ -53,7 +64,9 @@ type Channel struct {
 	mediaDir    string // media spool; "" disables inbound media downloads
 	tokenBase   string // Azure AD token endpoint base; overridable in tests
 	client      *http.Client
-	verify      *webjwt.Verifier // the shared inbound-JWT verifier; tests point its MetadataURL at a fake
+	dl          *http.Client           // SSRF-guarded client for attachment downloads
+	trustHost   func(host string) bool // serviceUrl/content host trust check; nil = the msServiceSuffixes allowlist (test seam)
+	verify      *webjwt.Verifier       // the shared inbound-JWT verifier; tests point its MetadataURL at a fake
 
 	// tokMu guards the cached outbound bearer; refreshed ~60s before expiry so
 	// an in-flight Send never races the token's edge.
@@ -68,6 +81,7 @@ type Channel struct {
 func New(appID, appPassword, tenantID, mediaDir string) *Channel {
 	client := &http.Client{Timeout: 30 * time.Second}
 	return &Channel{
+		dl:          channels.SafeHTTPClient(30 * time.Second),
 		appID:       appID,
 		appPassword: appPassword,
 		tenantID:    tenantID,
@@ -228,8 +242,32 @@ func (c *Channel) download(ctx context.Context, act activity) []channels.Attachm
 	return out
 }
 
+// hostTrusted reports whether u is a first-party Bot Framework host the
+// connector bearer may be sent to. https-only in production; a test seam
+// (trustHost) relaxes it for httptest servers.
+func (c *Channel) hostTrusted(u *url.URL) bool {
+	if u == nil {
+		return false
+	}
+	if c.trustHost != nil {
+		return c.trustHost(u.Host)
+	}
+	return u.Scheme == "https" && channels.HostAllowed(u.Host, msServiceSuffixes...)
+}
+
 func (c *Channel) downloadOne(ctx context.Context, contentURL, mimeType, name string) (channels.Attachment, error) {
-	bearer, _ := c.token(ctx) // best-effort; an unauthenticated fetch may still work
+	// The connector bearer (aud api.botframework.com) is attached ONLY when the
+	// content host is a first-party Microsoft host, so a contentUrl pointing
+	// anywhere else can't harvest the gateway's token. The SSRF-guarded client
+	// independently refuses any internal address.
+	u, perr := url.Parse(contentURL)
+	if perr != nil {
+		return channels.Attachment{}, perr
+	}
+	bearer := ""
+	if c.hostTrusted(u) {
+		bearer, _ = c.token(ctx)
+	}
 	resp, err := c.fetch(ctx, contentURL, bearer)
 	if err != nil {
 		return channels.Attachment{}, err
@@ -258,7 +296,7 @@ func (c *Channel) fetch(ctx context.Context, u, bearer string) (*http.Response, 
 	if bearer != "" {
 		req.Header.Set("Authorization", "Bearer "+bearer)
 	}
-	return c.client.Do(req)
+	return c.dl.Do(req)
 }
 
 // token returns a valid outbound connector bearer, minting one via the Azure
@@ -312,6 +350,14 @@ func (c *Channel) Send(ctx context.Context, conversation string, msg channels.Ou
 	convID, serviceURL, ok := strings.Cut(conversation, "|")
 	if !ok || convID == "" || serviceURL == "" {
 		return fmt.Errorf("msteams send: malformed conversation %q", conversation)
+	}
+	// serviceUrl came from the (JWT-authenticated but attacker-shapeable)
+	// activity body. Refuse to send the reply — and its connector bearer — to
+	// any host that isn't a first-party Bot Framework endpoint, so a forged
+	// serviceUrl can't redirect the agent's output to an attacker.
+	su, perr := url.Parse(serviceURL)
+	if perr != nil || !c.hostTrusted(su) {
+		return fmt.Errorf("msteams send: refusing reply to untrusted serviceUrl %q", serviceURL)
 	}
 	bearer, err := c.token(ctx)
 	if err != nil {

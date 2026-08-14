@@ -329,7 +329,11 @@ func mentionsBot(u update, botID int64, botUsername string) bool {
 				return true
 			}
 		case "bot_command":
-			if strings.Contains(strings.ToLower(entityText(m.Text, e.Offset, e.Length)), want) {
+			// A command is "/cmd" or "/cmd@botusername". Match the exact
+			// "@botusername" suffix on a token boundary — not a substring, so
+			// "/cmd@botusernameX" (a different bot) does not trigger us.
+			cmd := strings.ToLower(entityText(m.Text, e.Offset, e.Length))
+			if at := strings.IndexByte(cmd, '@'); at >= 0 && cmd[at:] == want {
 				return true
 			}
 		}

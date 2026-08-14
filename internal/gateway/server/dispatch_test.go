@@ -57,7 +57,7 @@ func TestDispatcherOrdersWithinKey(t *testing.T) {
 
 func TestDispatcherBoundsConcurrency(t *testing.T) {
 	const cap = 2
-	d := &dispatcher{sem: make(chan struct{}, cap), convs: make(map[string]chan func())}
+	d := &dispatcher{sem: make(chan struct{}, cap), convs: make(map[string]*convWorker)}
 
 	var cur, max int32
 	release := make(chan struct{})

@@ -9,6 +9,10 @@ import (
 	"github.com/emersion/go-imap/v2/imapclient"
 )
 
+// maxRawMessage caps a single fetched message; a larger one is skipped (marked
+// seen by the caller) rather than buffered whole.
+const maxRawMessage = 60 << 20
+
 // dialIMAP opens a logged-in TLS session on the IMAP host.
 func (c *Channel) dialIMAP() (imapSession, error) {
 	cl, err := imapclient.DialTLS(c.imapHost, nil)
@@ -63,9 +67,13 @@ func (s *liveSession) FetchRaw(uid imap.UID) ([]byte, error) {
 	}
 	for _, m := range msgs {
 		for _, bs := range m.BodySection {
-			if len(bs.Bytes) > 0 {
-				return bs.Bytes, nil
+			if len(bs.Bytes) == 0 {
+				continue
 			}
+			if len(bs.Bytes) > maxRawMessage {
+				return nil, fmt.Errorf("imap fetch uid %d: message too large (%d bytes)", uid, len(bs.Bytes))
+			}
+			return bs.Bytes, nil
 		}
 	}
 	return nil, fmt.Errorf("imap fetch uid %d: empty body", uid)

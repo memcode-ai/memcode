@@ -29,8 +29,13 @@ type rawAttachment struct {
 	data []byte
 }
 
-// maxParsedAttachment caps a single decoded email attachment.
-const maxParsedAttachment = 25 << 20
+// Caps against a malicious message: a single decoded part, the number of parts,
+// and the aggregate decoded bytes across all parts.
+const (
+	maxParsedAttachment = 25 << 20 // one decoded part
+	maxAttachmentCount  = 50       // parts per message
+	maxAggregateBytes   = 50 << 20 // total decoded attachment bytes per message
+)
 
 // parseMessage extracts what the gateway needs from a raw RFC 5322 message.
 // Best-effort: an unparseable message returns ok=false and is skipped (and
@@ -61,7 +66,7 @@ func parseMessage(raw []byte) (parsedMessage, bool) {
 		}
 	}
 	p.autoSubmit = strings.ToLower(strings.TrimSpace(m.Header.Get("Auto-Submitted")))
-	walkPart(mailHeader(m.Header), m.Body, &p, 0)
+	walkPart(mailHeader(m.Header), m.Body, &p, 0, new(int64))
 	p.text = strings.TrimSpace(p.text)
 	return p, true
 }
@@ -88,8 +93,8 @@ func partHeader(p *multipart.Part) header { return func(k string) string { retur
 // back to a stripped-tags-free text/html is deliberately NOT attempted — plain
 // text or nothing, like the wire) and every attachment. Depth-capped against
 // pathological nesting.
-func walkPart(h header, body io.Reader, p *parsedMessage, depth int) {
-	if depth > 8 {
+func walkPart(h header, body io.Reader, p *parsedMessage, depth int, agg *int64) {
+	if depth > 8 || len(p.attachments) >= maxAttachmentCount || *agg >= maxAggregateBytes {
 		return
 	}
 	ctype := h.get("Content-Type")
@@ -107,11 +112,14 @@ func walkPart(h header, body io.Reader, p *parsedMessage, depth int) {
 		}
 		mr := multipart.NewReader(body, boundary)
 		for {
+			if len(p.attachments) >= maxAttachmentCount || *agg >= maxAggregateBytes {
+				return
+			}
 			part, err := mr.NextPart()
 			if err != nil {
 				return
 			}
-			walkPart(partHeader(part), part, p, depth+1)
+			walkPart(partHeader(part), part, p, depth+1, agg)
 		}
 	}
 
@@ -139,7 +147,8 @@ func walkPart(h header, body io.Reader, p *parsedMessage, depth int) {
 		if dec, err := (&mime.WordDecoder{}).DecodeHeader(name); err == nil {
 			name = dec
 		}
-		if len(data) > 0 {
+		if len(data) > 0 && len(p.attachments) < maxAttachmentCount && *agg+int64(len(data)) <= maxAggregateBytes {
+			*agg += int64(len(data))
 			p.attachments = append(p.attachments, rawAttachment{name: name, mime: mediaType, data: data})
 		}
 	}

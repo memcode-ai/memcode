@@ -46,7 +46,8 @@ type Channel struct {
 	appSecret     string // Meta app secret; verifies inbound POST signatures
 	base          string // Graph API base; overridable in tests
 	client        *http.Client
-	mediaDir      string // media spool; "" disables inbound media downloads
+	dl            *http.Client // SSRF-guarded client for media downloads
+	mediaDir      string       // media spool; "" disables inbound media downloads
 }
 
 // New builds a WhatsApp channel from the phone number id and its tokens. appSecret
@@ -62,6 +63,7 @@ func New(phoneNumberID, accessToken, verifyToken, appSecret, mediaDir string) *C
 		appSecret:     appSecret,
 		base:          defaultBase,
 		client:        &http.Client{Timeout: 30 * time.Second},
+		dl:            channels.SafeHTTPClient(30 * time.Second), // media fetches: SSRF-guarded
 		mediaDir:      mediaDir,
 	}
 }
@@ -265,7 +267,7 @@ func (c *Channel) downloadOne(ctx context.Context, m waMedia) (channels.Attachme
 		return channels.Attachment{}, err
 	}
 	dreq.Header.Set("Authorization", "Bearer "+c.accessToken)
-	dresp, err := c.client.Do(dreq)
+	dresp, err := c.dl.Do(dreq) // SSRF-guarded: the media URL is Graph-returned but fetched defensively
 	if err != nil {
 		return channels.Attachment{}, err
 	}

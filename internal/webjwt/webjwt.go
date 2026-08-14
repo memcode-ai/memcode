@@ -1,8 +1,8 @@
 // Package webjwt is the ONE verifier for platform-signed inbound-webhook
 // bearer tokens (Bot Framework, Google Chat): RS256 against a published JWKS,
-// with issuer/audience/expiry enforced and the key set cached — refreshed at
-// most once per unknown kid, so key rotation works but a forged-kid flood
-// isn't amplified into JWKS hammering. Two adapters verifying JWTs two
+// with issuer/audience/expiry enforced and the key set cached — an unknown kid
+// triggers a refetch at most once per interval, so key rotation works but a
+// forged-kid flood is not amplified into JWKS hammering. Two adapters verifying JWTs two
 // different ways is how drift bugs happen; both use this.
 //
 // The golang-jwt SDK lives ONLY here (guarded by
@@ -40,9 +40,15 @@ type Verifier struct {
 	Audience    string // required — an empty audience never verifies
 	Client      *http.Client
 
-	mu   sync.Mutex
-	keys map[string]*rsa.PublicKey
+	mu          sync.Mutex
+	keys        map[string]*rsa.PublicKey
+	lastRefresh time.Time // throttles refreshes so an unknown-kid flood can't hammer the JWKS host
 }
+
+// minRefreshInterval bounds how often an unknown kid may trigger a JWKS
+// refetch. A flood of forged random kids is thus rate-limited to one outbound
+// fetch per interval, not one per request.
+const minRefreshInterval = 30 * time.Second
 
 // Verify checks a raw compact JWT. It fails closed: missing configuration,
 // unknown alg, unknown kid after one refresh, wrong issuer/audience, or an
@@ -87,8 +93,18 @@ func (v *Verifier) cachedKey(kid string) *rsa.PublicKey {
 }
 
 // refreshKeys resolves the JWKS location and replaces the key cache. Replacing
-// (not merging) means revoked keys actually leave.
+// (not merging) means revoked keys actually leave. Throttled: at most one
+// outbound fetch per minRefreshInterval, so an unauthenticated flood of forged
+// kids can't amplify into JWKS hammering (each caller sees a benign "unknown
+// key" once the cache is warm and the interval hasn't elapsed).
 func (v *Verifier) refreshKeys(ctx context.Context) error {
+	v.mu.Lock()
+	if !v.lastRefresh.IsZero() && time.Since(v.lastRefresh) < minRefreshInterval {
+		v.mu.Unlock()
+		return nil // recently refreshed; the caller's kid is treated as unknown
+	}
+	v.lastRefresh = time.Now()
+	v.mu.Unlock()
 	jwksURL := v.JWKSURL
 	if jwksURL == "" {
 		var meta struct {

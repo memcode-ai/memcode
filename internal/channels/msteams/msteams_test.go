@@ -11,6 +11,7 @@ import (
 	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -279,6 +280,7 @@ func TestSendChunksAndCachesToken(t *testing.T) {
 
 	c := New(testAppID, "secret", "tenant-1", "")
 	c.tokenBase = tokenSrv.URL
+	c.trustHost = func(string) bool { return true } // test seam: allow the httptest serviceUrl
 
 	long := strings.Repeat("a", teamsMaxMessage) + " tail"
 	conv := "19:conv-1|" + svcSrv.URL
@@ -317,5 +319,40 @@ func TestSendMalformedConversation(t *testing.T) {
 	c := New(testAppID, "secret", "tenant", "")
 	if err := c.Send(context.Background(), "no-service-url", channels.Outbound{Text: "x"}); err == nil {
 		t.Fatal("expected error for conversation without a serviceUrl")
+	}
+}
+
+// A reply is refused when the serviceUrl host isn't a first-party Bot Framework
+// host — a forged serviceUrl can't redirect the agent's output (and its bearer).
+func TestSendRefusesUntrustedServiceURL(t *testing.T) {
+	c := New(testAppID, "secret", "tenant-1", "")
+	// No trustHost seam here → the real allowlist applies.
+	err := c.Send(context.Background(), "19:conv|https://attacker.example.com", channels.Outbound{Text: "hi"})
+	if err == nil {
+		t.Fatal("reply to untrusted serviceUrl must be refused")
+	}
+	// A genuine Bot Framework host passes the allowlist (it will fail later at
+	// the network layer, which is fine — we only assert the host gate here).
+	err = c.Send(context.Background(), "19:conv|https://smba.trafficmanager.net/amer/", channels.Outbound{Text: "hi"})
+	if err != nil && strings.Contains(err.Error(), "untrusted serviceUrl") {
+		t.Fatalf("trusted host wrongly rejected: %v", err)
+	}
+}
+
+func TestHostTrustedGate(t *testing.T) {
+	c := New("app", "s", "t", "")
+	trusted := []string{"https://smba.trafficmanager.net/x", "https://foo.botframework.com/y", "https://team.sharepoint.com/z"}
+	for _, u := range trusted {
+		pu, _ := url.Parse(u)
+		if !c.hostTrusted(pu) {
+			t.Errorf("%s should be trusted", u)
+		}
+	}
+	untrusted := []string{"http://smba.trafficmanager.net/x", "https://169.254.169.254/", "https://evil.com/", "https://smba.trafficmanager.net.evil.com/"}
+	for _, u := range untrusted {
+		pu, _ := url.Parse(u)
+		if c.hostTrusted(pu) {
+			t.Errorf("%s should NOT be trusted", u)
+		}
 	}
 }

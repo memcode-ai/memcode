@@ -21,6 +21,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/memcode-ai/memcode/internal/channels"
@@ -43,6 +44,14 @@ type Channel struct {
 	mediaDir       string // gateway media spool; "" disables media
 	client         *http.Client
 	sse            *http.Client // no timeout: the event stream is long-lived
+
+	// idMu guards a learned number->uuid map. signal-cli usually surfaces both a
+	// uuid and a number; we remember the pairing so a later delivery that carries
+	// ONLY the number still resolves to the same stable uuid — otherwise the
+	// dedup key (and authz principal) could flip between uuid and number for the
+	// same account and re-run a paid job.
+	idMu  sync.Mutex
+	byNum map[string]string
 }
 
 // New builds a Signal channel. baseURL "" uses the local daemon default.
@@ -57,7 +66,23 @@ func New(baseURL, account, attachmentsDir, mediaDir string) *Channel {
 		mediaDir:       mediaDir,
 		client:         &http.Client{Timeout: 30 * time.Second},
 		sse:            &http.Client{},
+		byNum:          map[string]string{},
 	}
+}
+
+// resolveUUID records a number->uuid pairing when both are present and, for a
+// number-only envelope, returns the previously-learned uuid so identity stays
+// stable across deliveries.
+func (c *Channel) resolveUUID(uuid, number string) string {
+	c.idMu.Lock()
+	defer c.idMu.Unlock()
+	if uuid != "" {
+		if number != "" {
+			c.byNum[number] = uuid
+		}
+		return uuid
+	}
+	return c.byNum[number] // "" if never seen with a uuid
 }
 
 // Name returns the adapter identifier.
@@ -145,12 +170,25 @@ func (c *Channel) stream(ctx context.Context, sink channels.Sink) error {
 	return sc.Err()
 }
 
-// handleEvent parses one SSE payload and forwards a usable message.
+// handleEvent parses one SSE payload, stabilizes the sender identity to a uuid
+// where possible, and forwards a usable message.
 func (c *Channel) handleEvent(ctx context.Context, sink channels.Sink, raw []byte) {
-	inb, refs, ok := parseEnvelope(raw, c.account)
+	inb, meta, refs, ok := parseEnvelope(raw, c.account)
 	if !ok {
 		return
 	}
+	// Prefer the account uuid for the principal and dedup key; if this delivery
+	// carried only a number, fall back to a previously-learned uuid so the same
+	// account never flips identity between deliveries.
+	stable := c.resolveUUID(meta.uuid, meta.number)
+	if stable == "" {
+		stable = meta.number // never seen with a uuid; the number is all we have
+	}
+	if inb.IsDirect {
+		inb.Conversation = stable
+	}
+	inb.Principal = stable
+	inb.MessageID = fmt.Sprintf("%s:%d", stable, meta.timestamp)
 	inb.Attachments = c.collect(refs)
 	_ = sink.Deliver(ctx, inb) // best-effort; see Start
 }
@@ -162,28 +200,31 @@ type attachmentRef struct {
 	name string
 }
 
+// identity carries the raw sender fields so handleEvent can stabilize them to a
+// uuid (see resolveUUID) before setting the principal/conversation/dedup key.
+type identity struct {
+	uuid      string
+	number    string
+	timestamp int64
+}
+
 // parseEnvelope normalizes a signal-cli receive envelope, or ok=false for
-// receipts/typing/own messages/empty events. account is our own number.
-func parseEnvelope(raw []byte, account string) (channels.Inbound, []attachmentRef, bool) {
+// receipts/typing/own messages/empty events. account is our own number. The
+// returned Inbound has placeholder identity fields; handleEvent finalizes them.
+func parseEnvelope(raw []byte, account string) (channels.Inbound, identity, []attachmentRef, bool) {
 	var ev envelope
 	if err := json.Unmarshal(raw, &ev); err != nil {
-		return channels.Inbound{}, nil, false
+		return channels.Inbound{}, identity{}, nil, false
 	}
 	env := ev.Envelope
 	dm := env.DataMessage
 	if dm == nil {
-		return channels.Inbound{}, nil, false // receipt/typing/sync — not a message
+		return channels.Inbound{}, identity{}, nil, false // receipt/typing/sync — not a message
 	}
-	// Principal: the account UUID — Signal's STABLE identity. A phone number can
-	// change hands or be re-registered, so it is only the fallback when the
-	// daemon didn't surface a uuid. The pairing flow makes uuids painless to
-	// allow-list (nobody has to type one). Our own messages are skipped (loops).
-	principal := env.SourceUUID
-	if principal == "" {
-		principal = env.SourceNumber
-	}
-	if principal == "" || env.SourceNumber == account || principal == account {
-		return channels.Inbound{}, nil, false
+	// Skip our own messages (loop prevention). Authorization is on the account
+	// UUID (stable); handleEvent resolves the final principal.
+	if (env.SourceUUID == "" && env.SourceNumber == "") || env.SourceNumber == account || env.SourceUUID == account {
+		return channels.Inbound{}, identity{}, nil, false
 	}
 	var refs []attachmentRef
 	for _, a := range dm.Attachments {
@@ -193,13 +234,9 @@ func parseEnvelope(raw []byte, account string) (channels.Inbound, []attachmentRe
 		refs = append(refs, attachmentRef{id: a.ID, mime: a.ContentType, name: a.Filename})
 	}
 	if strings.TrimSpace(dm.Message) == "" && len(refs) == 0 {
-		return channels.Inbound{}, nil, false
+		return channels.Inbound{}, identity{}, nil, false
 	}
 	isDirect := dm.GroupInfo == nil || dm.GroupInfo.GroupID == ""
-	conversation := principal
-	if !isDirect {
-		conversation = groupPrefix + dm.GroupInfo.GroupID
-	}
 	// Mentioned: an explicit @mention of our number, or a quote-reply to us.
 	mentioned := false
 	if account != "" {
@@ -212,17 +249,16 @@ func parseEnvelope(raw []byte, account string) (channels.Inbound, []attachmentRe
 			mentioned = true
 		}
 	}
-	return channels.Inbound{
-		Channel:      "signal",
-		Conversation: conversation,
-		Principal:    principal,
-		Text:         dm.Message,
-		// Signal's message identity is (sender, timestamp) — that pair is what
-		// receipts and quotes reference, so it's the stable dedup key.
-		MessageID: fmt.Sprintf("%s:%d", principal, env.Timestamp),
+	inb := channels.Inbound{
+		Channel:   "signal",
+		Text:      dm.Message,
 		IsDirect:  isDirect,
 		Mentioned: mentioned,
-	}, refs, true
+	}
+	if !isDirect {
+		inb.Conversation = groupPrefix + dm.GroupInfo.GroupID
+	}
+	return inb, identity{uuid: env.SourceUUID, number: env.SourceNumber, timestamp: env.Timestamp}, refs, true
 }
 
 // collect copies referenced attachments from the daemon's store into the media

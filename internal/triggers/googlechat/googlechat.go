@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -50,6 +51,7 @@ type Channel struct {
 	audience  string // the app's project number; inbound JWT aud must match
 	mediaDir  string // media spool; "" disables inbound attachment downloads
 	client    *http.Client
+	dl        *http.Client // SSRF-guarded client for attachment downloads
 
 	apiBase string           // Chat REST base; overridable in tests
 	verify  *webjwt.Verifier // the shared inbound-JWT verifier; tests point its JWKSURL at a fake
@@ -71,6 +73,7 @@ func New(saKeyJSON []byte, audience, mediaDir string) *Channel {
 		audience:  audience,
 		mediaDir:  mediaDir,
 		client:    client,
+		dl:        channels.SafeHTTPClient(30 * time.Second), // attachment fetches: SSRF-guarded
 		apiBase:   defaultAPIBase,
 		verify: &webjwt.Verifier{
 			JWKSURL:  defaultJWKSURL,
@@ -226,8 +229,17 @@ func (c *Channel) downloadOne(ctx context.Context, bearer string, a chatAttachme
 	if err != nil {
 		return channels.Attachment{}, err
 	}
-	req.Header.Set("Authorization", "Bearer "+bearer)
-	resp, err := c.client.Do(req)
+	// Attach the service-account bearer ONLY to Google's own hosts; a
+	// downloadUri pointing elsewhere is fetched without the credential (and the
+	// SSRF-guarded client still refuses any internal address).
+	host := ""
+	if u, uerr := url.Parse(a.DownloadURI); uerr == nil {
+		host = u.Host
+	}
+	if channels.HostAllowed(host, ".google.com", ".googleapis.com", ".googleusercontent.com") {
+		req.Header.Set("Authorization", "Bearer "+bearer)
+	}
+	resp, err := c.dl.Do(req)
 	if err != nil {
 		return channels.Attachment{}, err
 	}

@@ -37,7 +37,8 @@ type Channel struct {
 	webhookURL string // the exact public URL Twilio posts to (signature input)
 	base       string // API base; overridable in tests
 	client     *http.Client
-	mediaDir   string // media spool; "" disables MMS media download
+	dl         *http.Client // SSRF-guarded client for MMS media downloads
+	mediaDir   string       // media spool; "" disables MMS media download
 }
 
 // New builds an SMS channel. webhookURL must be the exact public URL configured
@@ -51,6 +52,7 @@ func New(accountSID, authToken, from, webhookURL, mediaDir string) *Channel {
 		webhookURL: strings.TrimSpace(webhookURL),
 		base:       "https://api.twilio.com",
 		client:     &http.Client{Timeout: 30 * time.Second},
+		dl:         channels.SafeHTTPClient(30 * time.Second), // MMS media fetches: SSRF-guarded
 		mediaDir:   mediaDir,
 	}
 }
@@ -166,7 +168,7 @@ func (c *Channel) download(ctx context.Context, refs []mediaRef) []channels.Atta
 			continue
 		}
 		req.SetBasicAuth(c.accountSID, c.authToken)
-		resp, err := c.client.Do(req)
+		resp, err := c.dl.Do(req)
 		if err != nil {
 			continue
 		}
