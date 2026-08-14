@@ -81,14 +81,12 @@ func toInbound(m *discordgo.MessageCreate, selfID string) (channels.Inbound, boo
 	if strings.TrimSpace(m.Content) == "" {
 		return channels.Inbound{}, false
 	}
-	principal := m.Author.ID
-	if m.Author.Username != "" {
-		principal = "@" + m.Author.Username
-	}
+	// Principal is the stable user id (snowflake), never the mutable username, so
+	// the allow-list authorizes on a stable identity.
 	return channels.Inbound{
 		Channel:      "discord",
 		Conversation: m.ChannelID,
-		Principal:    principal,
+		Principal:    m.Author.ID,
 		Text:         m.Content,
 		MessageID:    m.ID,
 	}, true

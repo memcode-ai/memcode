@@ -230,7 +230,7 @@ func openClawConfigPath(arg string) (string, []string) {
 // channel. The gateway is default-deny, so an empty answer means no one can use
 // the channel yet; "*" allows anyone who can reach it.
 func allowList(in *bufio.Reader, cmd *cobra.Command) []string {
-	raw := prompt(in, cmd, "Allowed users — comma-separated ids/@handles, or * for anyone (blank = no one yet): ")
+	raw := prompt(in, cmd, "Allowed users — comma-separated stable user ids (not @handles), or * for anyone (blank = no one yet): ")
 	var out []string
 	for _, p := range strings.Split(raw, ",") {
 		if p = strings.TrimSpace(p); p != "" {

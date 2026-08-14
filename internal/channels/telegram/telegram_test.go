@@ -63,7 +63,7 @@ func TestToInbound(t *testing.T) {
 		wantPrincipal string
 		wantText      string
 	}{
-		{"username", mk("do it", 42, true, "tim", 7, true), true, "42", "@tim", "do it"},
+		{"stable id, not username", mk("do it", 42, true, "tim", 7, true), true, "42", "7", "do it"},
 		{"no username uses id", mk("hey", 9, true, "", 7, true), true, "9", "7", "hey"},
 		{"no from", mk("hi", 5, true, "", 0, false), true, "5", "", "hi"},
 		{"empty text", mk("", 5, true, "tim", 7, true), false, "", "", ""},

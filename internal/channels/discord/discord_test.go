@@ -27,7 +27,7 @@ func TestToInbound(t *testing.T) {
 		wantPrincipal string
 		wantText      string
 	}{
-		{"username", msg("do it", "c1", "u7", "tim", false), "self", true, "c1", "@tim", "do it"},
+		{"stable id, not username", msg("do it", "c1", "u7", "tim", false), "self", true, "c1", "u7", "do it"},
 		{"no username uses id", msg("hey", "c2", "u7", "", false), "self", true, "c2", "u7", "hey"},
 		{"own message skipped", msg("hi", "c1", "self", "me", false), "self", false, "", "", ""},
 		{"other bot skipped", msg("hi", "c1", "u9", "botto", true), "self", false, "", "", ""},

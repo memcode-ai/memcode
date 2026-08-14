@@ -137,13 +137,12 @@ func toInbound(u update) (channels.Inbound, bool) {
 	if u.Message == nil || u.Message.Chat == nil || u.Message.Text == "" {
 		return channels.Inbound{}, false
 	}
+	// Principal is the STABLE numeric user id, never the mutable @username — the
+	// allow-list authorizes on ids so a username change (or a lookalike handle)
+	// can't grant or revoke access.
 	principal := ""
 	if f := u.Message.From; f != nil {
-		if f.Username != "" {
-			principal = "@" + f.Username
-		} else {
-			principal = strconv.FormatInt(f.ID, 10)
-		}
+		principal = strconv.FormatInt(f.ID, 10)
 	}
 	return channels.Inbound{
 		Channel:      "telegram",
