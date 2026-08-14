@@ -49,7 +49,7 @@ export class CliBridge extends EventEmitter {
   /** Spawn the subprocess and send `initialize`. Idempotent guard: no-op if already started. */
   start(): void {
     if (this.proc) return
-    this.proc = spawn(this.opts.binPath, ['agent', '--protocol', 'stream-json'], {
+    this.proc = spawn(this.opts.binPath, ['run', '--protocol', 'stream-json'], {
       cwd: this.opts.cwd,
       env: {
         ...process.env,
