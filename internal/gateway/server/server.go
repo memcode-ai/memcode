@@ -65,6 +65,7 @@ type runtime struct {
 	mu        sync.RWMutex
 	settings  gwconfig.Settings // guarded by mu; hot-reloaded from gateway.yaml (see maybeReload)
 	mediaDir  string            // the media spool (attachments in, synthesized voice out)
+	stt       transcriber       // speech-to-text for inbound voice notes; nil = not configured
 	byName    map[string]replySender
 	disp      *dispatcher
 	out       io.Writer
@@ -113,6 +114,7 @@ func Run(ctx context.Context, root string, mainStore store.Store, settings gwcon
 		mainStore: mainStore,
 		settings:  settings,
 		mediaDir:  mediaDir,
+		stt:       newTranscriber(),
 		byName:    make(map[string]replySender, 4),
 		disp:      newDispatcher(),
 		out:       out,
@@ -431,12 +433,28 @@ func (r *runtime) runJob(ctx context.Context, it state.Item) {
 			fmt.Fprintf(r.out, "gateway: project %q for %s no longer resolves (%v); using default\n", it.Project, it.Channel, rerr)
 		}
 	}
+	// Voice notes are transcribed HERE — after the durable record, before the
+	// spawn — so the transcript becomes task text and audio never reaches the
+	// engine. A voice note that can't be transcribed gets an honest reply, and a
+	// message that was ONLY untranscribable audio is refused rather than run as
+	// an empty task.
+	task, rest, sttMissing := r.transcribeAudio(ctx, it.Text, it.Attachments)
+	if strings.TrimSpace(task) == "" && sttMissing {
+		msg := "Voice note received, but no transcription provider is configured. Set OPENAI_API_KEY or GEMINI_API_KEY on the gateway machine, or send text."
+		if serr := r.gw.SetReplied(ctx, it.Channel, it.MessageID, msg); serr != nil {
+			fmt.Fprintf(r.out, "gateway: recording voice-note refusal for %s: %v\n", it.Channel, serr)
+			return
+		}
+		r.deliverReply(ctx, it, msg)
+		return
+	}
+	it.Text = task
 	// Compose the snapshotted persona's context + skill roots + this message's
 	// media (as spool IDs) and persist it keyed by session; the spawned child
 	// self-discovers it (no jobs.Spawn signature change). No persona and no media
 	// → empty envelope → the coding engine runs exactly as the CLI.
 	jc := jobContextFor(it.Agent)
-	jc.Attachments = it.Attachments
+	jc.Attachments = rest
 	if err := writeContext(session, jc); err != nil {
 		fmt.Fprintf(r.out, "gateway: composing context for %s: %v\n", it.Channel, err)
 	}
