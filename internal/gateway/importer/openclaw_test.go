@@ -56,7 +56,12 @@ func TestFromOpenClaw(t *testing.T) {
 	// discord picks up the legacy dm.allowFrom; slack keeps the wildcard.
 	assertAllow(t, res.Settings, "telegram", []string{"123", "456", "789"})
 	assertAllow(t, res.Settings, "discord", []string{"111111111111111111"})
-	assertAllow(t, res.Settings, "slack", []string{"*"})
+	// slack had allowFrom ["*"] — the wildcard is stripped on import (never
+	// silently open) and reported as a note.
+	assertAllow(t, res.Settings, "slack", nil)
+	if !hasNoteContaining(res.Notes, "slack") {
+		t.Errorf("expected a note that slack's \"*\" was not imported, got %v", res.Notes)
+	}
 
 	// Signal isn't supported → skipped with a note, not imported.
 	if _, ok := res.Settings.Channels["signal"]; ok {

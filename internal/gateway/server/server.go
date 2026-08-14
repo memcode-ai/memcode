@@ -80,6 +80,8 @@ func Run(ctx context.Context, root string, mainStore store.Store, settings gwcon
 	defer gw.Close()
 	_ = gw.PruneDone(ctx, time.Now().Add(-30*24*time.Hour))
 
+	warnOpenSurfaces(settings, out)
+
 	rt := &runtime{
 		root:      root,
 		gw:        gw,
@@ -175,7 +177,32 @@ func (r *runtime) fireSchedule(ctx context.Context, sch gwconfig.Schedule, chann
 // id shape the runtime uses.
 func conversationSession(channel, conversation string) string {
 	sum := sha256.Sum256([]byte(channel + ":" + conversation))
-	return "sess_" + hex.EncodeToString(sum[:8])
+	return "sess_" + hex.EncodeToString(sum[:16])
+}
+
+// warnOpenSurfaces prints a prominent warning for settings that hand an
+// autonomous agent to senders who aren't individually allow-listed. The
+// destructive-command floor still holds (a gateway job has no approver, so
+// dangerous/catastrophic commands are denied), but file edits and medium commands
+// on your repo are real power — so make an open surface a loud, deliberate choice.
+func warnOpenSurfaces(settings gwconfig.Settings, out io.Writer) {
+	if settings.AllowAll {
+		fmt.Fprintf(out, "gateway: WARNING allow_all is set — ANYONE on any configured channel can drive the agent in this repo\n")
+	}
+	for name, ch := range settings.Channels {
+		open := false
+		for _, p := range ch.AllowFrom {
+			if p == "*" {
+				open = true
+			}
+		}
+		if open {
+			fmt.Fprintf(out, "gateway: WARNING channels.%s.allow_from includes \"*\" — anyone who can reach %s can drive the agent\n", name, name)
+		}
+		if ch.RespondToAll {
+			fmt.Fprintf(out, "gateway: WARNING channels.%s.respond_to_all is set — the agent acts on every group message, not only when mentioned\n", name)
+		}
+	}
 }
 
 // scheduleSpec turns a Schedule into a cron spec: a raw cron expression, or an

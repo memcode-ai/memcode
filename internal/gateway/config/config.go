@@ -151,20 +151,21 @@ func Load() (Settings, error) {
 	return s, nil
 }
 
-// Save writes gateway.yaml atomically. 0644 — it holds no secrets.
+// Save writes gateway.yaml atomically. 0600 — it holds no secrets, but the
+// allow-list of user ids is sensitive on a shared host, so keep it owner-only.
 func Save(s Settings) error {
 	p, err := Path()
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
 		return err
 	}
 	b, err := yaml.Marshal(s)
 	if err != nil {
 		return err
 	}
-	return atomicfile.WriteFile(p, b, 0o644)
+	return atomicfile.WriteFile(p, b, 0o600)
 }
 
 // EnabledChannels lists channels whose required secret(s) are present in the

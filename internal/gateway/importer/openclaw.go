@@ -76,7 +76,7 @@ func FromOpenClaw(data []byte, getenv func(string) string) (Result, error) {
 		if ch.DM != nil {
 			lists = append(lists, ch.DM.AllowFrom) // discord legacy dm.allowFrom
 		}
-		allow := mergeAllow(lists...)
+		allow := stripWildcard(name, mergeAllow(lists...), &res.Notes)
 
 		record := func() {
 			res.Settings.Channels[name] = gwconfig.Channel{AllowFrom: allow}
@@ -163,6 +163,22 @@ func envShorthand(s string) (string, bool) {
 		return "", false
 	}
 	return name, true
+}
+
+// stripWildcard removes a "*" (allow-anyone) entry from an imported allow-list
+// and records a note. Silently importing "*" would hand an autonomous agent to
+// anyone on the channel — the operator should opt into that deliberately, not
+// inherit it from another tool's config.
+func stripWildcard(channel string, allow []string, notes *[]string) []string {
+	var out []string
+	for _, a := range allow {
+		if a == "*" {
+			*notes = append(*notes, channel+`: allow_from "*" (anyone) was NOT imported — add "*" back explicitly if you really want an open channel`)
+			continue
+		}
+		out = append(out, a)
+	}
+	return out
 }
 
 // mergeAllow flattens allow-list sources into a de-duplicated string slice.

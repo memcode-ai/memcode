@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -76,12 +77,25 @@ var gatewayUninstallCmd = &cobra.Command{
 	},
 }
 
+// hasControlChars rejects paths carrying newlines/NULs, which could inject extra
+// unit directives (a systemd ExecStart= line, a plist element) via the binary or
+// working-directory path.
+func hasControlChars(s string) bool { return strings.ContainsAny(s, "\n\r\x00") }
+
+// xmlEscape escapes a value for safe interpolation into the plist XML.
+var xmlEscape = strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", `"`, "&quot;", "'", "&apos;").Replace
+
 // gatewayUnit builds the service unit for goos: its file path, contents, and the
 // command to start it. bin/workDir may be empty when only the path is needed
-// (uninstall). Returns an error for an unsupported OS.
+// (uninstall). Returns an error for an unsupported OS or a path with control
+// characters.
 func gatewayUnit(goos, home, bin, workDir string) (path, content, start string, err error) {
+	if hasControlChars(bin) || hasControlChars(workDir) {
+		return "", "", "", fmt.Errorf("binary or working-directory path contains control characters; refusing to write a service unit")
+	}
 	switch goos {
 	case "darwin":
+		bin, workDir := xmlEscape(bin), xmlEscape(workDir)
 		path = filepath.Join(home, "Library", "LaunchAgents", "ai.memcode.gateway.plist")
 		content = fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

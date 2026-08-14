@@ -46,7 +46,7 @@ func FromHermes(configYAML []byte, env map[string]string) (Result, error) {
 
 	for _, name := range names {
 		p := hc.Platforms[name]
-		allow := mergeAllow(p.AllowedUsers, p.GroupAllowedUsers)
+		allow := stripWildcard(name, mergeAllow(p.AllowedUsers, p.GroupAllowedUsers), &res.Notes)
 
 		record := func() { res.Settings.Channels[name] = gwconfig.Channel{AllowFrom: allow} }
 		// token resolves from the Hermes .env first (its canonical home), then a
