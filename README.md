@@ -26,33 +26,31 @@ One Go binary, two ways to run it. **Code** is the interactive agent in your ter
 
 Run `memcode` in a repo and you get a full terminal coding agent.
 
-**Remembers your repo.** Version-control-friendly state in `.memcode` that survives sessions and machines. Searchable session history. Repeated failures distill into lessons that resurface when they matter. Honors `MEMCODE.md`, `AGENTS.md`, and `CLAUDE.md` instructions, and compresses oversized ones once instead of re-reading them forever.
+**It remembers.** Ask it to pick up where you left off last week and it can. It knows your repo's layout, what has been tried before, and the preferences you have corrected it on. Memory lives in `.memcode`, so it travels with the repo and your whole team benefits.
 
-**Model policy in the client.** Automatic mode routes each call by what the turn needs: cheap models for routine work, strong models for planning, review, high-risk changes, and recovery after its own mistakes. Pin any model with `/model`. Failures walk catalog-defined fallback chains.
+**Pick a model or let it decide.** Out of the box it uses cheap models for routine work and strong models when the task is hard or risky. Pin any model with `/model` when you want control.
 
-**Reads the room.** Tracks the working mood of the session. When you are correcting it, it stops cutting corners, spends more on the model, and asks before acting. When things are calm it stays out of the way.
+**Reads the room.** When you are correcting it, it slows down, asks before acting, and stops cutting corners. When things are calm it stays out of your way.
 
-**Plans before it builds.** `/plan` researches with parallel scouts, drafts, gets a cross-model review, and turns the approved plan into a binding contract for execution.
+**Plan first when it matters.** `/plan` researches your codebase, drafts an approach, and gets a second model's review before you approve it. Execution then sticks to what you approved.
 
-**Delegates and parallelizes.** Spawn read-only explorers or full sub-agents, run detached background jobs, and manage them with `/jobs`, `/tail`, `/kill`.
+**Work in parallel.** Hand off side quests to sub-agents and background jobs, keep working, and check on them with `/jobs` and `/tail`.
 
-**A real terminal UI.** Multiline editing, slash commands with autocomplete, streaming tool output, interrupt and redirect mid-turn, themes, and a live context meter.
+**A terminal UI that keeps up.** Multiline editing, slash-command autocomplete, streaming output, interrupt and redirect mid-turn, themes, and a live context meter.
 
-**Table stakes, done properly.** MCP client, Agent Skills, hooks, resident LSP for diagnostics and navigation, a sandboxed shell with a real command classifier, vision and PDF input, prompt caching, and context compaction that respects the model's actual window.
-
-**Self-updating.** Stages updates in the background and applies them on the next launch. `MEMCODE_AUTO_UPDATE=off` keeps it manual.
+**Everything you'd expect.** MCP servers, Agent Skills, hooks, code navigation and diagnostics, vision and PDF input, and instructions from `MEMCODE.md`, `AGENTS.md`, or `CLAUDE.md`. Updates itself in the background; `MEMCODE_AUTO_UPDATE=off` keeps it manual.
 
 ## Agents
 
-The same binary runs as a long-lived, self-hosted gateway: inbound messages become agent jobs in your repos, and the result comes back where you asked. Coding is one use of the loop, not what it is built around.
+Message your agent from wherever you already are. It runs your task and replies in the same conversation. Fix a bug from Telegram on the train, ask for a status update over SMS, forward an email and get it handled.
 
-**Twelve channels.** Telegram, Discord, Slack, GitHub, WhatsApp, Email, Signal, Matrix, Mattermost, Microsoft Teams, Google Chat, and SMS. A channel is on when its secret is set; `memcode gateway setup` walks you through it.
+**Twelve channels.** Telegram, Discord, Slack, GitHub, WhatsApp, Email, Signal, Matrix, Mattermost, Microsoft Teams, Google Chat, and SMS. `memcode gateway setup` walks you through connecting each one.
 
-**Voice.** Voice notes are transcribed and handled like any other message. Replies can come back as voice notes too, per channel and off by default.
+**Voice.** Send a voice note instead of typing. Replies can come back as voice too, per channel and off by default.
 
-**Safe by construction.** Durable idempotent dispatch, per-channel allow-lists, and a pairing flow so an unknown sender gets approved from your side before the agent answers. Each job runs as a crash-isolated subprocess.
+**You decide who gets in.** Unknown senders have to pair first: they get a code, you approve it. Allow-lists per channel on top of that.
 
-**Easy to move in.** One-command import from OpenClaw, and `memcode gateway install` registers it as a system service.
+**Coming from OpenClaw?** One command imports your existing setup.
 
 ## Install
 
