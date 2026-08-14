@@ -5,8 +5,8 @@
 // business is verified: the gateway only mounts it when whatsapp.active is set
 // in gateway.yaml (see internal/gateway/config), because Meta verification is an
 // external account state the code can't observe. The user stores the access and
-// verify tokens in the global .env (MEMCODE_WHATSAPP_ACCESS_TOKEN,
-// MEMCODE_WHATSAPP_VERIFY_TOKEN); the phone number id is a non-secret setting.
+// verify tokens in the global .env (WHATSAPP_ACCESS_TOKEN,
+// WHATSAPP_VERIFY_TOKEN); the phone number id is a non-secret setting.
 package whatsapp
 
 import (

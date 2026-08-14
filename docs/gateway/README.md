@@ -29,13 +29,17 @@ It routes each answer the way memcode splits configuration:
 
 A channel is enabled when its secret is present.
 
-| Channel  | Secret(s) in `.env`                                   | Settings in `gateway.yaml`        | Transport            |
-|----------|-------------------------------------------------------|-----------------------------------|----------------------|
-| Telegram | `MEMCODE_TELEGRAM_BOT_TOKEN`                           | —                                 | Bot API long-poll    |
-| Discord  | `MEMCODE_DISCORD_BOT_TOKEN`                            | —                                 | gateway websocket    |
-| Slack    | `MEMCODE_SLACK_APP_TOKEN`, `MEMCODE_SLACK_BOT_TOKEN`   | —                                 | Socket Mode          |
-| GitHub   | `MEMCODE_GITHUB_WEBHOOK_SECRET`                        | `github.reply_to`                 | inbound webhook      |
-| WhatsApp | `MEMCODE_WHATSAPP_ACCESS_TOKEN`, `…_VERIFY_TOKEN`      | `whatsapp.phone_number_id`, `…active` | Meta Cloud API   |
+Credentials use each platform's **own conventional variable name** (no `MEMCODE_`
+prefix), so you can paste the value straight from the platform's own docs — and a
+config exported from another gateway (Hermes, OpenClaw) drops in unchanged.
+
+| Channel  | Secret(s) in `.env`                        | Settings in `gateway.yaml`            | Transport         |
+|----------|--------------------------------------------|---------------------------------------|-------------------|
+| Telegram | `TELEGRAM_BOT_TOKEN`                        | —                                     | Bot API long-poll |
+| Discord  | `DISCORD_BOT_TOKEN`                         | —                                     | gateway websocket |
+| Slack    | `SLACK_APP_TOKEN`, `SLACK_BOT_TOKEN`        | —                                     | Socket Mode       |
+| GitHub   | `GITHUB_WEBHOOK_SECRET`                     | `github.reply_to`                     | inbound webhook   |
+| WhatsApp | `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_VERIFY_TOKEN` | `whatsapp.phone_number_id`, `…active` | Meta Cloud API |
 
 ## Run
 

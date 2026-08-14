@@ -1,7 +1,7 @@
 // Package telegram is the gateway's Telegram channel adapter. It talks to the
 // Bot API directly over net/http (long-poll getUpdates + sendMessage) — no SDK,
 // matching the repo's thin-dependency ethos. The user creates their own bot via
-// @BotFather and puts the token in the global .env as MEMCODE_TELEGRAM_BOT_TOKEN;
+// @BotFather and puts the token in the global .env as TELEGRAM_BOT_TOKEN;
 // messages and the token never leave the machine running the gateway.
 package telegram
 

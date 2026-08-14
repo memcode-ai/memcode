@@ -18,15 +18,19 @@ import (
 )
 
 // Secret env keys. These live in the global .env (provider.GlobalEnvPath), NOT
-// in gateway.yaml — a bot token is a secret, and secrets belong in .env.
+// in gateway.yaml — a bot token is a secret, and secrets belong in .env. The
+// names are each platform's OWN conventional variable (no memcode prefix), so a
+// user can paste the value straight from the platform's docs and so a config
+// imported from another gateway (Hermes, OpenClaw) drops in unchanged. Only
+// memcode's own infra (MEMCODE_API_TOKEN, …) carries the project prefix.
 const (
-	EnvTelegramToken  = "MEMCODE_TELEGRAM_BOT_TOKEN"
-	EnvDiscordToken   = "MEMCODE_DISCORD_BOT_TOKEN"
-	EnvSlackAppToken  = "MEMCODE_SLACK_APP_TOKEN"
-	EnvSlackBotToken  = "MEMCODE_SLACK_BOT_TOKEN"
-	EnvGitHubSecret   = "MEMCODE_GITHUB_WEBHOOK_SECRET"
-	EnvWhatsAppToken  = "MEMCODE_WHATSAPP_ACCESS_TOKEN"
-	EnvWhatsAppVerify = "MEMCODE_WHATSAPP_VERIFY_TOKEN"
+	EnvTelegramToken  = "TELEGRAM_BOT_TOKEN"
+	EnvDiscordToken   = "DISCORD_BOT_TOKEN"
+	EnvSlackAppToken  = "SLACK_APP_TOKEN"
+	EnvSlackBotToken  = "SLACK_BOT_TOKEN"
+	EnvGitHubSecret   = "GITHUB_WEBHOOK_SECRET"
+	EnvWhatsAppToken  = "WHATSAPP_ACCESS_TOKEN"
+	EnvWhatsAppVerify = "WHATSAPP_VERIFY_TOKEN"
 )
 
 // Settings is the NON-secret gateway configuration (gateway.yaml). A channel's

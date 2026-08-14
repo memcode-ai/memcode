@@ -2,8 +2,8 @@
 // outbound websocket, no public inbound URL needed) via the slack-go SDK, kept
 // isolated to this package (guarded by TestVendorSDKsOnlyInTheirAdapters). The
 // user creates a Slack app with an app-level token (xapp-…, Socket Mode) and a
-// bot token (xoxb-…), storing them in the global .env as MEMCODE_SLACK_APP_TOKEN
-// and MEMCODE_SLACK_BOT_TOKEN.
+// bot token (xoxb-…), storing them in the global .env as SLACK_APP_TOKEN
+// and SLACK_BOT_TOKEN.
 package slack
 
 import (

@@ -4,7 +4,7 @@
 // implementation elsewhere (guarded by TestVendorSDKsOnlyInTheirAdapters). The
 // user creates their own bot in the Discord developer portal, enables the
 // Message Content intent, and puts the token in the global .env as
-// MEMCODE_DISCORD_BOT_TOKEN.
+// DISCORD_BOT_TOKEN.
 package discord
 
 import (
