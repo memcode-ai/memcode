@@ -100,3 +100,35 @@ func TestConversationSessionStable(t *testing.T) {
 		t.Errorf("session id must match the sess_ shape, got %q", a)
 	}
 }
+
+// The Trusted bypass (schedules, signature-verified webhooks) must NOT weaken the
+// allow-list for ordinary chat: an untrusted message from an unlisted principal is
+// still dropped, while a Trusted producer enqueues regardless.
+func TestTrustedBypassIsScoped(t *testing.T) {
+	ctx := context.Background()
+	gw, err := state.Open(ctx, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer gw.Close()
+
+	rt := &runtime{
+		gw:       gw,
+		settings: gwconfig.Settings{Channels: map[string]gwconfig.Channel{"telegram": {AllowFrom: []string{"me"}}}},
+		byName:   map[string]replySender{"telegram": fakeSender{}},
+		out:      io.Discard,
+		notify:   make(chan struct{}, 1),
+	}
+
+	// Untrusted chat from an unlisted principal → dropped (allow-list still gates).
+	_ = rt.Deliver(ctx, channels.Inbound{Channel: "telegram", Conversation: "42", Principal: "attacker", Text: "rm -rf /", MessageID: "m1", IsDirect: true})
+	if p, _ := gw.Pending(ctx); len(p) != 0 {
+		t.Fatalf("unlisted chat principal must not enqueue, got %+v", p)
+	}
+
+	// A Trusted producer (schedule/github) bypasses the allow-list by design.
+	_ = rt.Deliver(ctx, channels.Inbound{Channel: "telegram", Conversation: "42", Principal: "schedule:x", Text: "do", MessageID: "m2", Trusted: true})
+	if p, _ := gw.Pending(ctx); len(p) != 1 {
+		t.Fatalf("trusted inbound should enqueue despite the allow-list, got %d", len(p))
+	}
+}
