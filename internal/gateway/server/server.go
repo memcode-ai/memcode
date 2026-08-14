@@ -29,6 +29,7 @@ import (
 	"github.com/memcode-ai/memcode/internal/channels/email"
 	"github.com/memcode-ai/memcode/internal/channels/matrix"
 	"github.com/memcode-ai/memcode/internal/channels/mattermost"
+	"github.com/memcode-ai/memcode/internal/channels/msteams"
 	signalch "github.com/memcode-ai/memcode/internal/channels/signal"
 	"github.com/memcode-ai/memcode/internal/channels/slack"
 	"github.com/memcode-ai/memcode/internal/channels/telegram"
@@ -38,6 +39,7 @@ import (
 	"github.com/memcode-ai/memcode/internal/jobs"
 	"github.com/memcode-ai/memcode/internal/store"
 	githubtrigger "github.com/memcode-ai/memcode/internal/triggers/github"
+	"github.com/memcode-ai/memcode/internal/triggers/googlechat"
 	"github.com/memcode-ai/memcode/internal/triggers/sms"
 	"github.com/memcode-ai/memcode/internal/triggers/whatsapp"
 )
@@ -621,6 +623,34 @@ func startWebhooks(ctx context.Context, settings gwconfig.Settings, rt *runtime,
 			rt.byName[wc.Name()] = wc
 			mux.Handle("/webhook/whatsapp", wc.Handler(rt))
 			fmt.Fprintf(out, "gateway: whatsapp webhook on /webhook/whatsapp\n")
+			mounted = true
+		}
+	}
+
+	// Microsoft Teams (Bot Framework): webhook in, serviceUrl replies out.
+	tAppID := strings.TrimSpace(os.Getenv(gwconfig.EnvTeamsAppID))
+	tAppPw := strings.TrimSpace(os.Getenv(gwconfig.EnvTeamsAppPassword))
+	tTenant := strings.TrimSpace(os.Getenv(gwconfig.EnvTeamsTenantID))
+	if tAppID != "" && tAppPw != "" && tTenant != "" {
+		ms := msteams.New(tAppID, tAppPw, tTenant, rt.mediaDir)
+		rt.byName[ms.Name()] = ms
+		mux.Handle("/webhook/teams", ms.Handler(rt))
+		fmt.Fprintf(out, "gateway: msteams webhook on POST /webhook/teams\n")
+		mounted = true
+	}
+
+	// Google Chat: webhook in (Google-signed JWT), Chat REST out (service account).
+	if keyPath := strings.TrimSpace(os.Getenv(gwconfig.EnvGoogleChatSAKey)); keyPath != "" {
+		switch key, err := os.ReadFile(keyPath); {
+		case err != nil:
+			fmt.Fprintf(out, "gateway: googlechat disabled: reading %s: %v\n", keyPath, err)
+		case strings.TrimSpace(settings.Get("googlechat").Audience) == "":
+			fmt.Fprintf(out, "gateway: googlechat disabled: set channels.googlechat.audience (the app's project number)\n")
+		default:
+			gc := googlechat.New(key, strings.TrimSpace(settings.Get("googlechat").Audience), rt.mediaDir)
+			rt.byName[gc.Name()] = gc
+			mux.Handle("/webhook/googlechat", gc.Handler(rt))
+			fmt.Fprintf(out, "gateway: googlechat webhook on POST /webhook/googlechat\n")
 			mounted = true
 		}
 	}

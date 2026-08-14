@@ -1,0 +1,468 @@
+// Package msteams is the gateway's Microsoft Teams adapter over the Bot
+// Framework: an Azure Bot registration POSTs activities to our webhook, and
+// replies go back to the activity's serviceUrl as REST calls authenticated with
+// an Azure AD client-credentials token. Inbound requests carry a Bot Framework
+// JWT we verify against the published JWKS — Teams has no shared-secret HMAC,
+// the JWT IS the sender authentication. Credentials (TEAMS_APP_ID,
+// TEAMS_APP_PASSWORD, TEAMS_TENANT_ID) are read by the caller and passed to
+// New; this package never reads the environment.
+package msteams
+
+import (
+	"bytes"
+	"context"
+	"crypto/rsa"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"math/big"
+	"net/http"
+	"net/url"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/golang-jwt/jwt/v5"
+	"github.com/memcode-ai/memcode/internal/channels"
+)
+
+// botFrameworkIssuer is the issuer every Bot Framework connector token carries.
+const botFrameworkIssuer = "https://api.botframework.com"
+
+// defaultMetadataURL is the Bot Framework OpenID metadata document; it points
+// at the JWKS the connector signs inbound tokens with.
+const defaultMetadataURL = "https://login.botframework.com/v1/.well-known/openidconfiguration"
+
+// defaultTokenBase is the Azure AD endpoint the outbound client-credentials
+// token comes from ("{base}/{tenant}/oauth2/v2.0/token").
+const defaultTokenBase = "https://login.microsoftonline.com"
+
+// botFrameworkScope is the scope for the outbound connector token.
+const botFrameworkScope = "https://api.botframework.com/.default"
+
+const maxBody = 2 << 20 // 2 MiB
+
+// teamsMaxMessage caps one outbound text activity. Teams rejects activities
+// past ~28 KB of serialized payload; 25000 leaves headroom for the JSON frame.
+const teamsMaxMessage = 25000
+
+// Channel is a Microsoft Teams Bot Framework connection.
+type Channel struct {
+	appID       string
+	appPassword string
+	tenantID    string
+	mediaDir    string // media spool; "" disables inbound media downloads
+	metadataURL string // Bot Framework OpenID metadata; overridable in tests
+	tokenBase   string // Azure AD token endpoint base; overridable in tests
+	client      *http.Client
+
+	// keysMu guards the JWKS cache. Keys are fetched lazily and refreshed at
+	// most once per request when an unknown kid arrives (Microsoft rotates
+	// signing keys), so a flood of bad tokens can't hammer the metadata host.
+	keysMu sync.Mutex
+	keys   map[string]*rsa.PublicKey
+
+	// tokMu guards the cached outbound bearer; refreshed ~60s before expiry so
+	// an in-flight Send never races the token's edge.
+	tokMu  sync.Mutex
+	tok    string
+	tokExp time.Time
+}
+
+// New builds a Teams channel from the Azure Bot app id, its client secret, and
+// the AAD tenant the bot is registered in. mediaDir is the gateway media spool
+// inbound attachments are downloaded into; "" disables media handling.
+func New(appID, appPassword, tenantID, mediaDir string) *Channel {
+	return &Channel{
+		appID:       appID,
+		appPassword: appPassword,
+		tenantID:    tenantID,
+		mediaDir:    mediaDir,
+		metadataURL: defaultMetadataURL,
+		tokenBase:   defaultTokenBase,
+		client:      &http.Client{Timeout: 30 * time.Second},
+	}
+}
+
+// Name returns the adapter identifier.
+func (c *Channel) Name() string { return "msteams" }
+
+// activity is the subset of a Bot Framework activity we read.
+type activity struct {
+	Type string `json:"type"`
+	ID   string `json:"id"`
+	Text string `json:"text"`
+	From struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	} `json:"from"`
+	Recipient struct {
+		ID string `json:"id"`
+	} `json:"recipient"`
+	Conversation struct {
+		ID               string `json:"id"`
+		ConversationType string `json:"conversationType"`
+	} `json:"conversation"`
+	ServiceURL string `json:"serviceUrl"`
+	Entities   []struct {
+		Type      string `json:"type"`
+		Mentioned struct {
+			ID string `json:"id"`
+		} `json:"mentioned"`
+	} `json:"entities"`
+	Attachments []struct {
+		ContentType string `json:"contentType"`
+		ContentURL  string `json:"contentUrl"`
+		Name        string `json:"name"`
+	} `json:"attachments"`
+}
+
+// Handler returns the webhook HTTP handler for POST /webhook/teams. It
+// verifies the Bot Framework JWT, maps message activities to Inbound, and acks
+// 200 only after every Deliver returned nil (503 makes the connector retry).
+func (c *Channel) Handler(sink channels.Sink) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		raw, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+		if !ok || c.validateJWT(r.Context(), raw) != nil {
+			// Unauthenticated caller: nothing is delivered. 401, not 503 — a
+			// forged request must not be invited to retry.
+			http.Error(w, "invalid token", http.StatusUnauthorized)
+			return
+		}
+		body, err := io.ReadAll(io.LimitReader(r.Body, maxBody))
+		if err != nil {
+			http.Error(w, "read error", http.StatusBadRequest)
+			return
+		}
+		var act activity
+		if err := json.Unmarshal(body, &act); err != nil {
+			http.Error(w, "bad activity", http.StatusBadRequest)
+			return
+		}
+		// Non-message activities (conversationUpdate, typing, invoke, …) are
+		// acked and dropped — the gateway only acts on user messages.
+		if act.Type != "message" || act.Conversation.ID == "" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		inb := c.toInbound(act)
+		inb.Attachments = c.download(r.Context(), act)
+		if err := sink.Deliver(r.Context(), inb); err != nil {
+			w.WriteHeader(http.StatusServiceUnavailable) // not recorded — Bot Framework retries
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+}
+
+// toInbound normalizes a message activity. The conversation string encodes
+// BOTH the conversation id and the serviceUrl ("id|url") because a Teams reply
+// must be posted to the serviceUrl the activity arrived from; serviceUrl never
+// contains "|", so the first "|" is an unambiguous split point in Send.
+func (c *Channel) toInbound(act activity) channels.Inbound {
+	mentioned := false
+	for _, e := range act.Entities {
+		if e.Type == "mention" && e.Mentioned.ID != "" && e.Mentioned.ID == act.Recipient.ID {
+			mentioned = true
+			break
+		}
+	}
+	return channels.Inbound{
+		Channel:      "msteams",
+		Conversation: act.Conversation.ID + "|" + act.ServiceURL,
+		Principal:    act.From.ID, // AAD object id — stable across display-name changes
+		Text:         stripAtTags(act.Text),
+		MessageID:    act.ID,
+		IsDirect:     act.Conversation.ConversationType == "personal",
+		Mentioned:    mentioned,
+	}
+}
+
+// stripAtTags removes the "<at>…</at>" spans Teams prepends for bot mentions.
+// This cuts only the literal at-tag spans by string search — it is not (and
+// must not become) an HTML parser.
+func stripAtTags(s string) string {
+	const openTag, closeTag = "<at>", "</at>"
+	for {
+		i := strings.Index(s, openTag)
+		if i < 0 {
+			break
+		}
+		j := strings.Index(s[i+len(openTag):], closeTag)
+		if j < 0 {
+			break
+		}
+		s = s[:i] + s[i+len(openTag)+j+len(closeTag):]
+	}
+	return strings.TrimSpace(s)
+}
+
+// download fetches attachment content into the spool. Best-effort: a failed
+// download drops that attachment, the message still flows. Teams file URLs
+// generally require the connector bearer, but some (public blobs) reject
+// extraneous auth — so a 401/403 with the bearer is retried without it.
+func (c *Channel) download(ctx context.Context, act activity) []channels.Attachment {
+	if c.mediaDir == "" {
+		return nil
+	}
+	var out []channels.Attachment
+	for _, a := range act.Attachments {
+		if !strings.HasPrefix(a.ContentURL, "http://") && !strings.HasPrefix(a.ContentURL, "https://") {
+			continue
+		}
+		// text/html is the message body echoed as an attachment, and card
+		// payloads are UI, not media — neither is a file for the agent.
+		ct := strings.ToLower(a.ContentType)
+		if ct == "text/html" || strings.HasPrefix(ct, "application/vnd.microsoft.card") {
+			continue
+		}
+		att, err := c.downloadOne(ctx, a.ContentURL, a.ContentType, a.Name)
+		if err != nil {
+			continue
+		}
+		out = append(out, att)
+	}
+	return out
+}
+
+func (c *Channel) downloadOne(ctx context.Context, contentURL, mimeType, name string) (channels.Attachment, error) {
+	bearer, _ := c.token(ctx) // best-effort; an unauthenticated fetch may still work
+	resp, err := c.fetch(ctx, contentURL, bearer)
+	if err != nil {
+		return channels.Attachment{}, err
+	}
+	if bearer != "" && (resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden) {
+		resp.Body.Close()
+		if resp, err = c.fetch(ctx, contentURL, ""); err != nil {
+			return channels.Attachment{}, err
+		}
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		return channels.Attachment{}, fmt.Errorf("msteams attachment download: status %d", resp.StatusCode)
+	}
+	if name == "" {
+		name = "attachment"
+	}
+	return channels.SaveToSpool(c.mediaDir, resp.Body, mimeType, name)
+}
+
+func (c *Channel) fetch(ctx context.Context, u, bearer string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil, err
+	}
+	if bearer != "" {
+		req.Header.Set("Authorization", "Bearer "+bearer)
+	}
+	return c.client.Do(req)
+}
+
+// validateJWT verifies an inbound Bot Framework token: RS256 signature against
+// the published JWKS, the Bot Framework issuer, our app id as audience, and an
+// unexpired lifetime. An unknown kid triggers at most ONE JWKS refresh for
+// this request — key rotation is handled, a forged-kid flood is not amplified.
+func (c *Channel) validateJWT(ctx context.Context, raw string) error {
+	refreshed := false
+	keyfunc := func(t *jwt.Token) (any, error) {
+		kid, _ := t.Header["kid"].(string)
+		if kid == "" {
+			return nil, errors.New("token missing kid")
+		}
+		if k := c.cachedKey(kid); k != nil {
+			return k, nil
+		}
+		if !refreshed {
+			refreshed = true
+			if err := c.refreshKeys(ctx); err != nil {
+				return nil, err
+			}
+			if k := c.cachedKey(kid); k != nil {
+				return k, nil
+			}
+		}
+		return nil, fmt.Errorf("unknown signing key %q", kid)
+	}
+	_, err := jwt.Parse(raw, keyfunc,
+		jwt.WithValidMethods([]string{"RS256"}),
+		jwt.WithIssuer(botFrameworkIssuer),
+		jwt.WithAudience(c.appID),
+		jwt.WithExpirationRequired(),
+	)
+	return err
+}
+
+func (c *Channel) cachedKey(kid string) *rsa.PublicKey {
+	c.keysMu.Lock()
+	defer c.keysMu.Unlock()
+	return c.keys[kid]
+}
+
+// refreshKeys fetches the OpenID metadata, follows jwks_uri, and replaces the
+// key cache. Replacing (not merging) means revoked keys actually leave.
+func (c *Channel) refreshKeys(ctx context.Context) error {
+	var meta struct {
+		JWKSURI string `json:"jwks_uri"`
+	}
+	if err := c.getJSON(ctx, c.metadataURL, &meta); err != nil {
+		return fmt.Errorf("openid metadata: %w", err)
+	}
+	if meta.JWKSURI == "" {
+		return errors.New("openid metadata has no jwks_uri")
+	}
+	var set struct {
+		Keys []struct {
+			Kty string `json:"kty"`
+			Kid string `json:"kid"`
+			N   string `json:"n"`
+			E   string `json:"e"`
+		} `json:"keys"`
+	}
+	if err := c.getJSON(ctx, meta.JWKSURI, &set); err != nil {
+		return fmt.Errorf("jwks fetch: %w", err)
+	}
+	keys := make(map[string]*rsa.PublicKey, len(set.Keys))
+	for _, k := range set.Keys {
+		if k.Kty != "RSA" || k.Kid == "" {
+			continue
+		}
+		pub, err := rsaFromJWK(k.N, k.E)
+		if err != nil {
+			continue // one malformed key must not poison the whole set
+		}
+		keys[k.Kid] = pub
+	}
+	if len(keys) == 0 {
+		return errors.New("jwks contained no usable rsa keys")
+	}
+	c.keysMu.Lock()
+	c.keys = keys
+	c.keysMu.Unlock()
+	return nil
+}
+
+// rsaFromJWK builds an RSA public key from base64url modulus and exponent.
+func rsaFromJWK(n64, e64 string) (*rsa.PublicKey, error) {
+	nb, err := base64.RawURLEncoding.DecodeString(n64)
+	if err != nil {
+		return nil, err
+	}
+	eb, err := base64.RawURLEncoding.DecodeString(e64)
+	if err != nil {
+		return nil, err
+	}
+	e := new(big.Int).SetBytes(eb)
+	if !e.IsInt64() || e.Int64() <= 0 {
+		return nil, errors.New("bad rsa exponent")
+	}
+	return &rsa.PublicKey{N: new(big.Int).SetBytes(nb), E: int(e.Int64())}, nil
+}
+
+func (c *Channel) getJSON(ctx context.Context, u string, v any) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return err
+	}
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		return fmt.Errorf("get %s: status %d", u, resp.StatusCode)
+	}
+	return json.NewDecoder(io.LimitReader(resp.Body, maxBody)).Decode(v)
+}
+
+// token returns a valid outbound connector bearer, minting one via the Azure
+// AD client-credentials grant when the cache is empty or within 60s of expiry
+// (the margin keeps a token from expiring mid-Send).
+func (c *Channel) token(ctx context.Context) (string, error) {
+	c.tokMu.Lock()
+	defer c.tokMu.Unlock()
+	if c.tok != "" && time.Now().Before(c.tokExp.Add(-60*time.Second)) {
+		return c.tok, nil
+	}
+	form := url.Values{
+		"grant_type":    {"client_credentials"},
+		"client_id":     {c.appID},
+		"client_secret": {c.appPassword},
+		"scope":         {botFrameworkScope},
+	}
+	endpoint := fmt.Sprintf("%s/%s/oauth2/v2.0/token", strings.TrimRight(c.tokenBase, "/"), c.tenantID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(form.Encode()))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		return "", fmt.Errorf("msteams token: status %d", resp.StatusCode)
+	}
+	var tok struct {
+		AccessToken string `json:"access_token"`
+		ExpiresIn   int64  `json:"expires_in"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxBody)).Decode(&tok); err != nil {
+		return "", err
+	}
+	if tok.AccessToken == "" {
+		return "", errors.New("msteams token: empty access_token")
+	}
+	c.tok = tok.AccessToken
+	c.tokExp = time.Now().Add(time.Duration(tok.ExpiresIn) * time.Second)
+	return c.tok, nil
+}
+
+// Send posts a reply. The conversation string carries "convID|serviceUrl"
+// (see toInbound); the first "|" splits them because a serviceUrl never
+// contains one. Text is chunked so an over-long agent reply never bounces.
+func (c *Channel) Send(ctx context.Context, conversation string, msg channels.Outbound) error {
+	convID, serviceURL, ok := strings.Cut(conversation, "|")
+	if !ok || convID == "" || serviceURL == "" {
+		return fmt.Errorf("msteams send: malformed conversation %q", conversation)
+	}
+	bearer, err := c.token(ctx)
+	if err != nil {
+		return err
+	}
+	endpoint := fmt.Sprintf("%s/v3/conversations/%s/activities", strings.TrimRight(serviceURL, "/"), url.PathEscape(convID))
+	for _, part := range channels.Chunk(msg.Text, teamsMaxMessage) {
+		if err := c.sendOne(ctx, endpoint, bearer, part); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (c *Channel) sendOne(ctx context.Context, endpoint, bearer, text string) error {
+	body, err := json.Marshal(map[string]string{"type": "message", "text": text})
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+bearer)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		return fmt.Errorf("msteams send: status %d", resp.StatusCode)
+	}
+	return nil
+}
