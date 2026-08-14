@@ -46,13 +46,19 @@ func (s *Session) toolLine(shown bool, verb, arg, status string, failed bool) {
 // Three visibility tiers, decided at the call site:
 //
 //	⏺ loud   (shown=true)  — an action the user should SEE; stays in scrollback.
-//	● quiet  (shown=false) — read-only research (Read/List/Search/Glob): printed but DIM,
-//	         one visually subordinate line, so the user can follow what's being read
-//	         without it competing with loud actions. vxui mutes the label after the bullet
-//	         (styleScrollbackLine).
+//	● quiet  (shown=false) — read-only research (Read/List/Search/Glob): internal
+//	         housekeeping the user didn't ask to see, so a SUCCESSFUL one prints
+//	         nothing. A warning or failure still prints (dim), because a read that
+//	         went wrong is signal, not noise.
 //	hidden   — truly internal machinery (CodeQuery/RepoMap/Memcode): don't call toolLine
 //	         at all. Hiding is the absence of a marker call, never a dropped line here.
 func (s *Session) toolLineStat(shown bool, verb, arg, status string, stat toolStat) {
+	// Quiet-tier research that succeeded is not user-facing signal — skip it, so
+	// Read/List/Search/Glob don't clutter the transcript. Warnings/failures fall
+	// through and still render.
+	if !shown && stat == statOK {
+		return
+	}
 	mark := "⏺"
 	// Color the bullet on-theme: tool-glyph color for success (Faint for the quiet tier,
 	// so research stays visually subordinate), Warning for a partial, Danger for a

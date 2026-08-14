@@ -6,23 +6,15 @@ import (
 	"testing"
 )
 
-// TestQuietToolLinesPrintMutedBullet: read-only research tools (Read/List/Search/Glob) pass
-// shown=false — they print exactly one ● line (dim bullet, never the loud ⏺), so the user
-// can follow what's being read without research competing with loud actions. Dropping them
-// entirely was a regression: useful Read/List activity vanished from the transcript.
-func TestQuietToolLinesPrintMutedBullet(t *testing.T) {
+// TestQuietToolSuccessIsHidden: a SUCCESSFUL read-only research tool
+// (Read/List/Search/Glob, shown=false) is internal housekeeping the user didn't
+// ask to see, so it prints nothing at all.
+func TestQuietToolSuccessIsHidden(t *testing.T) {
 	var out bytes.Buffer
 	s := &Session{out: &out}
 	s.toolLine(false, "Read", "internal/x.go", "42 lines", false)
-	got := out.String()
-	if !strings.Contains(got, "●") || strings.Contains(got, "⏺") {
-		t.Errorf("a quiet tool line must print with the ● bullet, never ⏺: %q", got)
-	}
-	if !strings.Contains(got, "Read(internal/x.go)") {
-		t.Errorf("the quiet line must carry the verb+arg label: %q", got)
-	}
-	if n := strings.Count(got, "\n"); n != 1 {
-		t.Errorf("exactly one line expected, got %d: %q", n, got)
+	if got := out.String(); got != "" {
+		t.Errorf("a successful quiet tool line must print nothing, got %q", got)
 	}
 }
 
