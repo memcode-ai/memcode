@@ -103,6 +103,7 @@ type appState struct {
 	composer  string
 	cursor    int               // rune offset of the insertion point in composer
 	slashSel  int               // highlighted row in the slash menu
+	escArmed  bool              // a bare Esc was just pressed with text in the composer; a second Esc clears it
 	busyOwner runtime.BusyOwner // who owns the busy surface — ONE writer (setBusy); busy() derives
 
 	// Bracketed paste: the terminal frames a paste with PasteStart/PasteEnd and tags every
@@ -1031,6 +1032,11 @@ func (s *appState) HandleEvent(ctx ui.EventContext, ev ui.Event) ui.EventResult 
 	if key.EventType == vaxis.EventRelease {
 		return ui.EventIgnored
 	}
+	// Two bare Escapes in a row clear the composer; any other key disarms that
+	// (so the second Esc must immediately follow the first).
+	if key.String() != "Escape" {
+		s.escArmed = false
+	}
 	// Ctrl+C is global: interrupt a running turn or async op, else quit — every mode/modal.
 	if key.String() == "Ctrl+c" {
 		switch {
@@ -1261,6 +1267,21 @@ func (s *appState) HandleEvent(ctx ui.EventContext, ev ui.Event) ui.EventResult 
 		// here, so just swallow it (fall through to EventIgnored) rather than cancel nothing.
 		if s.busy() {
 			s.sched.Cancel()
+			return ui.EventHandled
+		}
+		// Idle: two Escapes in a row clear the composer. The first arms (swallowed);
+		// the second clears. With an empty composer there's nothing to clear.
+		if s.composer != "" {
+			if s.escArmed {
+				s.SetState(func() {
+					s.composer = ""
+					s.cursor = 0
+					s.slashSel = 0
+					s.escArmed = false
+				})
+			} else {
+				s.escArmed = true
+			}
 			return ui.EventHandled
 		}
 	case "Shift+Tab":

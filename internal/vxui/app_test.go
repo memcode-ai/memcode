@@ -1034,3 +1034,39 @@ func TestSlashForkForks(t *testing.T) {
 		t.Fatal("/fork must enter a NEW session id")
 	}
 }
+
+// TestEscTwiceClearsComposer: with text in the composer, one Esc arms and a second
+// Esc clears it. A single Esc leaves the text alone.
+func TestEscTwiceClearsComposer(t *testing.T) {
+	st, _, _, runner := newRecRunnerCapture(t)
+	now := time.Now()
+
+	runner.HandleEvent(vaxis.Key{Text: "h", Keycode: 'h'}, now)
+	runner.HandleEvent(vaxis.Key{Text: "i", Keycode: 'i'}, now)
+	if st.composer != "hi" {
+		t.Fatalf("composer = %q, want %q", st.composer, "hi")
+	}
+	runner.HandleEvent(vaxis.Key{Keycode: vaxis.KeyEsc}, now) // arms, does not clear
+	if st.composer != "hi" {
+		t.Fatalf("a single Esc must not clear the composer, got %q", st.composer)
+	}
+	runner.HandleEvent(vaxis.Key{Keycode: vaxis.KeyEsc}, now) // clears
+	if st.composer != "" {
+		t.Fatalf("two Escapes must clear the composer, got %q", st.composer)
+	}
+}
+
+// TestEscDisarmedByOtherKey: a key pressed between the two Escapes disarms the
+// double-Esc, so the second Esc doesn't clear.
+func TestEscDisarmedByOtherKey(t *testing.T) {
+	st, _, _, runner := newRecRunnerCapture(t)
+	now := time.Now()
+
+	runner.HandleEvent(vaxis.Key{Text: "h", Keycode: 'h'}, now)
+	runner.HandleEvent(vaxis.Key{Keycode: vaxis.KeyEsc}, now)   // arm
+	runner.HandleEvent(vaxis.Key{Text: "x", Keycode: 'x'}, now) // disarms + types
+	runner.HandleEvent(vaxis.Key{Keycode: vaxis.KeyEsc}, now)   // arms again, does not clear
+	if st.composer != "hx" {
+		t.Fatalf("an intervening key must disarm double-Esc; composer = %q, want %q", st.composer, "hx")
+	}
+}
