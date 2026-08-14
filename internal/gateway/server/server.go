@@ -17,6 +17,7 @@ import (
 	"github.com/memcode-ai/memcode/internal/agent/permissions"
 	"github.com/memcode-ai/memcode/internal/channels"
 	"github.com/memcode-ai/memcode/internal/channels/discord"
+	"github.com/memcode-ai/memcode/internal/channels/slack"
 	"github.com/memcode-ai/memcode/internal/channels/telegram"
 	gwconfig "github.com/memcode-ai/memcode/internal/gateway/config"
 	"github.com/memcode-ai/memcode/internal/jobs"
@@ -70,6 +71,11 @@ func channelsFrom(settings gwconfig.Settings, out io.Writer) []channels.Channel 
 		} else {
 			chs = append(chs, ch)
 		}
+	}
+	app := strings.TrimSpace(os.Getenv(gwconfig.EnvSlackAppToken))
+	bot := strings.TrimSpace(os.Getenv(gwconfig.EnvSlackBotToken))
+	if app != "" && bot != "" {
+		chs = append(chs, slack.New(app, bot))
 	}
 	return chs
 }
