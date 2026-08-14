@@ -52,13 +52,24 @@ channels:
   telegram:
     allow_from: ["123456789"]           # STABLE user ids (not @handles); "*" = anyone
     # respond_to_all: true              # act on every message in a group (default: mention required)
+    # tier: strong                      # route this channel to a stronger model (strong|frontier)
   github:
     reply_to: "telegram:123456789"      # where CI-failure results are posted
   whatsapp:
     phone_number_id: "10012345"
     active: false                        # stays inert until Meta verification
     allow_from: ["+15555550123"]
+schedules:
+  - name: standup
+    cron: "0 9 * * 1-5"                  # or  every: "24h"
+    task: "Summarize yesterday's commits and open PRs"
+    deliver_to: "telegram:123456789"
 ```
+
+Conversations are **stateful**: each `(channel, conversation)` keeps its own agent
+session, so follow-up messages continue with context instead of starting fresh.
+Per-channel `tier` routes a channel to a stronger model (a code-review channel can
+run strong while a status channel stays cheap).
 
 ## Authorization and triggering
 
@@ -92,6 +103,13 @@ default locations when no path is given. Anything it can't carry automatically
 unsupported channels, WhatsApp's non-transferable QR session) is reported as a
 note — never silently dropped.
 
+## Schedules
+
+The gateway isn't only reactive. A `schedules:` entry runs a task on a cadence
+(`every: "24h"` or a `cron:` expression) and posts the result to a chat
+conversation. Each fire flows through the same durable inbox and reply path as a
+chat message, so scheduled work is autonomous but just as reliable.
+
 ## Run
 
 ```
@@ -99,6 +117,18 @@ memcode gateway
 ```
 
 in the project the agent should operate in. It runs until interrupted (Ctrl-C).
+
+### As a background service
+
+To keep it running across logout/reboot instead of a foreground terminal:
+
+```
+memcode gateway install
+```
+
+This writes a launchd LaunchAgent (macOS) or systemd `--user` unit (Linux) that
+runs the gateway in the current project, and prints the command to start it.
+`memcode gateway uninstall` removes it.
 
 Chat channels connect outbound (no public URL needed). GitHub and WhatsApp are
 inbound webhooks served on `:8787` by default (`webhook.addr`); expose that
