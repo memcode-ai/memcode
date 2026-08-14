@@ -14,7 +14,7 @@ import (
 )
 
 // Transcript persistence — the byte-for-byte provider message history, saved at
-// every turn boundary so a session can be RE-ENTERED (`memcode agent --continue`,
+// every turn boundary so a session can be RE-ENTERED (`memcode run --continue`,
 // `/resume`), not just recalled. It complements the episodic log: events.jsonl
 // is what happened (memory); messages.json is the live conversation state
 // (resumption). Snapshot, not append — compaction rewrites history, so the

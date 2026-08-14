@@ -16,7 +16,7 @@ import (
 
 // runInteractive opens the project, builds a model-backed agent session, and
 // launches the Bubble Tea TUI over it. Shared by `memcode` (no subcommand) and
-// `memcode agent` (no task). resume ("" = fresh) is a session ref — "latest"
+// `memcode run` (no task). resume ("" = fresh) is a session ref — "latest"
 // or an id/prefix — whose saved transcript the TUI re-enters.
 func runInteractive(ctx context.Context, mode permissions.Mode, modeExplicit bool, chrome bool, resume string) error {
 	st, cfg, err := openProject(ctx)

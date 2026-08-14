@@ -3,7 +3,7 @@ package wire
 import "encoding/json"
 
 // Stream-json is the control protocol the sdk/agent wrapper speaks to a
-// `memcode agent --protocol stream-json` subprocess — the same shape as Anthropic's
+// `memcode run --protocol stream-json` subprocess — the same shape as Anthropic's
 // Claude Agent SDK driving the `claude` binary. It is versioned, newline-delimited
 // JSON: ONE Envelope per line on stdout for machine events, stderr for human
 // diagnostics. Every message carries correlation ids (turn/session) so a multi-turn

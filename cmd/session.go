@@ -34,7 +34,7 @@ var sessionListCmd = &cobra.Command{
 			return err
 		}
 		if len(sessions) == 0 {
-			fmt.Println("No agent sessions yet. Run `memcode agent \"<task>\"`.")
+			fmt.Println("No agent sessions yet. Run `memcode run \"<task>\"`.")
 			return nil
 		}
 		for i := len(sessions) - 1; i >= 0; i-- { // newest first

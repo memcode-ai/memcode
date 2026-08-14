@@ -123,7 +123,7 @@ func TestAgentCmdFlagWiring(t *testing.T) {
 	}
 }
 
-// buildAgentCmdForTest creates a fresh agentCmd with the given bool flags set,
+// buildAgentCmdForTest creates a fresh runCmd with the given bool flags set,
 // matching the real init() flag registration. This lets resolveMode/modeExplicit
 // tests exercise the actual cobra flag lookup path.
 func buildAgentCmdForTest(t *testing.T, flags map[string]bool) *cobra.Command {

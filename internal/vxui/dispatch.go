@@ -12,7 +12,7 @@ import (
 )
 
 // dispatchSlash handles /dispatch <task>: spawns a hands-off background sub-agent
-// via jobs.Spawn (the same detached-child primitive as `memcode agent --background`).
+// via jobs.Spawn (the same detached-child primitive as `memcode run --background`).
 // The sub-agent runs the full mutating agent loop with NO prompts or clarifying
 // questions, serialized behind the repo writer lock. Fire-and-forget: the session
 // keeps going and the footer tracks the live agent count.
@@ -41,7 +41,7 @@ func (s *appState) dispatchSlash(args string) {
 }
 
 // agentsSlash handles /agents: lists dispatched sub-agents (the detached agent jobs
-// from /dispatch and `memcode agent --background`), NOT the in-session shell jobs
+// from /dispatch and `memcode run --background`), NOT the in-session shell jobs
 // (those are /jobs). Runs jobs.List in a goroutine (a disk read) and prints a table.
 //
 // /agents stop <id> terminates a running agent (the safety valve for a runaway —

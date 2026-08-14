@@ -20,7 +20,7 @@ model of your codebase and puts an agent in your terminal that uses it.
 
 Start:
   memcode               Start an interactive coding session
-  memcode agent "..."   Run a single task non-interactively
+  memcode run "..."   Run a single task non-interactively
 
 Orient:
   memcode overview      What this project is and where work stands
@@ -49,7 +49,7 @@ Learn more at https://memcode.ai`,
 
 func init() {
 	// --chrome on the root command too, so `memcode --chrome` (interactive) works
-	// the same as `memcode agent --chrome "..."` (one-shot). Chrome launches with a
+	// the same as `memcode run --chrome "..."` (one-shot). Chrome launches with a
 	// visible window (headed) — you can watch it work.
 	rootCmd.Flags().Bool("chrome", false, "enable browser tools (full browser interaction: navigate, click, type, scroll, hover, keyboard, dropdowns, history, tabs, screenshots, console logs, JS eval) backed by a real, visible Chrome instance")
 	rootCmd.Flags().BoolP("continue", "c", false, "resume the most recent session with its full conversation")

@@ -14,7 +14,7 @@ import (
 var jobsCmd = &cobra.Command{
 	Use:   "jobs",
 	Short: "List and inspect background agent jobs",
-	Long: `Background agent sessions started with "memcode agent <task> --background"
+	Long: `Background agent sessions started with "memcode run <task> --background"
 run as detached child processes that coordinate through a single repo-wide
 writer lock (one writer at a time). This command lists them and shows their logs.`,
 	RunE: func(cmd *cobra.Command, args []string) error { return runJobsList(cmd) },
@@ -72,7 +72,7 @@ func runJobsList(cmd *cobra.Command) error {
 		return err
 	}
 	if len(list) == 0 {
-		fmt.Println("no background jobs yet — start one with `memcode agent \"<task>\" --background`")
+		fmt.Println("no background jobs yet — start one with `memcode run \"<task>\" --background`")
 		return nil
 	}
 	for _, j := range list {

@@ -534,7 +534,7 @@ func (s *Session) agentTool(ctx context.Context, input json.RawMessage) toolResu
 }
 
 // dispatchTool offloads a discrete block of work to a hands-off background sub-agent.
-// It reuses jobs.Spawn (the same detached-child primitive as `memcode agent
+// It reuses jobs.Spawn (the same detached-child primitive as `memcode run
 // --background`): the sub-agent runs the full mutating agent loop as a separate OS
 // process, serialized behind the repo writer lock, with NO prompts or clarifying
 // questions (a headless child with stdin=nil auto-denies unapproved writes and

@@ -63,7 +63,7 @@ type Settings struct {
 
 // Persona is a durable agent identity: a home directory (~/.memcode/agents/<id>)
 // holding its own memory.md, MEMCODE.md, and skills, plus a coarse type. It is NOT
-// a project and NOT the `memcode agent` CLI command — the persona's context is
+// a project and NOT the `memcode run` CLI command — the persona's context is
 // composed and handed to the coding engine as generic supplemental context.
 type Persona struct {
 	Type string `yaml:"type,omitempty"` // assistant | coding | research (coarse behavior hint)

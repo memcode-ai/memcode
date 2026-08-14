@@ -16,9 +16,9 @@ import (
 	"github.com/memcode-ai/memcode/internal/provider"
 )
 
-var agentCmd = &cobra.Command{
-	Use:   "agent <task>",
-	Short: "Run an agentic coding task, oriented by memcode's context",
+var runCmd = &cobra.Command{
+	Use:   "run <task>",
+	Short: "Run a coding task headlessly, oriented by memcode's context",
 	Long: `Runs a coding task end-to-end: orients via "memcode context", calls
 Claude, and executes the tool calls it proposes (read/search/bash/edit) under a
 permission policy — recording every step as an event.
@@ -47,7 +47,7 @@ for local gateway development. Never store keys in .memcode.`,
 		}
 
 		// No task on the command line but a piped stdin → the task IS the pipe
-		// (`echo "fix the flaky test" | memcode agent`). The TUI needs a real
+		// (`echo "fix the flaky test" | memcode run`). The TUI needs a real
 		// terminal anyway, so a non-TTY stdin can only mean a piped prompt.
 		if task == "" && !term.IsTerminal(os.Stdin.Fd()) {
 			b, err := io.ReadAll(io.LimitReader(os.Stdin, 10<<20))
@@ -91,7 +91,7 @@ for local gateway development. Never store keys in .memcode.`,
 		runner := llm.NewRunner(prov)
 
 		// A resumed one-shot continues a saved conversation for exactly one more
-		// turn (`memcode agent -c "now fix the failing test"`). Incompatible with
+		// turn (`memcode run -c "now fix the failing test"`). Incompatible with
 		// --background (the job child can't share the transcript safely).
 		if resume := resumeRef(cmd); resume != "" {
 			if bg, _ := cmd.Flags().GetBool("background"); bg {
@@ -187,14 +187,14 @@ for local gateway development. Never store keys in .memcode.`,
 				return err
 			}
 			sess.SetResume(id)
-			fmt.Printf("memcode agent · model %s · mode %s · resuming %s\n", model, mode, id)
+			fmt.Printf("memcode run · model %s · mode %s · resuming %s\n", model, mode, id)
 			chat := sess.StartChat(ctx)
 			sess.Submit(ctx, chat, task)
 			sess.EndChat(ctx)
 			return sess.LastError() // non-zero exit if the turn failed (scripting/CI)
 		}
 
-		fmt.Printf("memcode agent · model %s · mode %s\n", model, mode)
+		fmt.Printf("memcode run · model %s · mode %s\n", model, mode)
 		_, err = sess.Run(ctx, task)
 		return err
 	},
@@ -245,21 +245,21 @@ func parseMode(s string) (permissions.Mode, bool) {
 }
 
 func init() {
-	agentCmd.Flags().Bool("ask", true, "prompt before risky actions (default)")
-	agentCmd.Flags().Bool("auto", false, "run low/medium-risk actions automatically")
-	agentCmd.Flags().Bool("allow-all", false, "run everything except catastrophic commands")
-	agentCmd.Flags().Bool("no-context", false, "cold mode: skip the context pack (for A/B comparison)")
-	agentCmd.Flags().Bool("chrome", false, "enable browser tools (full browser interaction: navigate, click, type, scroll, hover, keyboard, dropdowns, history, tabs, screenshots, console logs, JS eval) backed by a real, visible Chrome instance")
-	agentCmd.Flags().Bool("background", false, "run the task as a detached background job (see `memcode jobs`)")
-	agentCmd.Flags().String("job", "", "internal: run as the child of a background job with this id")
-	_ = agentCmd.Flags().MarkHidden("job")
-	agentCmd.Flags().String("tier", "", "internal: model tier for a background agent child (\"strong\" → Anthropic)")
-	_ = agentCmd.Flags().MarkHidden("tier")
-	agentCmd.Flags().Bool("report-back", false, "internal: persist the agent's final result so the caller can report it back")
-	_ = agentCmd.Flags().MarkHidden("report-back")
-	agentCmd.Flags().String("protocol", "", "machine control protocol: stream-json (newline-delimited JSON on stdio, for SDK wrappers)")
-	agentCmd.Flags().BoolP("continue", "c", false, "resume the most recent session with its full conversation")
-	agentCmd.Flags().String("resume", "", "resume a session by id or prefix (see `memcode session recent`)")
-	agentCmd.Flags().String("session", "", "run a --job in this session id, resuming it if it exists (gateway conversation continuity)")
-	rootCmd.AddCommand(agentCmd)
+	runCmd.Flags().Bool("ask", true, "prompt before risky actions (default)")
+	runCmd.Flags().Bool("auto", false, "run low/medium-risk actions automatically")
+	runCmd.Flags().Bool("allow-all", false, "run everything except catastrophic commands")
+	runCmd.Flags().Bool("no-context", false, "cold mode: skip the context pack (for A/B comparison)")
+	runCmd.Flags().Bool("chrome", false, "enable browser tools (full browser interaction: navigate, click, type, scroll, hover, keyboard, dropdowns, history, tabs, screenshots, console logs, JS eval) backed by a real, visible Chrome instance")
+	runCmd.Flags().Bool("background", false, "run the task as a detached background job (see `memcode jobs`)")
+	runCmd.Flags().String("job", "", "internal: run as the child of a background job with this id")
+	_ = runCmd.Flags().MarkHidden("job")
+	runCmd.Flags().String("tier", "", "internal: model tier for a background agent child (\"strong\" → Anthropic)")
+	_ = runCmd.Flags().MarkHidden("tier")
+	runCmd.Flags().Bool("report-back", false, "internal: persist the agent's final result so the caller can report it back")
+	_ = runCmd.Flags().MarkHidden("report-back")
+	runCmd.Flags().String("protocol", "", "machine control protocol: stream-json (newline-delimited JSON on stdio, for SDK wrappers)")
+	runCmd.Flags().BoolP("continue", "c", false, "resume the most recent session with its full conversation")
+	runCmd.Flags().String("resume", "", "resume a session by id or prefix (see `memcode session recent`)")
+	runCmd.Flags().String("session", "", "run a --job in this session id, resuming it if it exists (gateway conversation continuity)")
+	rootCmd.AddCommand(runCmd)
 }

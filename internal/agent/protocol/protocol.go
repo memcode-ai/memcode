@@ -2,7 +2,7 @@
 // control protocol (newline-delimited JSON on stdio) — the machine-facing twin of
 // the TUI. It binds the SAME runtime seams the TUI uses (SetOutput / SetApprover /
 // SetAsker / SetObserver) to a JSON transport, so the agent loop is untouched. This
-// is what the sdk/agent wrapper speaks to a `memcode agent --protocol stream-json`
+// is what the sdk/agent wrapper speaks to a `memcode run --protocol stream-json`
 // subprocess.
 //
 // stdout carries machine events ONLY (one wire.Envelope per line); diagnostics go

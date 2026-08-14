@@ -57,7 +57,7 @@ func metaPath(root, id string) string { return filepath.Join(jobDir(root, id), "
 // LogPath returns the path to a job's log file.
 func LogPath(root, id string) string { return filepath.Join(jobDir(root, id), "log") }
 
-// Spawn launches a detached `memcode agent <task>` child, redirecting its output
+// Spawn launches a detached `memcode run <task>` child, redirecting its output
 // to the job log, and records the job as running. The child is invoked with
 // --job <id> so it acquires the writer lock and records its own completion.
 // When chrome is true, --chrome is forwarded so backgrounded browser jobs keep
@@ -77,7 +77,7 @@ func Spawn(root, task, mode, tier string, chrome, reportBack bool, session strin
 	}
 	defer logf.Close()
 
-	argv := []string{"agent", task, "--" + mode, "--job", id}
+	argv := []string{"run", task, "--" + mode, "--job", id}
 	if tier != "" {
 		argv = append(argv, "--tier", tier) // the child force-escalates when tier == "strong"
 	}
