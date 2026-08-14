@@ -18,7 +18,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
+	"net/textproto"
+	"os"
 	"strings"
 	"time"
 
@@ -279,12 +282,89 @@ func (c *Channel) downloadOne(ctx context.Context, m waMedia) (channels.Attachme
 
 // Send posts a text reply to a conversation (the recipient's phone number),
 // split with the shared chunker — WhatsApp rejects over-long bodies, and this
-// was the one adapter bypassing the shared splitter.
+// was the one adapter bypassing the shared splitter. A synthesized voice
+// rendition (VoicePath) is uploaded and sent first as an audio message,
+// best-effort — the text always follows.
 func (c *Channel) Send(ctx context.Context, conversation string, msg channels.Outbound) error {
+	if msg.VoicePath != "" {
+		_ = c.sendVoice(ctx, conversation, msg.VoicePath) // best-effort; text is the reply of record
+	}
 	for _, part := range channels.Chunk(msg.Text, whatsappMaxMessage) {
 		if err := c.sendOne(ctx, conversation, part); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// sendVoice uploads an OGG/Opus file to the media endpoint and sends it as an
+// audio message.
+func (c *Channel) sendVoice(ctx context.Context, conversation, path string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	if err := mw.WriteField("messaging_product", "whatsapp"); err != nil {
+		return err
+	}
+	h := textproto.MIMEHeader{}
+	h.Set("Content-Disposition", `form-data; name="file"; filename="voice.ogg"`)
+	h.Set("Content-Type", "audio/ogg")
+	fw, err := mw.CreatePart(h)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(fw, f); err != nil {
+		return err
+	}
+	if err := mw.Close(); err != nil {
+		return err
+	}
+	upload := fmt.Sprintf("%s/%s/%s/media", c.base, graphVersion, c.phoneNumberID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, upload, &body)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.accessToken)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	var out struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil || out.ID == "" {
+		return fmt.Errorf("whatsapp media upload failed")
+	}
+	payload := map[string]any{
+		"messaging_product": "whatsapp",
+		"to":                conversation,
+		"type":              "audio",
+		"audio":             map[string]string{"id": out.ID},
+	}
+	pb, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	send := fmt.Sprintf("%s/%s/%s/messages", c.base, graphVersion, c.phoneNumberID)
+	sreq, err := http.NewRequestWithContext(ctx, http.MethodPost, send, bytes.NewReader(pb))
+	if err != nil {
+		return err
+	}
+	sreq.Header.Set("Authorization", "Bearer "+c.accessToken)
+	sreq.Header.Set("Content-Type", "application/json")
+	sresp, err := c.client.Do(sreq)
+	if err != nil {
+		return err
+	}
+	defer sresp.Body.Close()
+	if sresp.StatusCode/100 != 2 {
+		return fmt.Errorf("whatsapp audio send: status %d", sresp.StatusCode)
 	}
 	return nil
 }

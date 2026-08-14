@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/memcode-ai/memcode/internal/channels"
+	"github.com/memcode-ai/memcode/internal/gateway/state"
 	"github.com/memcode-ai/memcode/internal/providers/gemini"
 	openaiprov "github.com/memcode-ai/memcode/internal/providers/openai"
 )
@@ -31,6 +33,84 @@ func newTranscriber() transcriber {
 		return gemini.NewGemini(k)
 	}
 	return nil
+}
+
+// speaker synthesizes speech (OGG/Opus bytes) for a reply. Implemented by the
+// openai provider home; nil when no key is configured.
+type speaker interface {
+	Speak(ctx context.Context, text string) ([]byte, error)
+}
+
+// newSpeaker picks a text-to-speech backend from present credentials. OpenAI
+// only for now — its speech endpoint emits Opus directly, so no transcoding
+// (and no ffmpeg) exists anywhere in the pipeline.
+func newSpeaker() speaker {
+	if k := strings.TrimSpace(os.Getenv(openaiprov.EnvOpenAIKey)); k != "" {
+		return openaiprov.NewOpenAI(k)
+	}
+	return nil
+}
+
+// maybeSpeak synthesizes a voice rendition of a reply when the channel's
+// voice_replies policy asks for one, returning the spool path ("" = text
+// only). Policy: "always", or "in_kind" when the task arrived with a voice
+// note. Failures degrade silently to text — a reply is never lost to TTS.
+func (r *runtime) maybeSpeak(ctx context.Context, it state.Item, reply string) string {
+	if r.tts == nil {
+		return ""
+	}
+	switch r.cfg().Get(it.Channel).VoiceReplies {
+	case "always":
+	case "in_kind":
+		hadVoice := false
+		for _, id := range it.Attachments {
+			if audioSpoolID(id) {
+				hadVoice = true
+			}
+		}
+		if !hadVoice {
+			return ""
+		}
+	default: // "" / "off" — deliberate opt-in
+		return ""
+	}
+	spoken := spokenSummary(reply)
+	if spoken == "" {
+		return ""
+	}
+	data, err := r.tts.Speak(ctx, spoken)
+	if err != nil {
+		fmt.Fprintf(r.out, "gateway: voice reply synthesis failed: %v\n", err)
+		return ""
+	}
+	att, err := channels.SaveToSpool(r.mediaDir, bytes.NewReader(data), "audio/ogg", "reply.ogg")
+	if err != nil {
+		return ""
+	}
+	return att.Path
+}
+
+// spokenSummary renders a reply as speakable text: code blocks dropped (nobody
+// wants a diff read aloud), whitespace collapsed, capped at ~600 runes with the
+// full text always arriving alongside as a message.
+func spokenSummary(reply string) string {
+	var kept []string
+	inFence := false
+	for _, line := range strings.Split(reply, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "```") {
+			inFence = !inFence
+			continue
+		}
+		if !inFence {
+			kept = append(kept, line)
+		}
+	}
+	s := strings.Join(strings.Fields(strings.Join(kept, " ")), " ")
+	runes := []rune(s)
+	if len(runes) > 600 {
+		s = string(runes[:600]) + "… full details in the text reply."
+	}
+	return strings.TrimSpace(s)
 }
 
 // audioSpoolID reports whether a spool ID names an audio file (the spool is

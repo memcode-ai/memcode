@@ -7,6 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	gwconfig "github.com/memcode-ai/memcode/internal/gateway/config"
+	"github.com/memcode-ai/memcode/internal/gateway/state"
 )
 
 type fakeSTT struct{ text string }
@@ -45,5 +48,54 @@ func TestTranscribeAudioComposesTask(t *testing.T) {
 	task, rest, missing = rt.transcribeAudio(context.Background(), "", []string{"aa.ogg", "bb.png"})
 	if !missing || task != "" || len(rest) != 1 {
 		t.Errorf("no-stt: task=%q rest=%v missing=%v", task, rest, missing)
+	}
+}
+
+type fakeTTS struct{ called int }
+
+func (f *fakeTTS) Speak(_ context.Context, _ string) ([]byte, error) {
+	f.called++
+	return []byte("OggS-fake"), nil
+}
+
+// voice_replies is a deliberate opt-in: default off, in_kind only when the
+// task carried a voice note, always speaks everything.
+func TestMaybeSpeakPolicy(t *testing.T) {
+	dir := t.TempDir()
+	tts := &fakeTTS{}
+	rt := &runtime{mediaDir: dir, tts: tts, out: io.Discard}
+	itVoice := state.Item{Channel: "telegram", Attachments: []string{"aa.ogg"}}
+	itText := state.Item{Channel: "telegram"}
+
+	// Default: off, even for a voice note.
+	if p := rt.maybeSpeak(context.Background(), itVoice, "done"); p != "" || tts.called != 0 {
+		t.Errorf("default must be off: %q %d", p, tts.called)
+	}
+	rt.settings = gwconfig.Settings{Channels: map[string]gwconfig.Channel{"telegram": {VoiceReplies: "in_kind"}}}
+	if p := rt.maybeSpeak(context.Background(), itText, "done"); p != "" {
+		t.Errorf("in_kind must not speak for text-only tasks: %q", p)
+	}
+	p := rt.maybeSpeak(context.Background(), itVoice, "done")
+	if p == "" || tts.called != 1 {
+		t.Fatalf("in_kind with voice note: %q %d", p, tts.called)
+	}
+	if _, err := os.Stat(p); err != nil {
+		t.Errorf("voice file missing: %v", err)
+	}
+	rt.settings = gwconfig.Settings{Channels: map[string]gwconfig.Channel{"telegram": {VoiceReplies: "always"}}}
+	if p := rt.maybeSpeak(context.Background(), itText, "done"); p == "" {
+		t.Error("always must speak")
+	}
+}
+
+func TestSpokenSummary(t *testing.T) {
+	in := "Fixed it.\n```go\nfunc x() {}\n```\nAll tests green."
+	got := spokenSummary(in)
+	if strings.Contains(got, "func x") || !strings.Contains(got, "All tests green") {
+		t.Errorf("summary = %q", got)
+	}
+	long := strings.Repeat("word ", 300)
+	if s := spokenSummary(long); len([]rune(s)) > 700 || !strings.Contains(s, "full details in the text reply") {
+		t.Errorf("cap failed: %d runes", len([]rune(s)))
 	}
 }

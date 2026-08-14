@@ -227,6 +227,12 @@ type Channel struct {
 	// Audience (googlechat) is the app's project number — the JWT audience
 	// inbound Chat events are verified against.
 	Audience string `yaml:"audience,omitempty"`
+	// VoiceReplies controls synthesized speech replies on channels that can
+	// carry voice notes (Telegram, WhatsApp, Signal, Discord, Matrix):
+	// "off" (default — voice output costs money and speaks replies aloud, so
+	// it is a deliberate opt-in), "in_kind" (a voice note in gets a voice
+	// reply out), or "always". The full text reply is always sent too.
+	VoiceReplies string `yaml:"voice_replies,omitempty"`
 }
 
 // Get returns the settings for a channel (a zero Channel if unset), so callers

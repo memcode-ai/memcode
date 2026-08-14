@@ -10,6 +10,7 @@ package discord
 import (
 	"context"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -148,8 +149,15 @@ func (c *Channel) download(ctx context.Context, atts []*discordgo.MessageAttachm
 }
 
 // Send posts a reply to a channel, splitting it with the shared chunker to
-// respect Discord's per-message length limit.
+// respect Discord's per-message length limit. A synthesized voice rendition
+// (VoicePath) is uploaded first as a file, best-effort — the text always follows.
 func (c *Channel) Send(ctx context.Context, conversation string, msg channels.Outbound) error {
+	if msg.VoicePath != "" {
+		if f, err := os.Open(msg.VoicePath); err == nil {
+			_, _ = c.session.ChannelFileSend(conversation, "voice-reply.ogg", f)
+			f.Close()
+		}
+	}
 	for _, part := range channels.Chunk(msg.Text, discordMaxMessage) {
 		if err := ctx.Err(); err != nil {
 			return err

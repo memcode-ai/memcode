@@ -10,9 +10,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math/rand/v2"
+	"mime/multipart"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -402,12 +405,56 @@ func (c *Channel) getUpdates(ctx context.Context, offset int64) ([]update, error
 
 // Send posts a text reply to a chat, split with the shared chunker to respect
 // Telegram's per-message limit. Each part honors a 429 flood-wait; a permanent
-// error (any other non-2xx) fails fast instead of retrying forever.
+// error (any other non-2xx) fails fast instead of retrying forever. A
+// synthesized voice rendition (VoicePath, OGG/Opus) is sent first as a native
+// voice bubble, best-effort — the text always follows.
 func (c *Channel) Send(ctx context.Context, conversation string, msg channels.Outbound) error {
+	if msg.VoicePath != "" {
+		_ = c.sendVoice(ctx, conversation, msg.VoicePath) // best-effort; text is the reply of record
+	}
 	for _, part := range channels.Chunk(msg.Text, telegramMaxMessage) {
 		if err := c.sendOne(ctx, conversation, part); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// sendVoice uploads an OGG/Opus file as a voice message (multipart sendVoice).
+func (c *Channel) sendVoice(ctx context.Context, conversation, path string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	if err := mw.WriteField("chat_id", conversation); err != nil {
+		return err
+	}
+	fw, err := mw.CreateFormFile("voice", "voice.ogg")
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(fw, f); err != nil {
+		return err
+	}
+	if err := mw.Close(); err != nil {
+		return err
+	}
+	endpoint := fmt.Sprintf("%s/bot%s/sendVoice", c.base, c.token)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, &body)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		return fmt.Errorf("telegram sendVoice: status %d", resp.StatusCode)
 	}
 	return nil
 }

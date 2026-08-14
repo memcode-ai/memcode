@@ -73,6 +73,7 @@ type runtime struct {
 	settings  gwconfig.Settings // guarded by mu; hot-reloaded from gateway.yaml (see maybeReload)
 	mediaDir  string            // the media spool (attachments in, synthesized voice out)
 	stt       transcriber       // speech-to-text for inbound voice notes; nil = not configured
+	tts       speaker           // text-to-speech for voice replies; nil = not configured
 	byName    map[string]replySender
 	disp      *dispatcher
 	out       io.Writer
@@ -122,6 +123,7 @@ func Run(ctx context.Context, root string, mainStore store.Store, settings gwcon
 		settings:  settings,
 		mediaDir:  mediaDir,
 		stt:       newTranscriber(),
+		tts:       newSpeaker(),
 		byName:    make(map[string]replySender, 4),
 		disp:      newDispatcher(),
 		out:       out,
@@ -507,6 +509,7 @@ func (r *runtime) deliverReply(ctx context.Context, it state.Item, reply string)
 	if strings.TrimSpace(reply) == "" {
 		reply = "Done."
 	}
+	out := channels.Outbound{Text: reply, VoicePath: r.maybeSpeak(ctx, it, reply)}
 	var sendErr error
 	for attempt := 0; attempt < 3; attempt++ {
 		if attempt > 0 {
@@ -516,7 +519,7 @@ func (r *runtime) deliverReply(ctx context.Context, it state.Item, reply string)
 			case <-time.After(time.Duration(attempt) * 500 * time.Millisecond):
 			}
 		}
-		if sendErr = ch.Send(ctx, it.Conversation, channels.Outbound{Text: reply}); sendErr == nil {
+		if sendErr = ch.Send(ctx, it.Conversation, out); sendErr == nil {
 			break
 		}
 	}
