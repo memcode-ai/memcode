@@ -16,6 +16,7 @@ import (
 
 	"github.com/memcode-ai/memcode/internal/agent/permissions"
 	"github.com/memcode-ai/memcode/internal/channels"
+	"github.com/memcode-ai/memcode/internal/channels/discord"
 	"github.com/memcode-ai/memcode/internal/channels/telegram"
 	gwconfig "github.com/memcode-ai/memcode/internal/gateway/config"
 	"github.com/memcode-ai/memcode/internal/jobs"
@@ -26,7 +27,7 @@ import (
 // project the agent operates in; settings holds the non-secret gateway config
 // (bot tokens come from the environment, loaded from the global .env upstream).
 func Run(ctx context.Context, root string, settings gwconfig.Settings, out io.Writer) error {
-	chs := channelsFrom(settings)
+	chs := channelsFrom(settings, out)
 	if len(chs) == 0 {
 		return fmt.Errorf("no channels configured — run `memcode gateway setup` to add one")
 	}
@@ -56,11 +57,19 @@ func Run(ctx context.Context, root string, settings gwconfig.Settings, out io.Wr
 
 // channelsFrom builds a live channel for each one whose secret is present in the
 // environment. settings carries the non-secret knobs a channel needs (unused by
-// Telegram, which needs only its token).
-func channelsFrom(settings gwconfig.Settings) []channels.Channel {
+// Telegram/Discord, which need only their token). A channel whose constructor
+// fails is logged and skipped, never fatal to the others.
+func channelsFrom(settings gwconfig.Settings, out io.Writer) []channels.Channel {
 	var chs []channels.Channel
 	if tok := strings.TrimSpace(os.Getenv(gwconfig.EnvTelegramToken)); tok != "" {
 		chs = append(chs, telegram.New(tok))
+	}
+	if tok := strings.TrimSpace(os.Getenv(gwconfig.EnvDiscordToken)); tok != "" {
+		if ch, err := discord.New(tok); err != nil {
+			fmt.Fprintf(out, "gateway: discord disabled: %v\n", err)
+		} else {
+			chs = append(chs, ch)
+		}
 	}
 	return chs
 }

@@ -86,6 +86,7 @@ var vendorSDKs = map[string]string{
 	"github.com/openai/openai-go":            modulePrefix + "/internal/providers/openai",
 	"github.com/anthropics/anthropic-sdk-go": modulePrefix + "/internal/providers/anthropic",
 	"google.golang.org/genai":                modulePrefix + "/internal/providers/gemini",
+	"github.com/bwmarrin/discordgo":          modulePrefix + "/internal/channels/discord",
 }
 
 func directImports(t *testing.T, pkg string) []string {
