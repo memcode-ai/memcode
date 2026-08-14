@@ -50,7 +50,7 @@ Message your agent from wherever you already are. It runs your task and replies 
 
 **You decide who gets in.** Unknown senders have to pair first: they get a code, you approve it. Allow-lists per channel on top of that.
 
-**Coming from OpenClaw?** One command imports your existing setup.
+**Coming from Hermes or OpenClaw?** `memcode hermes migrate` or `memcode claw migrate` brings over your channels, API keys, skills, and long-term memory in one command.
 
 ## Install
 
