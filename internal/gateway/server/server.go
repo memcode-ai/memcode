@@ -251,9 +251,18 @@ func (r *runtime) Deliver(ctx context.Context, inb channels.Inbound) error {
 		fmt.Fprintf(r.out, "gateway: %s message with no id — dropping\n", inb.Channel)
 		return nil
 	}
+	// A /agent or /project command re-points the conversation for its SUBSEQUENT
+	// tasks; it is control, not a task, so it is handled here and not enqueued.
+	if r.handleCommand(ctx, inb) {
+		return nil
+	}
+	// Snapshot the conversation's current persona + project at receipt, so a later
+	// /project changes only the NEXT task, never this queued one.
+	agent, project := r.resolveSelection(ctx, inb.Channel, inb.Conversation)
 	fresh, err := r.gw.Accept(ctx, state.Item{
 		Channel: inb.Channel, MessageID: inb.MessageID, Conversation: inb.Conversation,
 		Principal: inb.Principal, Text: inb.Text, Trusted: inb.Trusted,
+		Agent: agent, Project: project,
 	}, time.Now())
 	if err != nil {
 		return err // NOT durably recorded — adapter must not ack
@@ -349,13 +358,24 @@ func (r *runtime) runJob(ctx context.Context, it state.Item) {
 	// routes this channel to a stronger model when configured.
 	cfg := r.settings.Get(it.Channel)
 	session := conversationSession(it.Channel, it.Conversation)
-	// Compose the bound persona's context and persist it keyed by session; the
-	// spawned child self-discovers it (no jobs.Spawn signature change). No persona
-	// → no supplemental context → the coding engine runs exactly as the CLI does.
-	if err := writeContext(session, personaContext(cfg.Agent)); err != nil {
+	// Resolve the snapshotted project id to its canonical root. The registry is the
+	// authorization boundary: an id that no longer resolves falls back to the
+	// gateway default rather than executing somewhere unregistered.
+	root := r.root
+	if it.Project != "" {
+		if resolved, rerr := r.settings.ResolveProject(it.Project); rerr == nil {
+			root = resolved
+		} else {
+			fmt.Fprintf(r.out, "gateway: project %q for %s no longer resolves (%v); using default\n", it.Project, it.Channel, rerr)
+		}
+	}
+	// Compose the snapshotted persona's context and persist it keyed by session;
+	// the spawned child self-discovers it (no jobs.Spawn signature change). No
+	// persona → no supplemental context → the coding engine runs exactly as the CLI.
+	if err := writeContext(session, personaContext(it.Agent)); err != nil {
 		fmt.Fprintf(r.out, "gateway: composing context for %s: %v\n", it.Channel, err)
 	}
-	job, err := jobs.Spawn(r.root, it.Text, string(permissions.ModeAuto), cfg.Tier, false, true, session)
+	job, err := jobs.Spawn(root, it.Text, string(permissions.ModeAuto), cfg.Tier, false, true, session)
 	if err != nil {
 		// A spawn failure won't succeed on replay; record the error as the reply so
 		// it rides the same durable delivery path instead of being lost.
