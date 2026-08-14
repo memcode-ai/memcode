@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/memcode-ai/memcode/internal/channels"
 	gwconfig "github.com/memcode-ai/memcode/internal/gateway/config"
 	"github.com/memcode-ai/memcode/internal/gateway/state"
 )
@@ -79,7 +80,10 @@ func TestMaybeSpeakPolicy(t *testing.T) {
 	if p == "" || tts.called != 1 {
 		t.Fatalf("in_kind with voice note: %q %d", p, tts.called)
 	}
-	if _, err := os.Stat(p); err != nil {
+	// The return is a durable spool ID, not a path — it must resolve in the spool.
+	if resolved, err := channels.ResolveSpoolID(dir, p); err != nil {
+		t.Errorf("voice id %q must resolve in the spool: %v", p, err)
+	} else if _, err := os.Stat(resolved); err != nil {
 		t.Errorf("voice file missing: %v", err)
 	}
 	rt.settings = gwconfig.Settings{Channels: map[string]gwconfig.Channel{"telegram": {VoiceReplies: "always"}}}

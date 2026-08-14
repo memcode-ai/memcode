@@ -50,7 +50,10 @@ Webhook-driven surfaces (Teams, Google Chat, SMS, GitHub, WhatsApp) mount on
 the shared listener (`webhook.addr`, default `:8787`) at
 `/webhook/{teams,googlechat,sms,github,whatsapp}` — expose it over HTTPS.
 Email dedup is keyed on `<mailbox>/<UIDVALIDITY>/<UID>` (the provider-side ack
-identity); Message-ID serves threading only. Signal requires a signal-cli
+identity); Message-ID serves threading only. Email's sender identity is the
+RFC From address — weaker than the other channels' platform-verified ids, so
+its allow-list depends on your mailbox provider rejecting spoofed mail
+(SPF/DKIM/DMARC); use a mainstream provider and a dedicated account. Signal requires a signal-cli
 daemon in native HTTP mode; Matrix v1 is plain rooms only (E2EE is a known
 follow-up).
 

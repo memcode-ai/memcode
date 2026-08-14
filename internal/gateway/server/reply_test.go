@@ -35,7 +35,7 @@ func TestDeliverReplySurvivesSendFailure(t *testing.T) {
 
 	it := state.Item{Channel: "telegram", MessageID: "m1", Conversation: "42", Principal: "p", Text: "hi"}
 	gw.Accept(ctx, it, time.Unix(1000, 0))
-	if err := gw.SetReplied(ctx, "telegram", "m1", "the answer"); err != nil {
+	if err := gw.SetReplied(ctx, "telegram", "m1", "the answer", ""); err != nil {
 		t.Fatal(err)
 	}
 

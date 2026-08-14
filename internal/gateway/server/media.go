@@ -52,9 +52,11 @@ func newSpeaker() speaker {
 }
 
 // maybeSpeak synthesizes a voice rendition of a reply when the channel's
-// voice_replies policy asks for one, returning the spool path ("" = text
-// only). Policy: "always", or "in_kind" when the task arrived with a voice
-// note. Failures degrade silently to text — a reply is never lost to TTS.
+// voice_replies policy asks for one, returning the SPOOL ID ("" = text only) —
+// the durable handle that rides the replied row, so retries and restarts
+// re-send the same file instead of re-billing TTS. Policy: "always", or
+// "in_kind" when the task arrived with a voice note. Failures degrade silently
+// to text — a reply is never lost to TTS.
 func (r *runtime) maybeSpeak(ctx context.Context, it state.Item, reply string) string {
 	if r.tts == nil {
 		return ""
@@ -87,7 +89,7 @@ func (r *runtime) maybeSpeak(ctx context.Context, it state.Item, reply string) s
 	if err != nil {
 		return ""
 	}
-	return att.Path
+	return att.ID()
 }
 
 // spokenSummary renders a reply as speakable text: code blocks dropped (nobody

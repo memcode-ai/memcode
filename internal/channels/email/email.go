@@ -9,6 +9,14 @@
 // re-fetches it. The durable dedup key is <mailbox>/<UIDVALIDITY>/<UID> — the
 // provider-side identity, robust against malformed or duplicated Message-IDs
 // (which serve threading, not dedup).
+//
+// IDENTITY CAVEAT: the principal is the RFC From address — weaker than the
+// other channels' platform-authenticated ids, since From can be spoofed by
+// mail that evades the provider's SPF/DKIM/DMARC filtering. The mailbox
+// provider's authentication is the real gate (a mainstream provider rejects or
+// junks spoofed mail before we poll it), which is one more reason for the
+// dedicated-account model. Enforcing Authentication-Results=pass explicitly is
+// a tracked follow-up.
 package email
 
 import (

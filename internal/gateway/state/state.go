@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS inbox (
     agent        TEXT NOT NULL DEFAULT '', -- persona snapshot at receipt (immutable for this task)
     project      TEXT NOT NULL DEFAULT '', -- project id snapshot at receipt (immutable for this task)
     attachments  TEXT NOT NULL DEFAULT '', -- JSON array of media spool IDs riding this message
+    voice        TEXT NOT NULL DEFAULT '', -- spool ID of the synthesized voice reply (synthesized ONCE, at job completion)
     received_at  TEXT NOT NULL,
     PRIMARY KEY (channel, message_id)
 );
@@ -111,6 +112,7 @@ type Item struct {
 	Agent        string   // persona snapshot at receipt
 	Project      string   // project id snapshot at receipt
 	Attachments  []string // media spool IDs (bare filenames; resolved only inside the spool)
+	Voice        string   // spool ID of the synthesized voice reply ("" = text only)
 }
 
 // Store is the gateway's durable state.
@@ -162,6 +164,7 @@ func Open(ctx context.Context, dir string) (*Store, error) {
 		`ALTER TABLE inbox ADD COLUMN agent TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE inbox ADD COLUMN project TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE inbox ADD COLUMN attachments TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE inbox ADD COLUMN voice TEXT NOT NULL DEFAULT ''`,
 	} {
 		if _, err := db.ExecContext(ctx, col); err != nil && !strings.Contains(err.Error(), "duplicate column") {
 			_ = db.Close()
@@ -258,14 +261,16 @@ func (s *Store) Pending(ctx context.Context) ([]Item, error) {
 	return out, rows.Err()
 }
 
-// SetReplied durably records a finished job's reply and moves the item to
-// 'replied'. From here the job is never re-run; only the reply's delivery is
-// retried, so a send failure or a crash after the job completes cannot lose the
-// result or repeat the work.
-func (s *Store) SetReplied(ctx context.Context, channel, messageID, reply string) error {
+// SetReplied durably records a finished job's reply — and, when one was
+// synthesized, the spool ID of its voice rendition — and moves the item to
+// 'replied'. From here the job is never re-run and the voice is never
+// re-synthesized; only the reply's delivery is retried, so a send failure, a
+// crash, or a down channel cannot lose the result, repeat the work, or bill
+// TTS twice.
+func (s *Store) SetReplied(ctx context.Context, channel, messageID, reply, voice string) error {
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE inbox SET status = 'replied', reply = ? WHERE channel = ? AND message_id = ?`,
-		reply, channel, messageID)
+		`UPDATE inbox SET status = 'replied', reply = ?, voice = ? WHERE channel = ? AND message_id = ?`,
+		reply, voice, channel, messageID)
 	return err
 }
 
@@ -274,7 +279,7 @@ func (s *Store) SetReplied(ctx context.Context, channel, messageID, reply string
 // and replayed after a restart.
 func (s *Store) PendingReplies(ctx context.Context) ([]Item, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT channel, message_id, conversation, principal, text, trusted, reply
+		`SELECT channel, message_id, conversation, principal, text, trusted, reply, voice
 		   FROM inbox WHERE status = 'replied' ORDER BY received_at`)
 	if err != nil {
 		return nil, fmt.Errorf("pending replies: %w", err)
@@ -284,7 +289,7 @@ func (s *Store) PendingReplies(ctx context.Context) ([]Item, error) {
 	for rows.Next() {
 		var it Item
 		var trusted int
-		if err := rows.Scan(&it.Channel, &it.MessageID, &it.Conversation, &it.Principal, &it.Text, &trusted, &it.Reply); err != nil {
+		if err := rows.Scan(&it.Channel, &it.MessageID, &it.Conversation, &it.Principal, &it.Text, &trusted, &it.Reply, &it.Voice); err != nil {
 			return nil, err
 		}
 		it.Trusted = trusted != 0

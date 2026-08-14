@@ -419,28 +419,22 @@ func (r *runtime) runJob(ctx context.Context, it state.Item) {
 	cfg := settings.Get(it.Channel)
 	session := conversationSession(it.Channel, it.Conversation, it.Agent)
 	// Resolve the snapshotted project id to its canonical root. The registry plus
-	// the channel's project policy is the authorization boundary: an id that no
-	// longer resolves — or that the channel is no longer allowed to use — falls
-	// back to the gateway default rather than executing somewhere unauthorized.
+	// the channel's project policy is the authorization boundary, re-checked at
+	// EXECUTION, not only at snapshot: a task whose project was disallowed,
+	// disabled, or deleted while queued is REFUSED — never "helpfully" run in the
+	// gateway default root instead.
 	root := r.root
 	if it.Project != "" {
-		// The channel's project policy is re-checked at execution, not only at
-		// snapshot: if it tightened while this task was queued, refuse — never
-		// "helpfully" run the task somewhere the channel wasn't pointed.
 		if !settings.ProjectAllowed(it.Channel, it.Project) {
-			msg := fmt.Sprintf("Project %q is not allowed on this channel anymore; nothing was run.", it.Project)
-			if serr := r.gw.SetReplied(ctx, it.Channel, it.MessageID, msg); serr != nil {
-				fmt.Fprintf(r.out, "gateway: recording policy refusal for %s: %v\n", it.Channel, serr)
-				return
-			}
-			r.deliverReply(ctx, it, msg)
+			r.refuse(ctx, it, fmt.Sprintf("Project %q is not allowed on this channel anymore; nothing was run.", it.Project))
 			return
 		}
-		if resolved, rerr := settings.ResolveProject(it.Project); rerr == nil {
-			root = resolved
-		} else {
-			fmt.Fprintf(r.out, "gateway: project %q for %s no longer resolves (%v); using default\n", it.Project, it.Channel, rerr)
+		resolved, rerr := settings.ResolveProject(it.Project)
+		if rerr != nil {
+			r.refuse(ctx, it, fmt.Sprintf("Project %q is no longer available (%v); nothing was run.", it.Project, rerr))
+			return
 		}
+		root = resolved
 	}
 	// Voice notes are transcribed HERE — after the durable record, before the
 	// spawn — so the transcript becomes task text and audio never reaches the
@@ -449,12 +443,7 @@ func (r *runtime) runJob(ctx context.Context, it state.Item) {
 	// an empty task.
 	task, rest, sttMissing := r.transcribeAudio(ctx, it.Text, it.Attachments)
 	if strings.TrimSpace(task) == "" && sttMissing {
-		msg := "Voice note received, but no transcription provider is configured. Set OPENAI_API_KEY or GEMINI_API_KEY on the gateway machine, or send text."
-		if serr := r.gw.SetReplied(ctx, it.Channel, it.MessageID, msg); serr != nil {
-			fmt.Fprintf(r.out, "gateway: recording voice-note refusal for %s: %v\n", it.Channel, serr)
-			return
-		}
-		r.deliverReply(ctx, it, msg)
+		r.refuse(ctx, it, "Voice note received, but no transcription provider is configured. Set OPENAI_API_KEY or GEMINI_API_KEY on the gateway machine, or send text.")
 		return
 	}
 	it.Text = task
@@ -471,12 +460,7 @@ func (r *runtime) runJob(ctx context.Context, it state.Item) {
 	if err != nil {
 		// A spawn failure won't succeed on replay; record the error as the reply so
 		// it rides the same durable delivery path instead of being lost.
-		msg := "Couldn't start that: " + err.Error()
-		if serr := r.gw.SetReplied(ctx, it.Channel, it.MessageID, msg); serr != nil {
-			fmt.Fprintf(r.out, "gateway: recording spawn failure for %s: %v\n", it.Channel, serr)
-			return
-		}
-		r.deliverReply(ctx, it, msg)
+		r.refuse(ctx, it, "Couldn't start that: "+err.Error())
 		return
 	}
 	r.event(ctx, events.KindGatewayJobSpawned, eventPayload{Channel: it.Channel, Conversation: it.Conversation, PrincipalID: it.Principal, MessageID: it.MessageID, JobID: job.ID})
@@ -486,14 +470,31 @@ func (r *runtime) runJob(ctx context.Context, it state.Item) {
 	if strings.TrimSpace(reply) == "" {
 		reply = "Done."
 	}
+	// Synthesize any voice rendition ONCE, here — before the durable handoff — so
+	// a delivery retry or a restart re-sends the same spool file instead of
+	// re-billing TTS or losing the in_kind decision (the pending-replies replay
+	// carries the voice spool ID, not the attachment list).
+	voice := r.maybeSpeak(ctx, it, reply)
 	// Durable handoff: the job is finished and must never re-run, even if delivery
 	// below fails or the process crashes. From here the reply is the worker's to
 	// deliver. A rare DB write failure leaves the item pending and re-runs it.
-	if err := r.gw.SetReplied(ctx, it.Channel, it.MessageID, reply); err != nil {
+	if err := r.gw.SetReplied(ctx, it.Channel, it.MessageID, reply, voice); err != nil {
 		fmt.Fprintf(r.out, "gateway: recording reply for %s failed: %v\n", it.Channel, err)
 		return
 	}
+	it.Voice = voice
 	r.deliverReply(ctx, it, reply)
+}
+
+// refuse records msg as the task's durable reply (no job runs, no voice is
+// synthesized) and delivers it — the one shape every policy/config refusal uses.
+func (r *runtime) refuse(ctx context.Context, it state.Item, msg string) {
+	it.Voice = ""
+	if serr := r.gw.SetReplied(ctx, it.Channel, it.MessageID, msg, ""); serr != nil {
+		fmt.Fprintf(r.out, "gateway: recording refusal for %s: %v\n", it.Channel, serr)
+		return
+	}
+	r.deliverReply(ctx, it, msg)
 }
 
 // deliverReply sends a finished job's reply and, on success, marks the item done.
@@ -509,7 +510,14 @@ func (r *runtime) deliverReply(ctx context.Context, it state.Item, reply string)
 	if strings.TrimSpace(reply) == "" {
 		reply = "Done."
 	}
-	out := channels.Outbound{Text: reply, VoicePath: r.maybeSpeak(ctx, it, reply)}
+	out := channels.Outbound{Text: reply}
+	// The voice rendition was synthesized once at job completion; delivery only
+	// resolves its spool ID (missing/pruned file → text only, never an error).
+	if it.Voice != "" {
+		if p, err := channels.ResolveSpoolID(r.mediaDir, it.Voice); err == nil {
+			out.VoicePath = p
+		}
+	}
 	var sendErr error
 	for attempt := 0; attempt < 3; attempt++ {
 		if attempt > 0 {

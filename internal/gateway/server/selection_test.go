@@ -3,7 +3,9 @@ package server
 import (
 	"context"
 	"io"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/memcode-ai/memcode/internal/channels"
 	gwconfig "github.com/memcode-ai/memcode/internal/gateway/config"
@@ -110,5 +112,43 @@ func TestChannelProjectPolicy(t *testing.T) {
 	// resolves to the channel's first allowed project, never the gateway default.
 	if _, p := rt.resolveSelection(ctx, "discord", "fresh"); p != "www" {
 		t.Errorf("resolveSelection default = %q, want www (channel policy)", p)
+	}
+}
+
+// A queued task whose snapshotted project is disabled or deleted before
+// execution is REFUSED — never run in the gateway default root (P1 from the
+// channels-baseline review).
+func TestRunJobRefusesUnresolvableProject(t *testing.T) {
+	ctx := context.Background()
+	gw, err := state.Open(ctx, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer gw.Close()
+
+	sender := &capturingSender{}
+	rt := &runtime{
+		root: t.TempDir(),
+		gw:   gw,
+		settings: gwconfig.Settings{
+			// The id is allowed on the channel, but the project itself is disabled.
+			Projects: map[string]gwconfig.Project{"www": {Path: t.TempDir(), Enabled: false}},
+		},
+		mediaDir: t.TempDir(),
+		byName:   map[string]replySender{"telegram": sender},
+		out:      io.Discard,
+		notify:   make(chan struct{}, 1),
+	}
+	it := state.Item{Channel: "telegram", MessageID: "m1", Conversation: "1", Principal: "me", Text: "do it", Project: "www"}
+	if _, err := gw.Accept(ctx, it, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	rt.runJob(ctx, it)
+	if !strings.Contains(sender.last, "no longer available") {
+		t.Fatalf("want refusal reply, got %q", sender.last)
+	}
+	// The refusal is durable: the item moved past pending without spawning.
+	if p, _ := gw.Pending(ctx); len(p) != 0 {
+		t.Errorf("item still pending: %+v", p)
 	}
 }

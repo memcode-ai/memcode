@@ -19,13 +19,14 @@ func TestParseEnvelopeDM(t *testing.T) {
 	if !ok {
 		t.Fatal("parse failed")
 	}
-	if inb.Channel != "signal" || inb.Principal != "+15551230000" || inb.Conversation != "+15551230000" {
+	// Principal is the STABLE uuid; the phone number is only a fallback.
+	if inb.Channel != "signal" || inb.Principal != "uuid-1" || inb.Conversation != "uuid-1" {
 		t.Errorf("inbound = %+v", inb)
 	}
 	if !inb.IsDirect || inb.Mentioned {
 		t.Errorf("gating = %+v", inb)
 	}
-	if inb.MessageID != "+15551230000:1700000000001" {
+	if inb.MessageID != "uuid-1:1700000000001" {
 		t.Errorf("MessageID = %q (dedup key is sender:timestamp)", inb.MessageID)
 	}
 	if len(refs) != 0 {

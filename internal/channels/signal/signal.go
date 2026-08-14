@@ -174,13 +174,15 @@ func parseEnvelope(raw []byte, account string) (channels.Inbound, []attachmentRe
 	if dm == nil {
 		return channels.Inbound{}, nil, false // receipt/typing/sync — not a message
 	}
-	// Principal: the E.164 number when known (the identity users recognize and
-	// allow-list), the uuid otherwise. Our own messages are skipped (loops).
-	principal := env.SourceNumber
+	// Principal: the account UUID — Signal's STABLE identity. A phone number can
+	// change hands or be re-registered, so it is only the fallback when the
+	// daemon didn't surface a uuid. The pairing flow makes uuids painless to
+	// allow-list (nobody has to type one). Our own messages are skipped (loops).
+	principal := env.SourceUUID
 	if principal == "" {
-		principal = env.SourceUUID
+		principal = env.SourceNumber
 	}
-	if principal == "" || principal == account {
+	if principal == "" || env.SourceNumber == account || principal == account {
 		return channels.Inbound{}, nil, false
 	}
 	var refs []attachmentRef

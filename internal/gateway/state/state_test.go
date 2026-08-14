@@ -104,7 +104,7 @@ func TestReplyQueueDurability(t *testing.T) {
 
 	// Job finished: pending → replied, reply held. It leaves the fresh-job queue
 	// but joins the outbound queue, so a delivery failure never re-runs the job.
-	if err := s.SetReplied(ctx, "telegram", "1", "the answer"); err != nil {
+	if err := s.SetReplied(ctx, "telegram", "1", "the answer", ""); err != nil {
 		t.Fatal(err)
 	}
 	if p, _ := s.Pending(ctx); len(p) != 0 {
@@ -135,7 +135,7 @@ func TestReplySurvivesReopen(t *testing.T) {
 		t.Fatal(err)
 	}
 	s.Accept(ctx, item("telegram", "1"), time.Unix(1000, 0))
-	s.SetReplied(ctx, "telegram", "1", "durable answer")
+	s.SetReplied(ctx, "telegram", "1", "durable answer", "vv.ogg")
 	s.Close() // simulate a crash before the reply was delivered
 
 	s2, err := Open(ctx, dir)
