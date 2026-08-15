@@ -682,10 +682,10 @@ func TestSlashModelInCatalog(t *testing.T) {
 		t.Error("/model missing from slashCommands catalog")
 	}
 	// /model must be recognized by isKnownSlash (with and without args).
-	if !isKnownSlash("/model") {
+	if !isKnownSlash("/model", false) {
 		t.Error("/model not recognized by isKnownSlash")
 	}
-	if !isKnownSlash("/model anthropic") {
+	if !isKnownSlash("/model anthropic", false) {
 		t.Error("/model (with args) not recognized by isKnownSlash")
 	}
 }
@@ -800,31 +800,31 @@ func TestModelPickerEnterUsesFriendlyNameAndWindow(t *testing.T) {
 func TestIsKnownSlashConsolidated(t *testing.T) {
 	// Every catalog entry is recognized, with and without args.
 	for _, c := range slashCommands {
-		if !isKnownSlash(c.name) {
+		if !isKnownSlash(c.name, false) {
 			t.Errorf("catalog command %q not recognized by isKnownSlash", c.name)
 		}
-		if !isKnownSlash(c.name + " some args here") {
+		if !isKnownSlash(c.name+" some args here", false) {
 			t.Errorf("catalog command %q (with args) not recognized by isKnownSlash", c.name)
 		}
 	}
 	// Every alias resolves to its canonical command.
 	for alias, canonical := range slashAliases {
-		if !isKnownSlash(alias) {
+		if !isKnownSlash(alias, false) {
 			t.Errorf("alias %q not recognized by isKnownSlash", alias)
 		}
-		if !isKnownSlash(canonical) {
+		if !isKnownSlash(canonical, false) {
 			t.Errorf("canonical %q (target of alias %q) not in catalog", canonical, alias)
 		}
 	}
 	// A non-command path is NOT a slash command (the whole point of isKnownSlash).
-	if isKnownSlash("/var/log/syslog") {
+	if isKnownSlash("/var/log/syslog", false) {
 		t.Errorf("non-command path /var/log/syslog was misrecognized as a slash command")
 	}
-	if isKnownSlash("/Users/someone/file.go") {
+	if isKnownSlash("/Users/someone/file.go", false) {
 		t.Errorf("non-command path was misrecognized as a slash command")
 	}
 	// Empty and whitespace-only lines are not commands.
-	if isKnownSlash("") || isKnownSlash("   ") {
+	if isKnownSlash("", false) || isKnownSlash("   ", false) {
 		t.Errorf("empty/whitespace line misrecognized as a slash command")
 	}
 }
@@ -995,7 +995,7 @@ func TestSlashForkInCatalog(t *testing.T) {
 	if !found {
 		t.Error("/fork missing from slashCommands catalog")
 	}
-	if !isKnownSlash("/fork") || !isKnownSlash("/fork sess_abc") {
+	if !isKnownSlash("/fork", false) || !isKnownSlash("/fork sess_abc", false) {
 		t.Error("/fork not recognized by isKnownSlash")
 	}
 }

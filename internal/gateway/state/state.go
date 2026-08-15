@@ -512,3 +512,16 @@ func boolInt(b bool) int {
 	}
 	return 0
 }
+
+// DaemonRunning reports whether a gateway daemon currently holds the exclusive
+// lock for dir. It probes with a non-blocking lock attempt and releases
+// immediately, so it never disturbs a running daemon. On platforms without
+// file locking it reports false.
+func DaemonRunning(dir string) bool {
+	lock, err := acquireLock(filepath.Join(dir, "gateway.lock"))
+	if err != nil {
+		return true // lock held → a daemon owns it
+	}
+	releaseLock(lock)
+	return false
+}

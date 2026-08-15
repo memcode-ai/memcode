@@ -685,7 +685,7 @@ func (s *appState) submit(line string) {
 	// Use the EXPANDED text (t), not the raw line: a slash command whose args include a
 	// paste (e.g. `/plan <pasted spec>`) must get the real content, not the `[pasted #n]`
 	// token — the raw line still carries the placeholder (and s.pastes is cleared above).
-	if strings.HasPrefix(t, "/") && isKnownSlash(t) {
+	if strings.HasPrefix(t, "/") && isKnownSlash(t, s.w.sess.Admin()) {
 		// Echo the typed command into scrollback BEFORE dispatching — same prompt style as a
 		// chat turn — so `/model`, `/theme`, etc. leave a trace of what was invoked instead of
 		// only the bare confirmation line ("model → sonnet" with no idea what command ran it).
@@ -948,7 +948,7 @@ func skippedRule(n, width int) string {
 // menu returns the slash autocomplete matches when the composer is a bare "/prefix".
 func (s *appState) menu() []slashCmd {
 	if strings.HasPrefix(s.composer, "/") && !strings.ContainsRune(s.composer, ' ') {
-		return matchSlash(s.composer)
+		return matchSlash(s.composer, s.w.sess.Admin())
 	}
 	return nil
 }

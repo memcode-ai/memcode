@@ -154,6 +154,9 @@ func randomPersonality() string {
 
 // chatSpec is the INTERACTIVE session prompt (TUI).
 func (s *Session) chatSpec(overview string) promptSpec {
+	if s.adminMode {
+		return promptSpec{mode: "admin", facts: s.baseFacts()}
+	}
 	p := promptSpec{mode: "chat", facts: s.baseFacts()}
 	return p.withFact("overview", overview)
 }

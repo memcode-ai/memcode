@@ -306,6 +306,8 @@ func (s *Session) dispatch(ctx context.Context, u wire.Block) toolResult {
 		return s.mcpResourceTool(ctx, u.Input)
 	case tools.MCPPrompt:
 		return s.mcpPromptTool(ctx, u.Input)
+	case tools.GwOverview, tools.GwChannel, tools.GwPairing, tools.GwProject, tools.GwAgent, tools.GwSchedule, tools.GwService:
+		return s.adminTool(ctx, u.Name, u.Input)
 	case tools.GitHub:
 		return s.githubTool(ctx, u.Input)
 	case tools.RunTests:
@@ -699,6 +701,24 @@ func reviewTool(name string) bool {
 
 // toolDefs returns the tools advertised to the model for the current mode.
 func (s *Session) toolDefs() []wire.ToolDef {
+	if s.adminMode {
+		// Admin sessions get the admin registry plus a small file surface for
+		// persona homes (instructions, memory, skills): read/edit/search/bash
+		// and ask_user. No MCP, no browser, no repo/coding tools — config
+		// changes go through the typed gw_* tools, which validate and
+		// hot-reload.
+		defs := tools.AdminDefs()
+		adminExtra := map[string]bool{
+			tools.AskUser: true, tools.ReadFile: true, tools.EditFile: true,
+			tools.Bash: true, tools.Ripgrep: true, tools.Glob: true,
+		}
+		for _, d := range tools.Defs() {
+			if adminExtra[d.Name] {
+				defs = append(defs, d)
+			}
+		}
+		return defs
+	}
 	defs := tools.Defs()
 	out := make([]wire.ToolDef, 0, len(defs))
 	for _, d := range defs {

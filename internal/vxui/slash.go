@@ -81,11 +81,36 @@ var slashAliases = map[string]string{
 	"/sites":  "/websites",
 }
 
+// adminSlash is the admin session's slash whitelist: display, session
+// bookkeeping, auth, and model choice. Coding-session commands (plan, jobs,
+// dispatch, rewind, …) don't exist there.
+var adminSlash = map[string]bool{
+	"/help": true, "/login": true, "/logout": true, "/doctor": true,
+	"/status": true, "/mode": true, "/theme": true, "/personality": true,
+	"/effort": true, "/model": true, "/apikeys": true, "/cost": true,
+	"/costp": true, "/costby": true, "/debug": true, "/compact": true,
+	"/clear": true, "/resume": true, "/fork": true, "/quit": true,
+}
+
+// catalogFor returns the slash catalog for the session kind.
+func catalogFor(admin bool) []slashCmd {
+	if !admin {
+		return slashCommands
+	}
+	out := make([]slashCmd, 0, len(adminSlash))
+	for _, c := range slashCommands {
+		if adminSlash[c.name] {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
 // matchSlash returns commands whose name starts with prefix (e.g. "/mo"), for the menu.
-func matchSlash(prefix string) []slashCmd {
+func matchSlash(prefix string, admin bool) []slashCmd {
 	prefix = strings.ToLower(prefix)
 	var out []slashCmd
-	for _, c := range slashCommands {
+	for _, c := range catalogFor(admin) {
 		if strings.HasPrefix(c.name, prefix) {
 			out = append(out, c)
 		}
@@ -97,28 +122,28 @@ func matchSlash(prefix string) []slashCmd {
 // routes as a command while a pasted path ("/var/log/x") routes as text. The catalog and
 // the alias map are the only sources of truth (see slashCommands / slashAliases), so
 // recognition and autocomplete can't drift: add a command once and it's recognized.
-func isKnownSlash(line string) bool {
+func isKnownSlash(line string, admin bool) bool {
 	fields := strings.Fields(line)
 	if len(fields) == 0 {
 		return false
 	}
 	first := strings.ToLower(fields[0])
-	for _, c := range slashCommands {
+	for _, c := range catalogFor(admin) {
 		if c.name == first {
 			return true
 		}
 	}
-	if _, ok := slashAliases[first]; ok {
-		return true
+	if canon, ok := slashAliases[first]; ok {
+		return !admin || adminSlash[canon]
 	}
 	return false
 }
 
 // slashHelp is the compact command reference printed by /help.
-func slashHelp() string {
+func slashHelp(admin bool) string {
 	var b strings.Builder
 	b.WriteString("Commands\n")
-	for _, c := range slashCommands {
+	for _, c := range catalogFor(admin) {
 		b.WriteString("  " + c.name)
 		for i := len(c.name); i < 14; i++ {
 			b.WriteByte(' ')

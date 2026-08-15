@@ -97,6 +97,8 @@ type Session struct {
 	browserSession    *browser.Session                              // the persistent Chrome instance (lazily created on first browser tool call)
 	noContext         bool                                          // cold mode: skip the ContextPack (for A/B evaluation)
 	readOnly          bool                                          // explorer mode: no edit_file/bash (a "reader" sub-agent)
+	adminMode         bool                                          // admin session (`memcode admin`): admin tools only, settings doctrine
+	adminExec         AdminExecutor                                 // cmd-injected admin operations (engine never imports the gateway layer)
 	forceEscalate     bool                                          // strong-tier agent: pin every request to the strong vendor (balanced tier)
 	forceFrontier     bool                                          // long-running (background) agent: pin every request to the FRONTIER tier
 	iterCap           int                                           // per-session runLoop iteration override (0 = mode default); set on the bounded plan-review sub-session
@@ -337,6 +339,16 @@ func (s *Session) SetNoContext(v bool) { s.noContext = v }
 // lazily launched on the first browser tool call. Chrome always opens with a
 // visible window (headed) — you can watch it work. The Chrome process is torn
 // down on CloseBrowser (called at session end).
+// SetAdmin switches this session into admin mode: the settings assistant for
+// the gateway and agents. Admin tools only, no shell, no editor.
+func (s *Session) SetAdmin(exec AdminExecutor) {
+	s.adminMode = true
+	s.adminExec = exec
+}
+
+// Admin reports whether this is an admin session (the TUI swaps its slash set).
+func (s *Session) Admin() bool { return s.adminMode }
+
 func (s *Session) SetBrowserEnabled(enabled bool) {
 	s.browserEnabled = enabled
 }
