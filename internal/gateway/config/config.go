@@ -227,6 +227,13 @@ type Channel struct {
 	// Audience (googlechat) is the app's project number — the JWT audience
 	// inbound Chat events are verified against.
 	Audience string `yaml:"audience,omitempty"`
+	// Pairing controls whether an unknown DIRECT sender is answered with a
+	// one-time pairing code. Unset uses the channel-kind default: on for the
+	// chat channels (a DM to a bot is an intentional approach), OFF for email —
+	// a watched mailbox can be a personal inbox, and auto-replying codes to
+	// every stranger's mail from it would be an auto-responder nobody asked
+	// for. Set true/false to override either way.
+	Pairing *bool `yaml:"pairing,omitempty"`
 	// VoiceReplies controls synthesized speech replies on channels that can
 	// carry voice notes (Telegram, WhatsApp, Signal, Discord, Matrix):
 	// "off" (default — voice output costs money and speaks replies aloud, so
@@ -239,6 +246,16 @@ type Channel struct {
 // don't repeat nil-map/missing-key handling.
 func (s Settings) Get(name string) Channel {
 	return s.Channels[name]
+}
+
+// PairingEnabled reports whether an unknown direct sender on channel gets a
+// pairing code. An explicit channels.<name>.pairing wins; the default is on
+// for every channel except email (see Channel.Pairing).
+func (s Settings) PairingEnabled(channel string) bool {
+	if p := s.Get(channel).Pairing; p != nil {
+		return *p
+	}
+	return channel != "email"
 }
 
 // Allowed reports whether principal may drive the agent through channel. It is

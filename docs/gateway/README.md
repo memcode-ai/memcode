@@ -49,11 +49,17 @@ A channel is enabled when its secret is present.
 Webhook-driven surfaces (Teams, Google Chat, SMS, GitHub, WhatsApp) mount on
 the shared listener (`webhook.addr`, default `:8787`) at
 `/webhook/{teams,googlechat,sms,github,whatsapp}` — expose it over HTTPS.
-Email dedup is keyed on `<mailbox>/<UIDVALIDITY>/<UID>` (the provider-side ack
-identity); Message-ID serves threading only. Email's sender identity is the
-RFC From address — weaker than the other channels' platform-verified ids, so
-its allow-list depends on your mailbox provider rejecting spoofed mail
-(SPF/DKIM/DMARC); use a mainstream provider and a dedicated account. Signal requires a signal-cli
+Email works on any mailbox — the agent's own account or a personal inbox: it
+polls past a durable UID cursor with PEEK fetches, so it never sets \Seen,
+never touches flags or folders, and never reads mail that predates the
+connection. Dedup is keyed on `<mailbox>/<UIDVALIDITY>/<UID>` (the
+provider-side ack identity); Message-ID serves threading only. Unknown direct
+senders get a pairing code on the chat channels, but NOT over email
+(default `channels.email.pairing: false`) — a personal inbox must never
+auto-reply to strangers; flip it to true for a dedicated bot address. Email's
+sender identity is the RFC From address — weaker than the other channels'
+platform-verified ids, so its allow-list depends on your mailbox provider
+rejecting spoofed mail (SPF/DKIM/DMARC); use a mainstream provider. Signal requires a signal-cli
 daemon in native HTTP mode; Matrix v1 is plain rooms only (E2EE is a known
 follow-up).
 

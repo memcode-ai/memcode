@@ -121,31 +121,73 @@ func TestComposeReplyThreading(t *testing.T) {
 // fakeSession scripts one poll cycle.
 type fakeSession struct {
 	uidValidity uint32
+	uidNext     imap.UID
 	msgs        map[imap.UID][]byte
-	seen        []imap.UID
 }
 
-func (f *fakeSession) SelectInbox() (uint32, error) { return f.uidValidity, nil }
-func (f *fakeSession) UnseenUIDs() ([]imap.UID, error) {
+func (f *fakeSession) SelectInbox() (uint32, imap.UID, error) {
+	return f.uidValidity, f.uidNext, nil
+}
+func (f *fakeSession) UIDsAfter(last imap.UID) ([]imap.UID, error) {
 	var out []imap.UID
+	var newest imap.UID
 	for uid := range f.msgs {
-		out = append(out, uid)
+		if uid > last {
+			out = append(out, uid)
+		}
+		if uid > newest {
+			newest = uid
+		}
+	}
+	// Mirror the IMAP quirk: an n:* range returns the newest message even when
+	// nothing is newer than n.
+	if len(out) == 0 && newest != 0 {
+		out = append(out, newest)
 	}
 	return out, nil
 }
 func (f *fakeSession) FetchRaw(uid imap.UID) ([]byte, error) { return f.msgs[uid], nil }
-func (f *fakeSession) MarkSeen(uid imap.UID) error           { f.seen = append(f.seen, uid); return nil }
 func (f *fakeSession) Close() error                          { return nil }
+
+// fakeCursor is an in-memory CursorStore.
+type fakeCursor struct{ cur string }
+
+func (f *fakeCursor) Cursor(context.Context, string) (string, error) { return f.cur, nil }
+func (f *fakeCursor) SetCursor(_ context.Context, _, c string) error { f.cur = c; return nil }
 
 type sinkFn func(channels.Inbound) error
 
 func (s sinkFn) Deliver(_ context.Context, inb channels.Inbound) error { return s(inb) }
 
-func TestPollOnceAckSemantics(t *testing.T) {
-	fake := &fakeSession{uidValidity: 7, msgs: map[imap.UID][]byte{42: []byte(simpleMail)}}
-	c := New("bot@example.com", "pw", "imap.example.com", "smtp.example.com", 0, "")
-	c.dial = func() (imapSession, error) { return fake, nil }
+func newTestChannel(store CursorStore) *Channel {
+	return New("bot@example.com", "pw", "imap.example.com", "smtp.example.com", 0, "", store)
+}
 
+func TestPollOnceCursorSemantics(t *testing.T) {
+	// No cursor yet: the first poll initializes to the end of the mailbox and
+	// touches NOTHING — pre-existing mail (a personal inbox's history) is
+	// never delivered.
+	store := &fakeCursor{}
+	fake := &fakeSession{uidValidity: 7, uidNext: 42, msgs: map[imap.UID][]byte{41: []byte(simpleMail)}}
+	c := newTestChannel(store)
+	c.dial = func() (imapSession, error) { return fake, nil }
+	delivered := 0
+	if err := c.pollOnce(context.Background(), sinkFn(func(channels.Inbound) error {
+		delivered++
+		return nil
+	})); err != nil {
+		t.Fatal(err)
+	}
+	if delivered != 0 {
+		t.Fatalf("first poll delivered %d pre-existing messages", delivered)
+	}
+	if store.cur != "7/41" {
+		t.Errorf("initialized cursor = %q, want 7/41", store.cur)
+	}
+
+	// New mail past the cursor is delivered and the cursor advances.
+	fake.msgs[42] = []byte(simpleMail)
+	fake.uidNext = 43
 	var got channels.Inbound
 	if err := c.pollOnce(context.Background(), sinkFn(func(inb channels.Inbound) error {
 		got = inb
@@ -160,25 +202,53 @@ func TestPollOnceAckSemantics(t *testing.T) {
 	if got.Principal != "tim@example.com" || !got.IsDirect || got.Channel != "email" {
 		t.Errorf("inbound = %+v", got)
 	}
-	if len(fake.seen) != 1 || fake.seen[0] != 42 {
-		t.Errorf("seen = %v (must mark seen after durable record)", fake.seen)
+	if store.cur != "7/42" {
+		t.Errorf("cursor = %q, want 7/42", store.cur)
 	}
 
-	// A Deliver failure leaves the message UNSEEN so the next poll retries it.
-	fake2 := &fakeSession{uidValidity: 7, msgs: map[imap.UID][]byte{43: []byte(simpleMail)}}
-	c.dial = func() (imapSession, error) { return fake2, nil }
+	// A quiet poll (nothing newer; the server still returns the newest
+	// message for the n:* range) delivers nothing again.
+	delivered = 0
+	if err := c.pollOnce(context.Background(), sinkFn(func(channels.Inbound) error {
+		delivered++
+		return nil
+	})); err != nil {
+		t.Fatal(err)
+	}
+	if delivered != 0 || store.cur != "7/42" {
+		t.Errorf("quiet poll delivered %d, cursor %q", delivered, store.cur)
+	}
+
+	// A Deliver failure leaves the cursor put so the next poll retries.
+	fake.msgs[43] = []byte(simpleMail)
+	fake.uidNext = 44
 	if err := c.pollOnce(context.Background(), sinkFn(func(channels.Inbound) error {
 		return errors.New("db down")
 	})); err == nil {
 		t.Fatal("pollOnce should surface the failure")
 	}
-	if len(fake2.seen) != 0 {
-		t.Errorf("failed delivery must not mark seen, got %v", fake2.seen)
+	if store.cur != "7/42" {
+		t.Errorf("failed delivery moved the cursor to %q", store.cur)
+	}
+
+	// UIDVALIDITY reset: the cursor re-initializes to the new end, nothing is
+	// replayed from the new numbering.
+	fake.uidValidity = 8
+	fake.uidNext = 100
+	delivered = 0
+	if err := c.pollOnce(context.Background(), sinkFn(func(channels.Inbound) error {
+		delivered++
+		return nil
+	})); err != nil {
+		t.Fatal(err)
+	}
+	if delivered != 0 || store.cur != "8/99" {
+		t.Errorf("after validity reset: delivered %d, cursor %q", delivered, store.cur)
 	}
 }
 
 func TestSendUsesThread(t *testing.T) {
-	c := New("bot@example.com", "pw", "imap.example.com", "smtp.example.com", 0, "")
+	c := newTestChannel(&fakeCursor{})
 	var sentTo string
 	var sentRaw []byte
 	c.send = func(to string, raw []byte) error { sentTo, sentRaw = to, raw; return nil }

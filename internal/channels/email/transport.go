@@ -1,6 +1,7 @@
 package email
 
 import (
+	"errors"
 	"fmt"
 	"net/smtp"
 	"strings"
@@ -9,9 +10,13 @@ import (
 	"github.com/emersion/go-imap/v2/imapclient"
 )
 
-// maxRawMessage caps a single fetched message; a larger one is skipped (marked
-// seen by the caller) rather than buffered whole.
+// maxRawMessage caps a single fetched message; a larger one is skipped (the
+// caller advances the cursor past it) rather than buffered whole.
 const maxRawMessage = 60 << 20
+
+// errTooLarge marks an oversized message so the poll loop can skip it durably
+// instead of retrying it forever.
+var errTooLarge = errors.New("message too large")
 
 // dialIMAP opens a logged-in TLS session on the IMAP host.
 func (c *Channel) dialIMAP() (imapSession, error) {
@@ -31,17 +36,22 @@ type liveSession struct {
 	cl *imapclient.Client
 }
 
-func (s *liveSession) SelectInbox() (uint32, error) {
+func (s *liveSession) SelectInbox() (uint32, imap.UID, error) {
 	data, err := s.cl.Select(mailbox, nil).Wait()
 	if err != nil {
-		return 0, fmt.Errorf("imap select: %w", err)
+		return 0, 0, fmt.Errorf("imap select: %w", err)
 	}
-	return data.UIDValidity, nil
+	return data.UIDValidity, data.UIDNext, nil
 }
 
-func (s *liveSession) UnseenUIDs() ([]imap.UID, error) {
+// UIDsAfter searches UIDs strictly greater than last. The (last+1):* range is
+// how IMAP expresses "everything newer"; note the server returns the newest
+// message even when nothing is new (the caller filters uid <= last).
+func (s *liveSession) UIDsAfter(last imap.UID) ([]imap.UID, error) {
+	var set imap.UIDSet
+	set.AddRange(last+1, 0) // 0 = *
 	data, err := s.cl.UIDSearch(&imap.SearchCriteria{
-		NotFlag: []imap.Flag{imap.FlagSeen},
+		UID: []imap.UIDSet{set},
 	}, nil).Wait()
 	if err != nil {
 		return nil, fmt.Errorf("imap search: %w", err)
@@ -71,21 +81,12 @@ func (s *liveSession) FetchRaw(uid imap.UID) ([]byte, error) {
 				continue
 			}
 			if len(bs.Bytes) > maxRawMessage {
-				return nil, fmt.Errorf("imap fetch uid %d: message too large (%d bytes)", uid, len(bs.Bytes))
+				return nil, fmt.Errorf("imap fetch uid %d (%d bytes): %w", uid, len(bs.Bytes), errTooLarge)
 			}
 			return bs.Bytes, nil
 		}
 	}
 	return nil, fmt.Errorf("imap fetch uid %d: empty body", uid)
-}
-
-func (s *liveSession) MarkSeen(uid imap.UID) error {
-	cmd := s.cl.Store(imap.UIDSetNum(uid), &imap.StoreFlags{
-		Op:     imap.StoreFlagsAdd,
-		Silent: true,
-		Flags:  []imap.Flag{imap.FlagSeen},
-	}, nil)
-	return cmd.Close()
 }
 
 func (s *liveSession) Close() error {

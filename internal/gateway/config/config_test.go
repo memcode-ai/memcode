@@ -98,3 +98,24 @@ func TestGetZeroValue(t *testing.T) {
 		t.Errorf("Get on nil map = %+v, want zero Channel", got)
 	}
 }
+
+// Pairing defaults per channel kind: chat channels offer codes to unknown DM
+// senders; email never does unless explicitly opted in — the watched mailbox
+// may be a personal inbox, and pairing replies would be an auto-responder.
+func TestPairingEnabledDefaults(t *testing.T) {
+	var s Settings
+	if !s.PairingEnabled("telegram") {
+		t.Error("telegram pairing should default on")
+	}
+	if s.PairingEnabled("email") {
+		t.Error("email pairing should default OFF")
+	}
+	on, off := true, false
+	s.Channels = map[string]Channel{"email": {Pairing: &on}, "telegram": {Pairing: &off}}
+	if !s.PairingEnabled("email") {
+		t.Error("explicit email pairing:true ignored")
+	}
+	if s.PairingEnabled("telegram") {
+		t.Error("explicit telegram pairing:false ignored")
+	}
+}

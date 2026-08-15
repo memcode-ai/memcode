@@ -291,7 +291,7 @@ func (r *runtime) Deliver(ctx context.Context, inb channels.Inbound) error {
 	// unknown DIRECT sender gets a pairing code instead of pure silence — the
 	// operator approves it with `memcode gateway pair approve`.
 	if !inb.Trusted && !cfg.Allowed(inb.Channel, inb.Principal) {
-		if inb.IsDirect {
+		if inb.IsDirect && cfg.PairingEnabled(inb.Channel) {
 			r.offerPairing(ctx, inb)
 		} else {
 			fmt.Fprintf(r.out, "gateway: %s message from unauthorized principal %q — ignoring (add it to channels.%s.allow_from)\n", inb.Channel, inb.Principal, inb.Channel)
@@ -580,7 +580,7 @@ func channelsFrom(settings gwconfig.Settings, gw *state.Store, mediaDir string, 
 				fmt.Fprintf(out, "gateway: email.poll %q is not a duration; using default\n", p)
 			}
 		}
-		chs = append(chs, email.New(addr, pass, imapHost, smtpHost, poll, mediaDir))
+		chs = append(chs, email.New(addr, pass, imapHost, smtpHost, poll, mediaDir, gw))
 	}
 	if number := strings.TrimSpace(os.Getenv(gwconfig.EnvSignalNumber)); number != "" {
 		attDir := defaultSignalAttachments()

@@ -1,27 +1,32 @@
-// Package email is the gateway's email channel: a dedicated mailbox the agent
-// answers. IMAP (SSL :993) is polled for unseen mail; replies go out over SMTP
-// (STARTTLS :587) with proper threading headers. The model is a DEDICATED
-// account (an app password for Gmail/Outlook), never your personal inbox — the
-// bot answers everything its allow-list admits.
+// Package email is the gateway's email channel: a mailbox the agent answers.
+// IMAP (SSL :993) is polled for NEW mail past a durable UID cursor; replies go
+// out over SMTP (STARTTLS :587) with proper threading headers. The mailbox can
+// be the agent's own dedicated account OR a personal inbox: the channel reads
+// with BODY.PEEK and acks by advancing its cursor, NEVER by setting \Seen — it
+// leaves flags, folders, and read state exactly as it found them, and the
+// gateway's allow-list decides which senders it answers at all.
 //
-// Ack semantics match the gateway contract: a message is marked \Seen ONLY
-// after Deliver returns nil, so a crash between fetch and durable record just
-// re-fetches it. The durable dedup key is <mailbox>/<UIDVALIDITY>/<UID> — the
-// provider-side identity, robust against malformed or duplicated Message-IDs
-// (which serve threading, not dedup).
+// Ack semantics match the gateway contract: the cursor advances ONLY after
+// Deliver returns nil, so a crash between fetch and durable record just
+// re-fetches it. On first connect (or a UIDVALIDITY reset) the cursor
+// initializes to the mailbox's current end — pre-existing mail, including a
+// personal inbox's whole history, is never read, never answered. The durable
+// dedup key is <mailbox>/<UIDVALIDITY>/<UID> — the provider-side identity,
+// robust against malformed or duplicated Message-IDs (which serve threading,
+// not dedup).
 //
 // IDENTITY CAVEAT: the principal is the RFC From address — weaker than the
 // other channels' platform-authenticated ids, since From can be spoofed by
 // mail that evades the provider's SPF/DKIM/DMARC filtering. The mailbox
 // provider's authentication is the real gate (a mainstream provider rejects or
-// junks spoofed mail before we poll it), which is one more reason for the
-// dedicated-account model. Enforcing Authentication-Results=pass explicitly is
-// a tracked follow-up.
+// junks spoofed mail before we poll it). Enforcing
+// Authentication-Results=pass explicitly is a tracked follow-up.
 package email
 
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -46,6 +51,7 @@ type Channel struct {
 	smtpHost string // host[:port]; port defaults to 587
 	poll     time.Duration
 	mediaDir string // media spool; "" disables attachment downloads
+	store    CursorStore
 
 	// threads remembers, per peer, how to thread the next reply (root id,
 	// last inbound id, subject). In-memory: after a restart a reply still
@@ -67,17 +73,23 @@ type threadInfo struct {
 // imapSession is the slice of the IMAP client the poll loop uses (a seam so
 // tests can script it).
 type imapSession interface {
-	SelectInbox() (uidValidity uint32, err error)
-	UnseenUIDs() ([]imap.UID, error)
+	SelectInbox() (uidValidity uint32, uidNext imap.UID, err error)
+	UIDsAfter(last imap.UID) ([]imap.UID, error)
 	FetchRaw(uid imap.UID) ([]byte, error)
-	MarkSeen(uid imap.UID) error
 	Close() error
 }
 
-// New builds an email channel. poll <= 0 uses the default (15s). mediaDir is
-// the gateway media spool inbound attachments are saved into; "" disables
-// attachment handling.
-func New(address, password, imapHost, smtpHost string, poll time.Duration, mediaDir string) *Channel {
+// CursorStore persists the mailbox position (UIDVALIDITY/last-UID) so a
+// restart resumes where it left off. The gateway state store implements it.
+type CursorStore interface {
+	Cursor(ctx context.Context, channel string) (string, error)
+	SetCursor(ctx context.Context, channel, cursor string) error
+}
+
+// New builds an email channel. store persists the mailbox cursor. poll <= 0
+// uses the default (15s). mediaDir is the gateway media spool inbound
+// attachments are saved into; "" disables attachment handling.
+func New(address, password, imapHost, smtpHost string, poll time.Duration, mediaDir string, store CursorStore) *Channel {
 	if poll <= 0 {
 		poll = defaultPoll
 	}
@@ -88,6 +100,7 @@ func New(address, password, imapHost, smtpHost string, poll time.Duration, media
 		smtpHost: withDefaultPort(smtpHost, "587"),
 		poll:     poll,
 		mediaDir: mediaDir,
+		store:    store,
 		threads:  map[string]threadInfo{},
 	}
 	c.dial = c.dialIMAP
@@ -133,46 +146,107 @@ func (c *Channel) Start(ctx context.Context, sink channels.Sink) error {
 	}
 }
 
-// pollOnce runs one fetch cycle: select, search unseen, deliver each, mark
-// seen only on durable record.
+// pollOnce runs one fetch cycle: select, read the durable UID cursor, deliver
+// everything newer, advance the cursor on durable record. The cursor — never
+// the \Seen flag — is the ack, so the channel leaves the mailbox's read state
+// untouched (safe on a personal inbox).
 func (c *Channel) pollOnce(ctx context.Context, sink channels.Sink) error {
 	sess, err := c.dial()
 	if err != nil {
 		return err
 	}
 	defer sess.Close()
-	uidValidity, err := sess.SelectInbox()
+	uidValidity, uidNext, err := sess.SelectInbox()
 	if err != nil {
 		return err
 	}
-	uids, err := sess.UnseenUIDs()
+	last, ok := c.loadCursor(ctx, uidValidity)
+	if !ok {
+		// First connect, or the server reset UIDVALIDITY: start from NOW.
+		// Pre-existing mail — a personal inbox's whole history — is never
+		// fetched, never answered.
+		return c.saveCursor(ctx, uidValidity, endOfMailbox(sess, uidNext))
+	}
+	uids, err := sess.UIDsAfter(last)
 	if err != nil {
 		return err
 	}
 	for _, uid := range uids {
+		if uid <= last {
+			continue // an n:* range returns the newest message even when nothing is new
+		}
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 		raw, err := sess.FetchRaw(uid)
 		if err != nil {
+			if errors.Is(err, errTooLarge) {
+				// Oversized message: skip it durably instead of retrying forever.
+				if err := c.saveCursor(ctx, uidValidity, uid); err != nil {
+					return err
+				}
+				continue
+			}
 			return err
 		}
 		msg, ok := parseMessage(raw)
 		if !ok || shouldIgnore(msg, c.address) {
-			// Not actionable mail (bounce, auto-reply, self, unparseable) — mark
-			// seen so it isn't re-fetched forever, and move on.
-			_ = sess.MarkSeen(uid)
+			// Not actionable mail (bounce, auto-reply, self, unparseable) —
+			// advance past it and move on.
+			if err := c.saveCursor(ctx, uidValidity, uid); err != nil {
+				return err
+			}
 			continue
 		}
 		inb := c.toInbound(msg, uidValidity, uid)
 		if err := sink.Deliver(ctx, inb); err != nil {
-			// NOT durably recorded — leave unseen; the next poll retries it.
+			// NOT durably recorded — cursor stays put; the next poll retries it.
 			return err
 		}
 		c.rememberThread(msg)
-		_ = sess.MarkSeen(uid)
+		if err := c.saveCursor(ctx, uidValidity, uid); err != nil {
+			return err
+		}
 	}
 	return nil
+}
+
+// loadCursor reads the persisted "uidvalidity/uid" position; ok=false when it
+// is absent, unparseable, or from a different UIDVALIDITY generation.
+func (c *Channel) loadCursor(ctx context.Context, uidValidity uint32) (imap.UID, bool) {
+	cur, err := c.store.Cursor(ctx, "email")
+	if err != nil || strings.TrimSpace(cur) == "" {
+		return 0, false
+	}
+	var v, u uint32
+	if _, err := fmt.Sscanf(cur, "%d/%d", &v, &u); err != nil || v != uidValidity {
+		return 0, false
+	}
+	return imap.UID(u), true
+}
+
+func (c *Channel) saveCursor(ctx context.Context, uidValidity uint32, uid imap.UID) error {
+	return c.store.SetCursor(ctx, "email", fmt.Sprintf("%d/%d", uidValidity, uint32(uid)))
+}
+
+// endOfMailbox resolves the current last UID for cursor initialization.
+// UIDNEXT from SELECT is authoritative; the rare server that omits it gets a
+// search for the newest message instead.
+func endOfMailbox(sess imapSession, uidNext imap.UID) imap.UID {
+	if uidNext > 0 {
+		return uidNext - 1
+	}
+	uids, err := sess.UIDsAfter(0)
+	if err != nil || len(uids) == 0 {
+		return 0
+	}
+	maxUID := uids[0]
+	for _, u := range uids {
+		if u > maxUID {
+			maxUID = u
+		}
+	}
+	return maxUID
 }
 
 // toInbound normalizes a parsed message. The conversation is the peer address
