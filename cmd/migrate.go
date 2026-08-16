@@ -59,11 +59,12 @@ directory:
 			return fmt.Errorf("no OpenClaw install found (looked in %s)", strings.Join(searched, ", "))
 		}
 		return runMigration(cmd, migrationSource{
-			display:  "OpenClaw",
-			slug:     "openclaw",
-			dir:      dir,
-			channels: openClawChannels,
-			memory:   openClawMemory,
+			display:   "OpenClaw",
+			slug:      "openclaw",
+			dir:       dir,
+			channels:  openClawChannels,
+			memory:    openClawMemory,
+			schedules: importer.ImportOpenClawSchedules,
 		})
 	},
 }
@@ -96,11 +97,12 @@ directory:
 			return fmt.Errorf("no Hermes install found (looked in %s)", filepath.Join(home, ".hermes"))
 		}
 		return runMigration(cmd, migrationSource{
-			display:  "Hermes",
-			slug:     "hermes",
-			dir:      dir,
-			channels: hermesChannels,
-			memory:   hermesMemory,
+			display:   "Hermes",
+			slug:      "hermes",
+			dir:       dir,
+			channels:  hermesChannels,
+			memory:    hermesMemory,
+			schedules: importer.ImportHermesSchedules,
 		})
 	},
 }
@@ -114,6 +116,9 @@ type migrationSource struct {
 	dir      string
 	channels func(dir string, env map[string]string) (importer.Result, error)
 	memory   func(dir string) []string // extracts the source's memory as discrete entries
+	// schedules reads the source's cron jobs into memcode schedules plus notes
+	// for anything that couldn't be carried.
+	schedules func(dir string) ([]gwconfig.Schedule, []string)
 }
 
 // runMigration performs the full migration for a source: channels, provider API
@@ -157,6 +162,25 @@ func runMigration(cmd *cobra.Command, src migrationSource) error {
 		channels = append(channels, name)
 	}
 	sort.Strings(channels)
+
+	// Cron jobs → schedules (skip name collisions rather than clobbering).
+	var schedCount int
+	if src.schedules != nil {
+		scheds, schedNotes := src.schedules(src.dir)
+		res.Notes = append(res.Notes, schedNotes...)
+		existing := map[string]bool{}
+		for _, sc := range cur.Schedules {
+			existing[sc.Name] = true
+		}
+		for _, sc := range scheds {
+			if existing[sc.Name] {
+				res.Notes = append(res.Notes, fmt.Sprintf("cron: schedule %q already exists in gateway.yaml — kept yours, skipped the import", sc.Name))
+				continue
+			}
+			cur.Schedules = append(cur.Schedules, sc)
+			schedCount++
+		}
+	}
 	if err := gwconfig.Save(cur); err != nil {
 		return err
 	}
@@ -181,6 +205,9 @@ func runMigration(cmd *cobra.Command, src migrationSource) error {
 	cmd.Printf("Migrated from %s (%s)\n", src.display, src.dir)
 	if len(channels) > 0 {
 		cmd.Printf("  channels:  %s\n", strings.Join(channels, ", "))
+	}
+	if schedCount > 0 {
+		cmd.Printf("  schedules: %d cron job(s) → gateway.yaml (see `memcode gateway schedule list`)\n", schedCount)
 	}
 	cmd.Printf("  API keys:  %d provider key(s) → global .env\n", len(keys))
 	cmd.Printf("  secrets:   %d credential(s) written\n", len(res.Secrets))

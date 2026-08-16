@@ -200,14 +200,30 @@ The gateway isn't only reactive. A `schedules:` entry runs a task on a cadence
 conversation. Each fire flows through the same durable inbox and reply path as a
 chat message, so scheduled work is autonomous but just as reliable.
 
+A schedule is recurring (`cron:` or `every:`), or a one-shot (`at:` an RFC3339
+time) that runs once and removes itself. `disabled: true` pauses one without
+deleting it.
+
 Manage schedules from the terminal — a running gateway picks up changes within
 seconds:
 
 ```
 memcode gateway schedule list
 memcode gateway schedule add standup --cron "0 9 * * 1-5" --to telegram:123456 "Summarize yesterday's commits and open PRs"
+memcode gateway schedule add remind --at 3h --to telegram:123456 "Remind me to review the release notes"
+memcode gateway schedule show standup
+memcode gateway schedule edit standup --cron "0 8 * * 1-5"
+memcode gateway schedule run standup          # fire now, don't wait
+memcode gateway schedule disable standup      # pause; enable resumes
 memcode gateway schedule remove standup
 ```
+
+`cron` and `automations` are accepted aliases for `schedule` (OpenClaw/Hermes
+muscle memory), as are `create`/`rm`/`ls`/`get`/`pause`/`resume` for the verbs.
+`memcode claw migrate` and `memcode hermes migrate` carry existing cron jobs
+over where the source stores them readably (Hermes jobs.json, OpenClaw's legacy
+cron file); jobs in OpenClaw's internal database are reported with exact
+recreate instructions — never silently dropped.
 
 ## Run
 

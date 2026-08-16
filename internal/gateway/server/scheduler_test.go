@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"testing"
+	"time"
 
 	"github.com/memcode-ai/memcode/internal/channels"
 	gwconfig "github.com/memcode-ai/memcode/internal/gateway/config"
@@ -164,5 +165,30 @@ func TestApplySchedulesRebuilds(t *testing.T) {
 	rt.applySchedules(ctx)
 	if rt.sched != nil {
 		t.Fatal("clearing schedules must stop the runner")
+	}
+}
+
+// Disabled schedules don't run; a future one-shot arms a timer instead of a
+// cron entry; both come and go across re-applies.
+func TestApplySchedulesDisabledAndOneShot(t *testing.T) {
+	ctx := context.Background()
+	rt := &runtime{
+		settings: gwconfig.Settings{Schedules: []gwconfig.Schedule{
+			{Name: "off", Every: "1h", Task: "t", DeliverTo: "telegram:1", Disabled: true},
+			{Name: "later", At: time.Now().Add(time.Hour).Format(time.RFC3339), Task: "t", DeliverTo: "telegram:1"},
+		}},
+		out: io.Discard,
+	}
+	rt.applySchedules(ctx)
+	if rt.sched != nil {
+		t.Error("a disabled schedule must not create a cron entry")
+	}
+	if len(rt.timers) != 1 {
+		t.Fatalf("want 1 armed one-shot timer, got %d", len(rt.timers))
+	}
+	rt.settings.Schedules = nil
+	rt.applySchedules(ctx)
+	if len(rt.timers) != 0 {
+		t.Error("clearing schedules must drop armed one-shots")
 	}
 }

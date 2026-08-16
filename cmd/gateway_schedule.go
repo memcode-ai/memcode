@@ -9,24 +9,28 @@ import (
 	"github.com/spf13/cobra"
 
 	gwconfig "github.com/memcode-ai/memcode/internal/gateway/config"
+	"github.com/memcode-ai/memcode/internal/gateway/state"
 )
 
 // gatewayScheduleCmd manages the gateway's time-triggered tasks from the
 // terminal — the deterministic counterpart to asking `memcode admin` in chat.
-// Edits land in gateway.yaml; a running gateway picks them up within seconds,
-// no restart.
+// The verb set matches what OpenClaw and Hermes users already know (add, list,
+// show, edit, run, enable/disable, remove), with their aliases accepted. Edits
+// land in gateway.yaml; a running gateway picks them up within seconds, no
+// restart.
 var gatewayScheduleCmd = &cobra.Command{
 	Use:     "schedule",
-	Aliases: []string{"cron"}, // what OpenClaw calls this — honor migrating muscle memory
-	Short:   "Manage scheduled tasks (list, add, remove)",
+	Aliases: []string{"cron", "automations"}, // what OpenClaw/Hermes call this — honor migrating muscle memory
+	Short:   "Manage scheduled tasks (add, list, show, edit, run, enable, disable, remove)",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return scheduleList(cmd)
 	},
 }
 
 var gatewayScheduleListCmd = &cobra.Command{
-	Use:   "list",
-	Short: "List configured schedules",
+	Use:     "list",
+	Aliases: []string{"ls"},
+	Short:   "List configured schedules",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return scheduleList(cmd)
 	},
@@ -35,18 +39,79 @@ var gatewayScheduleListCmd = &cobra.Command{
 var (
 	scheduleCron  string
 	scheduleEvery string
+	scheduleAt    string
 	scheduleTo    string
 )
 
+// parseAt accepts the ways people naturally write a one-shot time — a duration
+// from now ("30m", "2h"), a local date-time ("2026-03-01T09:00"), or full
+// RFC3339 — and returns the absolute RFC3339 timestamp that gets stored.
+func parseAt(s string) (string, error) {
+	s = strings.TrimSpace(s)
+	if d, err := time.ParseDuration(s); err == nil {
+		if d <= 0 {
+			return "", fmt.Errorf("--at duration must be in the future")
+		}
+		return time.Now().Add(d).Format(time.RFC3339), nil
+	}
+	for _, layout := range []string{time.RFC3339, "2006-01-02T15:04:05", "2006-01-02T15:04", "2006-01-02 15:04"} {
+		if t, err := time.ParseInLocation(layout, s, time.Local); err == nil {
+			if !t.After(time.Now()) {
+				return "", fmt.Errorf("--at %q is in the past", s)
+			}
+			return t.Format(time.RFC3339), nil
+		}
+	}
+	return "", fmt.Errorf("bad --at %q: use a duration from now (30m, 2h) or a date-time (2026-03-01T09:00)", s)
+}
+
+// validateSpec checks that exactly one schedule form is set and that it parses.
+// Returns the resolved at timestamp ("" unless --at was used).
+func validateSpec() (at string, err error) {
+	set := 0
+	for _, v := range []string{scheduleCron, scheduleEvery, scheduleAt} {
+		if v != "" {
+			set++
+		}
+	}
+	switch {
+	case set == 0:
+		return "", fmt.Errorf("set --cron (e.g. \"0 9 * * 1-5\"), --every (e.g. 24h), or --at (e.g. 30m or 2026-03-01T09:00)")
+	case set > 1:
+		return "", fmt.Errorf("set exactly one of --cron, --every, --at")
+	case scheduleCron != "":
+		if _, err := cron.ParseStandard(scheduleCron); err != nil {
+			return "", fmt.Errorf("bad --cron %q: %w (5 fields: minute hour day-of-month month day-of-week)", scheduleCron, err)
+		}
+		return "", nil
+	case scheduleEvery != "":
+		if _, err := time.ParseDuration(scheduleEvery); err != nil {
+			return "", fmt.Errorf("bad --every %q: %w (a Go duration like 30m or 24h)", scheduleEvery, err)
+		}
+		return "", nil
+	default:
+		return parseAt(scheduleAt)
+	}
+}
+
+func validateTo(to string) error {
+	if ch, convo, ok := strings.Cut(to, ":"); !ok || ch == "" || convo == "" {
+		return fmt.Errorf("--to must be \"channel:conversation\", e.g. telegram:123456")
+	}
+	return nil
+}
+
 var gatewayScheduleAddCmd = &cobra.Command{
-	Use:   "add <name> <task...>",
-	Short: "Add a scheduled task",
-	Long: `Add a scheduled task. Set exactly one of --cron or --every, and --to for
-where the result is delivered.
+	Use:     "add <name> <task...>",
+	Aliases: []string{"create"},
+	Short:   "Add a scheduled task",
+	Long: `Add a scheduled task. Set exactly one of --cron, --every, or --at, and --to
+for where the result is delivered.
 
 Examples:
   memcode gateway schedule add standup --cron "0 9 * * 1-5" --to telegram:123456 "Summarize yesterday's commits and open PRs"
-  memcode gateway schedule add health --every 30m --to slack:C0123 "Check disk, memory, and the error log; report only if something is off"`,
+  memcode gateway schedule add health --every 30m --to slack:C0123 "Check disk, memory, and the error log; report only if something is off"
+  memcode gateway schedule add remind --at 3h --to telegram:123456 "Remind me to review the release notes"`,
 	Args: cobra.MinimumNArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := strings.TrimSpace(args[0])
@@ -54,23 +119,13 @@ Examples:
 		if name == "" || task == "" {
 			return fmt.Errorf("a schedule needs a name and a task")
 		}
-		switch {
-		case scheduleCron != "" && scheduleEvery != "":
-			return fmt.Errorf("set exactly one of --cron or --every, not both")
-		case scheduleCron != "":
-			if _, err := cron.ParseStandard(scheduleCron); err != nil {
-				return fmt.Errorf("bad --cron %q: %w (5 fields: minute hour day-of-month month day-of-week)", scheduleCron, err)
-			}
-		case scheduleEvery != "":
-			if _, err := time.ParseDuration(scheduleEvery); err != nil {
-				return fmt.Errorf("bad --every %q: %w (a Go duration like 30m or 24h)", scheduleEvery, err)
-			}
-		default:
-			return fmt.Errorf("set --cron (e.g. \"0 9 * * 1-5\") or --every (e.g. 24h)")
+		at, err := validateSpec()
+		if err != nil {
+			return err
 		}
 		to := strings.TrimSpace(scheduleTo)
-		if ch, convo, ok := strings.Cut(to, ":"); !ok || ch == "" || convo == "" {
-			return fmt.Errorf("--to must be \"channel:conversation\", e.g. telegram:123456")
+		if err := validateTo(to); err != nil {
+			return err
 		}
 		settings, err := gwconfig.Load()
 		if err != nil {
@@ -78,24 +133,147 @@ Examples:
 		}
 		for _, sc := range settings.Schedules {
 			if sc.Name == name {
-				return fmt.Errorf("schedule %q already exists — remove it first to replace it", name)
+				return fmt.Errorf("schedule %q already exists — edit it, or remove it first to replace it", name)
 			}
 		}
 		settings.Schedules = append(settings.Schedules, gwconfig.Schedule{
-			Name: name, Cron: scheduleCron, Every: scheduleEvery, Task: task, DeliverTo: to,
+			Name: name, Cron: scheduleCron, Every: scheduleEvery, At: at, Task: task, DeliverTo: to,
 		})
 		if err := gwconfig.Save(settings); err != nil {
 			return err
 		}
-		cmd.Printf("Scheduled %s → %s. A running gateway picks this up within a few seconds.\n", name, to)
+		if at != "" {
+			cmd.Printf("Scheduled one-shot %s at %s → %s. A running gateway picks this up within a few seconds.\n", name, at, to)
+		} else {
+			cmd.Printf("Scheduled %s → %s. A running gateway picks this up within a few seconds.\n", name, to)
+		}
 		return nil
 	},
 }
 
-var gatewayScheduleRemoveCmd = &cobra.Command{
-	Use:   "remove <name>",
-	Short: "Remove a scheduled task",
+var gatewayScheduleShowCmd = &cobra.Command{
+	Use:     "show <name>",
+	Aliases: []string{"get"},
+	Short:   "Show one schedule in full",
+	Args:    cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		sc, _, err := findSchedule(args[0])
+		if err != nil {
+			return err
+		}
+		cmd.Printf("name:       %s\n", sc.Name)
+		switch {
+		case sc.Cron != "":
+			cmd.Printf("cron:       %s\n", sc.Cron)
+		case sc.Every != "":
+			cmd.Printf("every:      %s\n", sc.Every)
+		case sc.At != "":
+			cmd.Printf("at:         %s (one-shot)\n", sc.At)
+		}
+		cmd.Printf("deliver_to: %s\n", sc.DeliverTo)
+		cmd.Printf("task:       %s\n", sc.Task)
+		if sc.Disabled {
+			cmd.Println("state:      disabled")
+		}
+		return nil
+	},
+}
+
+var gatewayScheduleEditCmd = &cobra.Command{
+	Use:   "edit <name> [new task...]",
+	Short: "Update a schedule's timing, delivery, or task",
+	Args:  cobra.MinimumNArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		name := strings.TrimSpace(args[0])
+		settings, err := gwconfig.Load()
+		if err != nil {
+			return err
+		}
+		for i, sc := range settings.Schedules {
+			if sc.Name != name {
+				continue
+			}
+			if scheduleCron != "" || scheduleEvery != "" || scheduleAt != "" {
+				at, err := validateSpec()
+				if err != nil {
+					return err
+				}
+				sc.Cron, sc.Every, sc.At = scheduleCron, scheduleEvery, at
+			}
+			if scheduleTo != "" {
+				if err := validateTo(scheduleTo); err != nil {
+					return err
+				}
+				sc.DeliverTo = scheduleTo
+			}
+			if len(args) > 1 {
+				sc.Task = strings.TrimSpace(strings.Join(args[1:], " "))
+			}
+			settings.Schedules[i] = sc
+			if err := gwconfig.Save(settings); err != nil {
+				return err
+			}
+			cmd.Printf("Updated schedule %s.\n", name)
+			return nil
+		}
+		return fmt.Errorf("no schedule %q", name)
+	},
+}
+
+var gatewayScheduleRunCmd = &cobra.Command{
+	Use:   "run <name>",
+	Short: "Run a schedule's task now, without waiting for its next fire",
 	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		sc, _, err := findSchedule(args[0])
+		if err != nil {
+			return err
+		}
+		ch, convo, ok := strings.Cut(sc.DeliverTo, ":")
+		if !ok {
+			return fmt.Errorf("schedule %q has a bad deliver_to %q", sc.Name, sc.DeliverTo)
+		}
+		gw, err := openGatewayState(cmd.Context())
+		if err != nil {
+			return err
+		}
+		defer gw.Close()
+		// Enqueue the same Trusted item a timed fire would; the running gateway's
+		// worker drains it within seconds.
+		_, err = gw.Accept(cmd.Context(), state.Item{
+			Channel: ch, Conversation: convo,
+			MessageID: fmt.Sprintf("cli:%s:%d", sc.Name, time.Now().UnixNano()),
+			Principal: "schedule:" + sc.Name, Text: sc.Task, Trusted: true,
+		}, time.Now())
+		if err != nil {
+			return err
+		}
+		cmd.Printf("Queued %s — the gateway runs it now and delivers to %s.\n", sc.Name, sc.DeliverTo)
+		return nil
+	},
+}
+
+var gatewayScheduleEnableCmd = &cobra.Command{
+	Use:     "enable <name>",
+	Aliases: []string{"resume"},
+	Short:   "Re-enable a disabled schedule",
+	Args:    cobra.ExactArgs(1),
+	RunE:    func(cmd *cobra.Command, args []string) error { return setScheduleDisabled(cmd, args[0], false) },
+}
+
+var gatewayScheduleDisableCmd = &cobra.Command{
+	Use:     "disable <name>",
+	Aliases: []string{"pause"},
+	Short:   "Pause a schedule without deleting it",
+	Args:    cobra.ExactArgs(1),
+	RunE:    func(cmd *cobra.Command, args []string) error { return setScheduleDisabled(cmd, args[0], true) },
+}
+
+var gatewayScheduleRemoveCmd = &cobra.Command{
+	Use:     "remove <name>",
+	Aliases: []string{"rm", "delete"},
+	Short:   "Remove a scheduled task",
+	Args:    cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := strings.TrimSpace(args[0])
 		settings, err := gwconfig.Load()
@@ -123,6 +301,45 @@ var gatewayScheduleRemoveCmd = &cobra.Command{
 	},
 }
 
+func findSchedule(name string) (gwconfig.Schedule, gwconfig.Settings, error) {
+	name = strings.TrimSpace(name)
+	settings, err := gwconfig.Load()
+	if err != nil {
+		return gwconfig.Schedule{}, settings, err
+	}
+	for _, sc := range settings.Schedules {
+		if sc.Name == name {
+			return sc, settings, nil
+		}
+	}
+	return gwconfig.Schedule{}, settings, fmt.Errorf("no schedule %q", name)
+}
+
+func setScheduleDisabled(cmd *cobra.Command, name string, disabled bool) error {
+	name = strings.TrimSpace(name)
+	settings, err := gwconfig.Load()
+	if err != nil {
+		return err
+	}
+	for i, sc := range settings.Schedules {
+		if sc.Name != name {
+			continue
+		}
+		sc.Disabled = disabled
+		settings.Schedules[i] = sc
+		if err := gwconfig.Save(settings); err != nil {
+			return err
+		}
+		if disabled {
+			cmd.Printf("Disabled schedule %s — it stays configured and can be re-enabled.\n", name)
+		} else {
+			cmd.Printf("Enabled schedule %s.\n", name)
+		}
+		return nil
+	}
+	return fmt.Errorf("no schedule %q", name)
+}
+
 func scheduleList(cmd *cobra.Command) error {
 	settings, err := gwconfig.Load()
 	if err != nil {
@@ -137,16 +354,34 @@ func scheduleList(cmd *cobra.Command) error {
 		if sc.Every != "" {
 			when = "every " + sc.Every
 		}
-		cmd.Printf("%-16s %-16s → %-24s %s\n", sc.Name, when, sc.DeliverTo, sc.Task)
+		if sc.At != "" {
+			when = "at " + sc.At
+		}
+		flag := ""
+		if sc.Disabled {
+			flag = " (disabled)"
+		}
+		cmd.Printf("%-16s %-24s → %-24s %s%s\n", sc.Name, when, sc.DeliverTo, sc.Task, flag)
 	}
 	return nil
 }
 
+// scheduleSpecFlags attaches the timing/delivery flags shared by add and edit.
+func scheduleSpecFlags(c *cobra.Command) {
+	c.Flags().StringVar(&scheduleCron, "cron", "", "5-field cron expression, e.g. \"0 9 * * 1-5\"")
+	c.Flags().StringVar(&scheduleEvery, "every", "", "interval as a Go duration, e.g. 30m or 24h")
+	c.Flags().StringVar(&scheduleAt, "at", "", "one-shot: a duration from now (30m) or a date-time (2026-03-01T09:00)")
+	c.Flags().StringVar(&scheduleTo, "to", "", "where the result is delivered: \"channel:conversation\"")
+}
+
 func init() {
-	gatewayScheduleAddCmd.Flags().StringVar(&scheduleCron, "cron", "", "5-field cron expression, e.g. \"0 9 * * 1-5\"")
-	gatewayScheduleAddCmd.Flags().StringVar(&scheduleEvery, "every", "", "interval as a Go duration, e.g. 30m or 24h")
-	gatewayScheduleAddCmd.Flags().StringVar(&scheduleTo, "to", "", "where the result is delivered: \"channel:conversation\"")
+	scheduleSpecFlags(gatewayScheduleAddCmd)
 	_ = gatewayScheduleAddCmd.MarkFlagRequired("to")
-	gatewayScheduleCmd.AddCommand(gatewayScheduleListCmd, gatewayScheduleAddCmd, gatewayScheduleRemoveCmd)
+	scheduleSpecFlags(gatewayScheduleEditCmd)
+	gatewayScheduleCmd.AddCommand(
+		gatewayScheduleListCmd, gatewayScheduleAddCmd, gatewayScheduleShowCmd,
+		gatewayScheduleEditCmd, gatewayScheduleRunCmd,
+		gatewayScheduleEnableCmd, gatewayScheduleDisableCmd, gatewayScheduleRemoveCmd,
+	)
 	gatewayCmd.AddCommand(gatewayScheduleCmd)
 }

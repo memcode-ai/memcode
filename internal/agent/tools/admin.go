@@ -61,11 +61,13 @@ func AdminDefs() []wire.ToolDef {
 		},
 		{
 			Name:        GwSchedule,
-			Description: "Create or remove a recurring scheduled task. deliver_to routes the result to a conversation, e.g. \"telegram:123456789\".",
+			Description: "Manage scheduled tasks. add creates one (recurring via cron/every, or a one-shot via at); remove deletes; disable pauses without deleting; enable resumes. deliver_to routes the result to a conversation, e.g. \"telegram:123456789\".",
 			InputSchema: obj(map[string]any{
-				"action":     str("add or remove"),
+				"action":     str("add, remove, enable, or disable"),
 				"name":       str("schedule name"),
 				"cron":       str("add only: cron expression, e.g. \"0 9 * * 1-5\""),
+				"every":      str("add only: interval as a Go duration, e.g. \"30m\""),
+				"at":         str("add only: one-shot RFC3339 time, e.g. \"2026-03-01T09:00:00Z\""),
 				"task":       str("add only: the task to run, in plain language"),
 				"deliver_to": str("add only: where the result goes, channel:conversation"),
 			}, "action", "name"),

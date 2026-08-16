@@ -79,10 +79,12 @@ type runtime struct {
 	out       io.Writer
 	notify    chan struct{} // wakes the worker when a message is accepted
 
-	// sched is the live schedule runner and schedList the schedules it was built
-	// from (for change detection on reload). Both are touched only from the Run/
-	// worker goroutine, so they need no lock.
+	// sched is the live schedule runner (recurring entries), timers the pending
+	// one-shots, and schedList the schedules both were built from (for change
+	// detection on reload). All are touched only from the Run/worker goroutine,
+	// so they need no lock.
 	sched     *cron.Cron
+	timers    []*time.Timer
 	schedList []gwconfig.Schedule
 }
 
@@ -159,6 +161,9 @@ func Run(ctx context.Context, root string, mainStore store.Store, settings gwcon
 	if rt.sched != nil {
 		rt.sched.Stop()
 	}
+	for _, t := range rt.timers {
+		t.Stop()
+	}
 	return ctx.Err()
 }
 
@@ -174,6 +179,10 @@ func (r *runtime) applySchedules(ctx context.Context) {
 		r.sched.Stop()
 		r.sched = nil
 	}
+	for _, t := range r.timers {
+		t.Stop()
+	}
+	r.timers = nil
 	r.schedList = schedules
 	if len(schedules) == 0 {
 		return
@@ -182,14 +191,44 @@ func (r *runtime) applySchedules(ctx context.Context) {
 	added := 0
 	for _, sch := range schedules {
 		sch := sch
-		spec, ok := scheduleSpec(sch)
-		if !ok {
-			fmt.Fprintf(r.out, "gateway: schedule %q skipped: set exactly one of every/cron\n", sch.Name)
+		if sch.Disabled {
+			fmt.Fprintf(r.out, "gateway: schedule %q is disabled\n", sch.Name)
 			continue
 		}
 		ch, convo, ok := parseRoute(sch.DeliverTo)
 		if !ok {
 			fmt.Fprintf(r.out, "gateway: schedule %q skipped: deliver_to must be \"channel:conversation\"\n", sch.Name)
+			continue
+		}
+		// One-shot: fire once at the given time, then remove the entry so it can
+		// never fire again. Still in the config and past due means the gateway was
+		// down when it should have fired — run it late rather than losing it.
+		if sch.At != "" {
+			if sch.Every != "" || sch.Cron != "" {
+				fmt.Fprintf(r.out, "gateway: schedule %q skipped: set exactly one of every/cron/at\n", sch.Name)
+				continue
+			}
+			when, err := time.Parse(time.RFC3339, sch.At)
+			if err != nil {
+				fmt.Fprintf(r.out, "gateway: schedule %q skipped: bad at %q: %v (RFC3339, e.g. 2026-03-01T09:00:00Z)\n", sch.Name, sch.At, err)
+				continue
+			}
+			fire := func() {
+				r.fireSchedule(ctx, sch, ch, convo)
+				r.removeOneShot(sch.Name)
+			}
+			if d := time.Until(when); d <= 0 {
+				fmt.Fprintf(r.out, "gateway: one-shot %q was due %s ago — running now\n", sch.Name, (-d).Round(time.Second))
+				go fire()
+			} else {
+				r.timers = append(r.timers, time.AfterFunc(d, fire))
+				fmt.Fprintf(r.out, "gateway: one-shot %q → %s (at %s)\n", sch.Name, sch.DeliverTo, sch.At)
+			}
+			continue
+		}
+		spec, ok := scheduleSpec(sch)
+		if !ok {
+			fmt.Fprintf(r.out, "gateway: schedule %q skipped: set exactly one of every/cron/at\n", sch.Name)
 			continue
 		}
 		if _, err := c.AddFunc(spec, func() { r.fireSchedule(ctx, sch, ch, convo) }); err != nil {
@@ -204,6 +243,27 @@ func (r *runtime) applySchedules(ctx context.Context) {
 	}
 	c.Start()
 	r.sched = c
+}
+
+// removeOneShot deletes a fired one-shot from gateway.yaml so it never fires
+// again. Runs on a timer goroutine; the config write is atomic and the worker's
+// reload loop picks up the change like any other edit.
+func (r *runtime) removeOneShot(name string) {
+	settings, err := gwconfig.Load()
+	if err != nil {
+		fmt.Fprintf(r.out, "gateway: one-shot %q fired but could not be removed from gateway.yaml: %v\n", name, err)
+		return
+	}
+	kept := settings.Schedules[:0]
+	for _, sc := range settings.Schedules {
+		if sc.Name != name || sc.At == "" {
+			kept = append(kept, sc)
+		}
+	}
+	settings.Schedules = kept
+	if err := gwconfig.Save(settings); err != nil {
+		fmt.Fprintf(r.out, "gateway: one-shot %q fired but could not be removed from gateway.yaml: %v\n", name, err)
+	}
 }
 
 // fireSchedule enqueues one scheduled run as a Trusted inbound. Each fire gets a

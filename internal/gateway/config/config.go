@@ -167,14 +167,18 @@ func CanonicalRoot(path string) (string, error) {
 // Schedule is a time-triggered task: the gateway runs Task on the given cadence
 // and posts the result to DeliverTo ("<channel>:<conversation>", e.g.
 // "telegram:123456"). Set exactly one of Every (a Go duration like "24h" or
-// "30m") or Cron (a 5-field cron expression like "0 9 * * 1-5"). This is what
-// turns the gateway from purely reactive into autonomous.
+// "30m"), Cron (a 5-field cron expression like "0 9 * * 1-5"), or At (an
+// RFC3339 timestamp for a one-shot run; the gateway removes the entry after it
+// fires). Disabled pauses a schedule without deleting it. This is what turns
+// the gateway from purely reactive into autonomous.
 type Schedule struct {
 	Name      string `yaml:"name"`
 	Every     string `yaml:"every,omitempty"`
 	Cron      string `yaml:"cron,omitempty"`
+	At        string `yaml:"at,omitempty"`
 	Task      string `yaml:"task"`
 	DeliverTo string `yaml:"deliver_to"`
+	Disabled  bool   `yaml:"disabled,omitempty"`
 }
 
 // Webhook is the inbound HTTP listener shared by GitHub/WhatsApp. Defaults to

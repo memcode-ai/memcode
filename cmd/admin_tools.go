@@ -447,7 +447,7 @@ func adminAgent(input json.RawMessage) (string, error) {
 		}
 		return fmt.Sprintf("Removed persona %s. Its home under ~/.memcode/agents is kept; delete it yourself if you want the memory gone.", name), nil
 	}
-	return "", fmt.Errorf("action must be add or remove")
+	return "", fmt.Errorf("action must be add, remove, enable, or disable")
 }
 
 func adminSchedule(input json.RawMessage) (string, error) {
@@ -455,6 +455,8 @@ func adminSchedule(input json.RawMessage) (string, error) {
 		Action    string `json:"action"`
 		Name      string `json:"name"`
 		Cron      string `json:"cron"`
+		Every     string `json:"every"`
+		At        string `json:"at"`
 		Task      string `json:"task"`
 		DeliverTo string `json:"deliver_to"`
 	}
@@ -472,8 +474,14 @@ func adminSchedule(input json.RawMessage) (string, error) {
 	}
 	switch action {
 	case "add":
-		if strings.TrimSpace(in.Cron) == "" || strings.TrimSpace(in.Task) == "" {
-			return "", fmt.Errorf("add needs cron and task")
+		spec := 0
+		for _, v := range []string{in.Cron, in.Every, in.At} {
+			if strings.TrimSpace(v) != "" {
+				spec++
+			}
+		}
+		if spec != 1 || strings.TrimSpace(in.Task) == "" {
+			return "", fmt.Errorf("add needs a task and exactly one of cron, every, or at")
 		}
 		for _, sc := range settings.Schedules {
 			if sc.Name == name {
@@ -481,13 +489,26 @@ func adminSchedule(input json.RawMessage) (string, error) {
 			}
 		}
 		settings.Schedules = append(settings.Schedules, gwconfig.Schedule{
-			Name: name, Cron: strings.TrimSpace(in.Cron),
+			Name: name, Cron: strings.TrimSpace(in.Cron), Every: strings.TrimSpace(in.Every),
+			At:   strings.TrimSpace(in.At),
 			Task: strings.TrimSpace(in.Task), DeliverTo: strings.TrimSpace(in.DeliverTo),
 		})
 		if err := gwconfig.Save(settings); err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("Scheduled %s: %s.", name, in.Cron), nil
+		return fmt.Sprintf("Scheduled %s.", name), nil
+	case "enable", "disable":
+		for i, sc := range settings.Schedules {
+			if sc.Name == name {
+				sc.Disabled = action == "disable"
+				settings.Schedules[i] = sc
+				if err := gwconfig.Save(settings); err != nil {
+					return "", err
+				}
+				return fmt.Sprintf("Schedule %s %sd.", name, action), nil
+			}
+		}
+		return "", fmt.Errorf("no schedule %q", name)
 	case "remove":
 		kept := settings.Schedules[:0]
 		found := false
@@ -507,7 +528,7 @@ func adminSchedule(input json.RawMessage) (string, error) {
 		}
 		return fmt.Sprintf("Removed schedule %s.", name), nil
 	}
-	return "", fmt.Errorf("action must be add or remove")
+	return "", fmt.Errorf("action must be add, remove, enable, or disable")
 }
 
 func parseAdminBool(v string) (bool, error) {
