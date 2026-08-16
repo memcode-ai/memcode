@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"fmt"
 	"os"
+	"reflect"
 	"time"
 
 	"github.com/memcode-ai/memcode/internal/channels"
@@ -57,10 +58,11 @@ func (r *runtime) offerPairing(ctx context.Context, inb channels.Inbound) {
 
 // maybeReload re-reads gateway.yaml when its mtime changes and swaps the
 // runtime's settings, so a pairing approval (or any policy edit) takes effect
-// without a restart. Only POLICY hot-reloads — allow-lists, projects, agents,
-// per-channel knobs. Channel connections and schedules are wired at startup.
-// Returns the mtime to carry to the next check.
-func (r *runtime) maybeReload(last time.Time) time.Time {
+// without a restart. POLICY hot-reloads — allow-lists, projects, agents,
+// per-channel knobs — and so do schedules, which are rebuilt when their section
+// changes. Channel connections are wired at startup. Returns the mtime to carry
+// to the next check.
+func (r *runtime) maybeReload(ctx context.Context, last time.Time) time.Time {
 	path, err := gwconfig.Path()
 	if err != nil {
 		return last
@@ -82,6 +84,9 @@ func (r *runtime) maybeReload(last time.Time) time.Time {
 	r.mu.Unlock()
 	if !last.IsZero() {
 		fmt.Fprintf(r.out, "gateway: settings reloaded from gateway.yaml\n")
+	}
+	if !reflect.DeepEqual(s.Schedules, r.schedList) {
+		r.applySchedules(ctx)
 	}
 	return fi.ModTime()
 }

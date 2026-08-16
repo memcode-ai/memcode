@@ -78,12 +78,18 @@ type runtime struct {
 	disp      *dispatcher
 	out       io.Writer
 	notify    chan struct{} // wakes the worker when a message is accepted
+
+	// sched is the live schedule runner and schedList the schedules it was built
+	// from (for change detection on reload). Both are touched only from the Run/
+	// worker goroutine, so they need no lock.
+	sched     *cron.Cron
+	schedList []gwconfig.Schedule
 }
 
 // cfg returns the current settings snapshot. Policy fields (allow-lists,
-// projects, agents, channel knobs) hot-reload when gateway.yaml changes — the
-// pairing flow depends on an approval taking effect without a restart. Channel
-// connections and schedules are wired at startup and do NOT hot-reload.
+// projects, agents, channel knobs) and schedules hot-reload when gateway.yaml
+// changes — the pairing flow depends on an approval taking effect without a
+// restart. Channel connections are wired at startup and do NOT hot-reload.
 func (r *runtime) cfg() gwconfig.Settings {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -147,22 +153,34 @@ func Run(ctx context.Context, root string, mainStore store.Store, settings gwcon
 		return fmt.Errorf("no channels configured — run `memcode gateway setup` to add one")
 	}
 
-	rt.startSchedules(ctx) // time-triggered tasks feed the same inbox
+	rt.applySchedules(ctx) // time-triggered tasks feed the same inbox
 
 	rt.runWorker(ctx) // blocks until ctx is cancelled
+	if rt.sched != nil {
+		rt.sched.Stop()
+	}
 	return ctx.Err()
 }
 
-// startSchedules runs each configured schedule on its cadence. A fire produces a
-// Trusted synthetic message routed to the schedule's deliver_to, so it flows
-// through the exact same Deliver → inbox → worker → reply path as a chat message.
-func (r *runtime) startSchedules(ctx context.Context) {
-	if len(r.settings.Schedules) == 0 {
+// applySchedules (re)builds the schedule runner from the current settings. A
+// fire produces a Trusted synthetic message routed to the schedule's deliver_to,
+// so it flows through the exact same Deliver → inbox → worker → reply path as a
+// chat message. Called at startup and again whenever a hot-reload changes the
+// schedules section, so an edited or added schedule takes effect without a
+// restart. Runs only on the Run/worker goroutine.
+func (r *runtime) applySchedules(ctx context.Context) {
+	schedules := r.cfg().Schedules
+	if r.sched != nil {
+		r.sched.Stop()
+		r.sched = nil
+	}
+	r.schedList = schedules
+	if len(schedules) == 0 {
 		return
 	}
 	c := cron.New()
 	added := 0
-	for _, sch := range r.settings.Schedules {
+	for _, sch := range schedules {
 		sch := sch
 		spec, ok := scheduleSpec(sch)
 		if !ok {
@@ -185,10 +203,7 @@ func (r *runtime) startSchedules(ctx context.Context) {
 		return
 	}
 	c.Start()
-	go func() {
-		<-ctx.Done()
-		c.Stop()
-	}()
+	r.sched = c
 }
 
 // fireSchedule enqueues one scheduled run as a Trusted inbound. Each fire gets a
@@ -371,9 +386,9 @@ func (r *runtime) runWorker(ctx context.Context) {
 	tick := time.NewTicker(2 * time.Second)
 	defer tick.Stop()
 
-	cfgMtime := r.maybeReload(time.Time{}) // baseline: settings as of startup
+	cfgMtime := r.maybeReload(ctx, time.Time{}) // baseline: settings as of startup
 	for {
-		cfgMtime = r.maybeReload(cfgMtime) // pairing approvals / policy edits land without a restart
+		cfgMtime = r.maybeReload(ctx, cfgMtime) // pairing approvals / policy / schedule edits land without a restart
 		items, err := r.gw.Pending(ctx)
 		if err != nil && ctx.Err() == nil {
 			fmt.Fprintf(r.out, "gateway: reading inbox: %v\n", err)

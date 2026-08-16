@@ -138,3 +138,31 @@ func TestTrustedBypassIsScoped(t *testing.T) {
 		t.Fatalf("trusted inbound should enqueue despite the allow-list, got %d", len(p))
 	}
 }
+
+// Editing the schedules section takes effect without a restart: applySchedules
+// rebuilds the runner from the current settings on each call, and clearing the
+// section stops it.
+func TestApplySchedulesRebuilds(t *testing.T) {
+	ctx := context.Background()
+	rt := &runtime{
+		settings: gwconfig.Settings{Schedules: []gwconfig.Schedule{
+			{Name: "a", Every: "1h", Task: "t", DeliverTo: "telegram:1"},
+		}},
+		out: io.Discard,
+	}
+	rt.applySchedules(ctx)
+	if rt.sched == nil || len(rt.sched.Entries()) != 1 {
+		t.Fatal("want 1 live schedule entry after first apply")
+	}
+	rt.settings.Schedules = append(rt.settings.Schedules,
+		gwconfig.Schedule{Name: "b", Cron: "0 9 * * 1-5", Task: "t2", DeliverTo: "telegram:1"})
+	rt.applySchedules(ctx)
+	if got := len(rt.sched.Entries()); got != 2 {
+		t.Fatalf("want 2 live entries after reload, got %d", got)
+	}
+	rt.settings.Schedules = nil
+	rt.applySchedules(ctx)
+	if rt.sched != nil {
+		t.Fatal("clearing schedules must stop the runner")
+	}
+}

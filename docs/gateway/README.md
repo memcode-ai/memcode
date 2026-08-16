@@ -157,9 +157,9 @@ memcode gateway pair deny K3QP7M
 ```
 
 The running gateway hot-reloads gateway.yaml's POLICY fields (allow-lists,
-projects, agents, channel knobs) on change, so an approval takes effect within
-seconds — no restart. Channel connections and schedules are wired at startup and
-do not hot-reload.
+projects, agents, channel knobs) and its schedules on change, so an approval or
+an edited schedule takes effect within seconds — no restart. Channel connections
+are wired at startup and do not hot-reload.
 
 ## Media and voice
 
@@ -199,6 +199,15 @@ The gateway isn't only reactive. A `schedules:` entry runs a task on a cadence
 (`every: "24h"` or a `cron:` expression) and posts the result to a chat
 conversation. Each fire flows through the same durable inbox and reply path as a
 chat message, so scheduled work is autonomous but just as reliable.
+
+Manage schedules from the terminal — a running gateway picks up changes within
+seconds:
+
+```
+memcode gateway schedule list
+memcode gateway schedule add standup --cron "0 9 * * 1-5" --to telegram:123456 "Summarize yesterday's commits and open PRs"
+memcode gateway schedule remove standup
+```
 
 ## Run
 
