@@ -52,11 +52,12 @@ func AdminDefs() []wire.ToolDef {
 		},
 		{
 			Name:        GwAgent,
-			Description: "Create or remove a persona: a lasting assistant identity with its own memory and skills. Bind a channel to one with gw_channel field=agent.",
+			Description: "Create or remove a persona: a lasting assistant identity with its own memory and skills. Bind a channel to one with gw_channel field=agent. action=model pins or clears the model that drives the persona.",
 			InputSchema: obj(map[string]any{
-				"action": str("add or remove"),
+				"action": str("add, remove, or model"),
 				"name":   str("persona name, e.g. personal, coder, researcher"),
-				"type":   str("add only: assistant (default) or coding"),
+				"type":   str("add only: assistant (default), coding, or research"),
+				"model":  str("add/model: pin the model that drives this persona everywhere (catalog id, e.g. \"claude-sonnet-5\"); empty = automatic routing"),
 			}, "action", "name"),
 		},
 		{

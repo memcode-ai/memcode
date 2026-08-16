@@ -21,6 +21,9 @@ type jobContext struct {
 	// paths: the spool is the trust boundary, so a corrupted context file cannot
 	// point this job at arbitrary local files.
 	Attachments []string `json:"attachments,omitempty"`
+	// Model is the persona's pinned model; when set it drives this run in place
+	// of the config default.
+	Model string `json:"model,omitempty"`
 }
 
 // resolveJobAttachments turns spool IDs into engine attachments. Each ID must

@@ -80,6 +80,17 @@ for local gateway development. Never store keys in .memcode.`,
 		}
 
 		model := provider.EffectiveModel(cfg.Models.Coder)
+		// A gateway persona may pin the model that drives it (agents.<name>.model);
+		// the pin rides the session's job-context envelope and replaces the config
+		// default here, before session construction.
+		gwSession, _ := cmd.Flags().GetString("session")
+		var gwContext jobContext
+		if gwSession != "" {
+			gwContext = loadJobContext(gwSession)
+			if gwContext.Model != "" {
+				model = gwContext.Model
+			}
+		}
 		// On a custom endpoint or a subscription source the served model is the
 		// endpoint's model, not the config default — show and use that so the
 		// header names what actually serves the turn.
@@ -139,9 +150,9 @@ for local gateway development. Never store keys in .memcode.`,
 			// --session: a gateway conversation job. Pin the id and resume the prior
 			// transcript if it exists, so follow-up messages continue the same session.
 			// Uses the chat seams (which load + save the transcript) instead of Run.
-			if sessionID, _ := cmd.Flags().GetString("session"); sessionID != "" {
+			if sessionID := gwSession; sessionID != "" {
 				sess.SetSessionID(sessionID)
-				if jc := loadJobContext(sessionID); len(jc.Items) > 0 || len(jc.SkillRoots) > 0 || len(jc.Attachments) > 0 {
+				if jc := gwContext; len(jc.Items) > 0 || len(jc.SkillRoots) > 0 || len(jc.Attachments) > 0 {
 					sess.SetContext(jc.Items)                                      // gateway-supplied persona/user context for this run
 					sess.SetSkillRoots(jc.SkillRoots)                              // persona's own skills join discovery
 					sess.SetTaskAttachments(resolveJobAttachments(jc.Attachments)) // channel media rides this turn

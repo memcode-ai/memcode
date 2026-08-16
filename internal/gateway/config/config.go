@@ -97,6 +97,10 @@ type Settings struct {
 // composed and handed to the coding engine as generic supplemental context.
 type Persona struct {
 	Type string `yaml:"type,omitempty"` // assistant | coding | research (coarse behavior hint)
+	// Model pins the model that drives this persona (an id from the catalog,
+	// e.g. "claude-sonnet-5"). Empty = automatic routing. Wherever the persona
+	// answers — any channel, any schedule — this is the model that serves it.
+	Model string `yaml:"model,omitempty"`
 }
 
 // Project is a registered working directory. Path is the configured location;

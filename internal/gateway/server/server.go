@@ -528,6 +528,9 @@ func (r *runtime) runJob(ctx context.Context, it state.Item) {
 	// → empty envelope → the coding engine runs exactly as the CLI.
 	jc := jobContextFor(it.Agent)
 	jc.Attachments = rest
+	if it.Agent != "" {
+		jc.Model = settings.Agents[it.Agent].Model // persona's pinned model drives its runs
+	}
 	if err := writeContext(session, jc); err != nil {
 		fmt.Fprintf(r.out, "gateway: composing context for %s: %v\n", it.Channel, err)
 	}

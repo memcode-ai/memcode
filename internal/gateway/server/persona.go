@@ -21,10 +21,13 @@ type jobContext struct {
 	// media spool, so a corrupted or stale context file cannot point a job at
 	// arbitrary local files.
 	Attachments []string `json:"attachments,omitempty"`
+	// Model is the persona's pinned model (agents.<id>.model); the child uses it
+	// in place of its config default. Empty = automatic routing.
+	Model string `json:"model,omitempty"`
 }
 
 func (jc jobContext) empty() bool {
-	return len(jc.Items) == 0 && len(jc.SkillRoots) == 0 && len(jc.Attachments) == 0
+	return len(jc.Items) == 0 && len(jc.SkillRoots) == 0 && len(jc.Attachments) == 0 && jc.Model == ""
 }
 
 // jobContextFor composes everything a bound persona layers onto a run: its

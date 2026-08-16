@@ -402,6 +402,7 @@ func adminAgent(input json.RawMessage) (string, error) {
 		Action string `json:"action"`
 		Name   string `json:"name"`
 		Type   string `json:"type"`
+		Model  string `json:"model"`
 	}
 	if err := json.Unmarshal(input, &in); err != nil {
 		return "", err
@@ -427,11 +428,25 @@ func adminAgent(input json.RawMessage) (string, error) {
 		if settings.Agents == nil {
 			settings.Agents = map[string]gwconfig.Persona{}
 		}
-		settings.Agents[name] = gwconfig.Persona{Type: typ}
+		settings.Agents[name] = gwconfig.Persona{Type: typ, Model: strings.TrimSpace(in.Model)}
 		if err := gwconfig.Save(settings); err != nil {
 			return "", err
 		}
 		return fmt.Sprintf("Created persona %s (type %s). Bind a channel to it with gw_channel field=agent; its standing instructions live at ~/.memcode/agents/%s/MEMCODE.md.", name, typ, name), nil
+	case "model":
+		p, ok := settings.Agents[name]
+		if !ok {
+			return "", fmt.Errorf("no persona %q", name)
+		}
+		p.Model = strings.TrimSpace(in.Model)
+		settings.Agents[name] = p
+		if err := gwconfig.Save(settings); err != nil {
+			return "", err
+		}
+		if p.Model == "" {
+			return fmt.Sprintf("Persona %s back on automatic model routing.", name), nil
+		}
+		return fmt.Sprintf("Persona %s now runs on %s everywhere it answers.", name, p.Model), nil
 	case "remove":
 		if _, ok := settings.Agents[name]; !ok {
 			return "", fmt.Errorf("no persona %q", name)
