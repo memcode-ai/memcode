@@ -16,8 +16,9 @@ import (
 // Edits land in gateway.yaml; a running gateway picks them up within seconds,
 // no restart.
 var gatewayScheduleCmd = &cobra.Command{
-	Use:   "schedule",
-	Short: "Manage scheduled tasks (list, add, remove)",
+	Use:     "schedule",
+	Aliases: []string{"cron"}, // what OpenClaw calls this — honor migrating muscle memory
+	Short:   "Manage scheduled tasks (list, add, remove)",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return scheduleList(cmd)
 	},
