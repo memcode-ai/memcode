@@ -125,6 +125,7 @@ type ocJob struct {
 		Expr string `json:"expr"`
 		At   string `json:"at"`
 		Cron string `json:"cron"`
+		Tz   string `json:"tz"`
 	} `json:"schedule"`
 }
 
@@ -170,6 +171,7 @@ func OpenClawSchedules(data []byte) ([]gwconfig.Schedule, []string) {
 		switch j.Schedule.Kind {
 		case "cron":
 			sch.Cron = firstNonEmpty(j.Schedule.Cron, j.Schedule.Expr)
+			sch.TZ = strings.TrimSpace(j.Schedule.Tz)
 		case "every":
 			sch.Every = strings.TrimPrefix(firstNonEmpty(j.Schedule.Expr), "every ")
 		case "at":

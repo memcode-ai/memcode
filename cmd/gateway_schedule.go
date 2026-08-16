@@ -41,6 +41,8 @@ var (
 	scheduleEvery string
 	scheduleAt    string
 	scheduleTo    string
+	scheduleTZ    string
+	scheduleAgent string
 )
 
 // parseAt accepts the ways people naturally write a one-shot time — a duration
@@ -137,7 +139,8 @@ Examples:
 			}
 		}
 		settings.Schedules = append(settings.Schedules, gwconfig.Schedule{
-			Name: name, Cron: scheduleCron, Every: scheduleEvery, At: at, Task: task, DeliverTo: to,
+			Name: name, Cron: scheduleCron, Every: scheduleEvery, At: at, TZ: scheduleTZ,
+			Task: task, DeliverTo: to, Agent: strings.TrimSpace(scheduleAgent),
 		})
 		if err := gwconfig.Save(settings); err != nil {
 			return err
@@ -171,6 +174,12 @@ var gatewayScheduleShowCmd = &cobra.Command{
 			cmd.Printf("at:         %s (one-shot)\n", sc.At)
 		}
 		cmd.Printf("deliver_to: %s\n", sc.DeliverTo)
+		if sc.Agent != "" {
+			cmd.Printf("agent:      %s\n", sc.Agent)
+		}
+		if sc.TZ != "" {
+			cmd.Printf("tz:         %s\n", sc.TZ)
+		}
 		cmd.Printf("task:       %s\n", sc.Task)
 		if sc.Disabled {
 			cmd.Println("state:      disabled")
@@ -205,6 +214,12 @@ var gatewayScheduleEditCmd = &cobra.Command{
 					return err
 				}
 				sc.DeliverTo = scheduleTo
+			}
+			if scheduleTZ != "" {
+				sc.TZ = scheduleTZ
+			}
+			if scheduleAgent != "" {
+				sc.Agent = strings.TrimSpace(scheduleAgent)
 			}
 			if len(args) > 1 {
 				sc.Task = strings.TrimSpace(strings.Join(args[1:], " "))
@@ -372,6 +387,8 @@ func scheduleSpecFlags(c *cobra.Command) {
 	c.Flags().StringVar(&scheduleEvery, "every", "", "interval as a Go duration, e.g. 30m or 24h")
 	c.Flags().StringVar(&scheduleAt, "at", "", "one-shot: a duration from now (30m) or a date-time (2026-03-01T09:00)")
 	c.Flags().StringVar(&scheduleTo, "to", "", "where the result is delivered: \"channel:conversation\"")
+	c.Flags().StringVar(&scheduleTZ, "tz", "", "evaluate --cron in this zone, e.g. America/Los_Angeles (default: local)")
+	c.Flags().StringVar(&scheduleAgent, "agent", "", "run as this persona (its pinned model and instructions apply)")
 }
 
 func init() {

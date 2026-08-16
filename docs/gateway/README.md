@@ -218,12 +218,18 @@ memcode gateway schedule disable standup      # pause; enable resumes
 memcode gateway schedule remove standup
 ```
 
+A schedule can run as a specific persona (`--agent`, or `agent:` in yaml) —
+bringing that persona's instructions, memory, and pinned model
+(`agents.<name>.model`) — and evaluate cron in a named zone (`--tz`).
+
 `cron` and `automations` are accepted aliases for `schedule` (OpenClaw/Hermes
 muscle memory), as are `create`/`rm`/`ls`/`get`/`pause`/`resume` for the verbs.
 `memcode claw migrate` and `memcode hermes migrate` carry existing cron jobs
 over where the source stores them readably (Hermes jobs.json, OpenClaw's legacy
 cron file); jobs in OpenClaw's internal database are reported with exact
-recreate instructions — never silently dropped.
+recreate instructions — never silently dropped. MCP server configs
+(`mcp_servers` / `mcp.servers`) migrate into the user-scope .mcp.json, and
+Hermes's SOUL.md identity file is folded into global memory.
 
 ## Run
 

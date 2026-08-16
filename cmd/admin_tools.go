@@ -474,6 +474,7 @@ func adminSchedule(input json.RawMessage) (string, error) {
 		At        string `json:"at"`
 		Task      string `json:"task"`
 		DeliverTo string `json:"deliver_to"`
+		Agent     string `json:"agent"`
 	}
 	if err := json.Unmarshal(input, &in); err != nil {
 		return "", err

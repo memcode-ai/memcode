@@ -16,6 +16,7 @@ import (
 	"github.com/memcode-ai/memcode/internal/authflow"
 	gwconfig "github.com/memcode-ai/memcode/internal/gateway/config"
 	"github.com/memcode-ai/memcode/internal/gateway/importer"
+	"github.com/memcode-ai/memcode/internal/mcp"
 	"github.com/memcode-ai/memcode/internal/provider"
 )
 
@@ -59,12 +60,13 @@ directory:
 			return fmt.Errorf("no OpenClaw install found (looked in %s)", strings.Join(searched, ", "))
 		}
 		return runMigration(cmd, migrationSource{
-			display:   "OpenClaw",
-			slug:      "openclaw",
-			dir:       dir,
-			channels:  openClawChannels,
-			memory:    openClawMemory,
-			schedules: importer.ImportOpenClawSchedules,
+			display:    "OpenClaw",
+			slug:       "openclaw",
+			dir:        dir,
+			channels:   openClawChannels,
+			memory:     openClawMemory,
+			schedules:  importer.ImportOpenClawSchedules,
+			mcpServers: openClawMCP,
 		})
 	},
 }
@@ -97,12 +99,13 @@ directory:
 			return fmt.Errorf("no Hermes install found (looked in %s)", filepath.Join(home, ".hermes"))
 		}
 		return runMigration(cmd, migrationSource{
-			display:   "Hermes",
-			slug:      "hermes",
-			dir:       dir,
-			channels:  hermesChannels,
-			memory:    hermesMemory,
-			schedules: importer.ImportHermesSchedules,
+			display:    "Hermes",
+			slug:       "hermes",
+			dir:        dir,
+			channels:   hermesChannels,
+			memory:     hermesMemory,
+			schedules:  importer.ImportHermesSchedules,
+			mcpServers: hermesMCP,
 		})
 	},
 }
@@ -119,6 +122,8 @@ type migrationSource struct {
 	// schedules reads the source's cron jobs into memcode schedules plus notes
 	// for anything that couldn't be carried.
 	schedules func(dir string) ([]gwconfig.Schedule, []string)
+	// mcpServers reads the source's MCP server config into memcode's shape.
+	mcpServers func(dir string) (map[string]mcp.ServerConfig, []string)
 }
 
 // runMigration performs the full migration for a source: channels, provider API
@@ -196,7 +201,26 @@ func runMigration(cmd *cobra.Command, src migrationSource) error {
 	skills, skillNotes := copySkills(filepath.Join(src.dir, "skills"))
 	res.Notes = append(res.Notes, skillNotes...)
 
-	// 4. Memory → extracted from the source's markdown stores into global memory.md.
+	// 4. MCP servers → user scope (~/.memcode/mcp.json), shared by all projects.
+	var mcpCount int
+	if src.mcpServers != nil {
+		servers, mcpNotes := src.mcpServers(src.dir)
+		res.Notes = append(res.Notes, mcpNotes...)
+		existing := mcp.UserServers()
+		for name, sc := range servers {
+			if _, ok := existing[name]; ok {
+				res.Notes = append(res.Notes, fmt.Sprintf("mcp: server %q already configured — kept yours, skipped the import", name))
+				continue
+			}
+			if err := mcp.AddServer("", mcp.ScopeUser, name, sc); err != nil {
+				res.Notes = append(res.Notes, fmt.Sprintf("mcp: server %q could not be written: %v", name, err))
+				continue
+			}
+			mcpCount++
+		}
+	}
+
+	// 5. Memory → extracted from the source's markdown stores into global memory.md.
 	memCount, err := migrateMemories(src)
 	if err != nil {
 		return err
@@ -212,6 +236,9 @@ func runMigration(cmd *cobra.Command, src migrationSource) error {
 	cmd.Printf("  API keys:  %d provider key(s) → global .env\n", len(keys))
 	cmd.Printf("  secrets:   %d credential(s) written\n", len(res.Secrets))
 	cmd.Printf("  skills:    %d imported → ~/.memcode/skills\n", len(skills))
+	if mcpCount > 0 {
+		cmd.Printf("  mcp:       %d server(s) → ~/.memcode/mcp.json (user scope, all projects)\n", mcpCount)
+	}
 	if memCount > 0 {
 		cmd.Printf("  memory:    %d entries → ~/.memcode/memory.md (global, loaded every session)\n", memCount)
 	}
@@ -247,6 +274,23 @@ func hermesChannels(dir string, env map[string]string) (importer.Result, error) 
 		return importer.Result{}, err
 	}
 	return importer.FromHermes(data, env)
+}
+
+// openClawMCP / hermesMCP read each source's MCP server block.
+func openClawMCP(dir string) (map[string]mcp.ServerConfig, []string) {
+	data, err := os.ReadFile(filepath.Join(dir, "openclaw.json"))
+	if err != nil {
+		return nil, nil
+	}
+	return importer.OpenClawMCPServers(data)
+}
+
+func hermesMCP(dir string) (map[string]mcp.ServerConfig, []string) {
+	data, err := os.ReadFile(filepath.Join(dir, "config.yaml"))
+	if err != nil {
+		return nil, nil
+	}
+	return importer.HermesMCPServers(data)
 }
 
 // openClawDir resolves the OpenClaw state directory: an explicit arg, then
@@ -427,10 +471,15 @@ func openClawMemory(dir string) []string {
 // separated by bare § lines. Split on that delimiter rather than re-parsing the
 // markdown, matching Hermes's own destination parser.
 func hermesMemory(dir string) []string {
+	var entries []string
+	// SOUL.md at the install root is the agent's identity file — carry it too.
+	if data, err := os.ReadFile(filepath.Join(dir, "SOUL.md")); err == nil {
+		entries = append(entries, extractMarkdownEntries(string(data))...)
+	}
 	memDir := filepath.Join(dir, "memories")
 	files, err := os.ReadDir(memDir)
 	if err != nil {
-		return nil
+		return entries
 	}
 	var names []string
 	for _, e := range files {
@@ -439,7 +488,6 @@ func hermesMemory(dir string) []string {
 		}
 	}
 	sort.Strings(names)
-	var entries []string
 	for _, n := range names {
 		data, err := os.ReadFile(filepath.Join(memDir, n))
 		if err != nil {

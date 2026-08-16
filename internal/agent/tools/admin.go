@@ -71,6 +71,7 @@ func AdminDefs() []wire.ToolDef {
 				"at":         str("add only: one-shot RFC3339 time, e.g. \"2026-03-01T09:00:00Z\""),
 				"task":       str("add only: the task to run, in plain language"),
 				"deliver_to": str("add only: where the result goes, channel:conversation"),
+				"agent":      str("add only: run as this persona (its pinned model and instructions apply)"),
 			}, "action", "name"),
 		},
 		{

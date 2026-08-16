@@ -25,6 +25,10 @@ type Inbound struct {
 	// router's per-channel allow-list doesn't apply. Chat messages leave this
 	// false and are gated by the allow-list; a signed GitHub delivery sets it.
 	Trusted bool
+	// Agent optionally forces the persona for this task. Honored only on Trusted
+	// inbounds (schedules, verified webhooks) — a chat sender picks personas via
+	// /agent, never through a message field.
+	Agent string
 	// IsDirect is true for a 1:1 direct message. A DM always triggers the agent;
 	// a message in a group/channel triggers only when the bot is addressed (see
 	// Mentioned) or the channel is configured to respond to all.

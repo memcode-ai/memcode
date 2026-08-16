@@ -176,13 +176,18 @@ func CanonicalRoot(path string) (string, error) {
 // fires). Disabled pauses a schedule without deleting it. This is what turns
 // the gateway from purely reactive into autonomous.
 type Schedule struct {
-	Name      string `yaml:"name"`
-	Every     string `yaml:"every,omitempty"`
-	Cron      string `yaml:"cron,omitempty"`
-	At        string `yaml:"at,omitempty"`
+	Name  string `yaml:"name"`
+	Every string `yaml:"every,omitempty"`
+	Cron  string `yaml:"cron,omitempty"`
+	At    string `yaml:"at,omitempty"`
+	// TZ evaluates Cron in a named zone ("America/Los_Angeles"); empty = local.
+	TZ        string `yaml:"tz,omitempty"`
 	Task      string `yaml:"task"`
 	DeliverTo string `yaml:"deliver_to"`
-	Disabled  bool   `yaml:"disabled,omitempty"`
+	// Agent runs this task as a specific persona — which also decides the model
+	// when that persona pins one. Empty = the conversation's current persona.
+	Agent    string `yaml:"agent,omitempty"`
+	Disabled bool   `yaml:"disabled,omitempty"`
 }
 
 // Webhook is the inbound HTTP listener shared by GitHub/WhatsApp. Defaults to

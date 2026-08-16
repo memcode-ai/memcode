@@ -275,6 +275,7 @@ func (r *runtime) fireSchedule(ctx context.Context, sch gwconfig.Schedule, chann
 		Principal:    "schedule:" + sch.Name,
 		Text:         sch.Task,
 		Trusted:      true,
+		Agent:        sch.Agent,
 		MessageID:    fmt.Sprintf("cron:%s:%d", sch.Name, time.Now().UnixNano()),
 	}
 	if err := r.Deliver(ctx, inb); err != nil {
@@ -330,6 +331,9 @@ func warnOpenSurfaces(settings gwconfig.Settings, out io.Writer) {
 func scheduleSpec(sch gwconfig.Schedule) (string, bool) {
 	switch {
 	case sch.Cron != "" && sch.Every == "":
+		if sch.TZ != "" {
+			return "CRON_TZ=" + sch.TZ + " " + sch.Cron, true
+		}
 		return sch.Cron, true
 	case sch.Every != "" && sch.Cron == "":
 		return "@every " + sch.Every, true
@@ -387,6 +391,9 @@ func (r *runtime) Deliver(ctx context.Context, inb channels.Inbound) error {
 	// Snapshot the conversation's current persona + project at receipt, so a later
 	// /project changes only the NEXT task, never this queued one.
 	agent, project := r.resolveSelection(ctx, inb.Channel, inb.Conversation)
+	if inb.Trusted && inb.Agent != "" {
+		agent = inb.Agent // a schedule's pinned persona overrides the conversation's
+	}
 	ids := make([]string, 0, len(inb.Attachments))
 	for _, a := range inb.Attachments {
 		ids = append(ids, a.ID()) // spool IDs only — paths never enter the durable row
