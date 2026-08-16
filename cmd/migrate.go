@@ -29,9 +29,10 @@ import (
 // collisions. The namespace also leaves room for future per-source subcommands.
 //
 // migrate moves the full install, not just channels: gateway channels (tokens +
-// allow-lists), provider API keys, skills, and long-term memory (read from the
-// source's markdown stores into memcode's global ~/.memcode/memory.md, loaded
-// every session).
+// allow-lists), provider API keys, skills, cron jobs, MCP servers, the agent's
+// identity (SOUL.md → a memcode agent), and long-term memory in its tiers —
+// the source AGENT's memory into that agent's own memory.md, user facts into
+// the global ~/.memcode/memory.md loaded every session.
 
 var clawCmd = &cobra.Command{
 	Use:   "claw",
