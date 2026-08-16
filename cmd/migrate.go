@@ -67,6 +67,7 @@ directory:
 			memory:     openClawMemory,
 			schedules:  importer.ImportOpenClawSchedules,
 			mcpServers: openClawMCP,
+			identity:   openClawIdentity,
 		})
 	},
 }
@@ -106,6 +107,7 @@ directory:
 			memory:     hermesMemory,
 			schedules:  importer.ImportHermesSchedules,
 			mcpServers: hermesMCP,
+			identity:   hermesIdentity,
 		})
 	},
 }
@@ -124,6 +126,9 @@ type migrationSource struct {
 	schedules func(dir string) ([]gwconfig.Schedule, []string)
 	// mcpServers reads the source's MCP server config into memcode's shape.
 	mcpServers func(dir string) (map[string]mcp.ServerConfig, []string)
+	// identity reads the source agent's identity/persona files (SOUL.md and
+	// friends) verbatim — they seed a memcode persona, not global memory.
+	identity func(dir string) string
 }
 
 // runMigration performs the full migration for a source: channels, provider API
@@ -220,7 +225,44 @@ func runMigration(cmd *cobra.Command, src migrationSource) error {
 		}
 	}
 
-	// 5. Memory → extracted from the source's markdown stores into global memory.md.
+	// 5. Identity → a persona. SOUL.md is the source AGENT's identity, so it
+	// becomes a memcode persona (its MEMCODE.md), not global memory: bind a
+	// channel to it and you're talking to the same assistant you migrated.
+	personaID := ""
+	if src.identity != nil {
+		if content := strings.TrimSpace(src.identity(src.dir)); content != "" {
+			id := src.slug
+			home, herr := gwconfig.PersonaHome(id)
+			mcPath := filepath.Join(home, "SOUL.md")
+			switch {
+			case herr != nil:
+				res.Notes = append(res.Notes, fmt.Sprintf("identity: could not resolve the persona home: %v", herr))
+			case fileExists(mcPath):
+				res.Notes = append(res.Notes, fmt.Sprintf("identity: persona %q already has a SOUL.md — left yours in place; the source's was NOT copied", id))
+			default:
+				if err := os.MkdirAll(home, 0o755); err != nil {
+					res.Notes = append(res.Notes, fmt.Sprintf("identity: %v", err))
+					break
+				}
+				if err := os.WriteFile(mcPath, []byte(content+"\n"), 0o644); err != nil {
+					res.Notes = append(res.Notes, fmt.Sprintf("identity: %v", err))
+					break
+				}
+				if cur.Agents == nil {
+					cur.Agents = map[string]gwconfig.Persona{}
+				}
+				if _, ok := cur.Agents[id]; !ok {
+					cur.Agents[id] = gwconfig.Persona{Type: "assistant"}
+					if err := gwconfig.Save(cur); err != nil {
+						res.Notes = append(res.Notes, fmt.Sprintf("identity: persona %q written but not registered: %v", id, err))
+					}
+				}
+				personaID = id
+			}
+		}
+	}
+
+	// 6. Memory → extracted from the source's markdown stores into global memory.md.
 	memCount, err := migrateMemories(src)
 	if err != nil {
 		return err
@@ -238,6 +280,9 @@ func runMigration(cmd *cobra.Command, src migrationSource) error {
 	cmd.Printf("  skills:    %d imported → ~/.memcode/skills\n", len(skills))
 	if mcpCount > 0 {
 		cmd.Printf("  mcp:       %d server(s) → ~/.memcode/mcp.json (user scope, all projects)\n", mcpCount)
+	}
+	if personaID != "" {
+		cmd.Printf("  identity:  SOUL.md → persona %q (~/.memcode/agents/%s/SOUL.md) — bind a channel with `channels.<name>.agent: %s`\n", personaID, personaID, personaID)
 	}
 	if memCount > 0 {
 		cmd.Printf("  memory:    %d entries → ~/.memcode/memory.md (global, loaded every session)\n", memCount)
@@ -291,6 +336,36 @@ func hermesMCP(dir string) (map[string]mcp.ServerConfig, []string) {
 		return nil, nil
 	}
 	return importer.HermesMCPServers(data)
+}
+
+// hermesIdentity reads the profile's SOUL.md (one agent per Hermes profile).
+func hermesIdentity(dir string) string {
+	data, err := os.ReadFile(filepath.Join(dir, "SOUL.md"))
+	if err != nil {
+		return ""
+	}
+	return string(data)
+}
+
+// openClawIdentity reads SOUL.md + IDENTITY.md from the first workspace that
+// has them — the workspace is the OpenClaw agent's home, so these are that
+// agent's identity, not user memory.
+func openClawIdentity(dir string) string {
+	var parts []string
+	for _, rel := range []string{"SOUL.md", "IDENTITY.md"} {
+		for _, r := range openClawWorkspaceRoots(dir) {
+			if data, err := os.ReadFile(filepath.Join(r, rel)); err == nil {
+				parts = append(parts, strings.TrimSpace(string(data)))
+				break
+			}
+		}
+	}
+	return strings.Join(parts, "\n\n")
+}
+
+func fileExists(path string) bool {
+	st, err := os.Stat(path)
+	return err == nil && !st.IsDir()
 }
 
 // openClawDir resolves the OpenClaw state directory: an explicit arg, then
@@ -440,7 +515,6 @@ func openClawMemory(dir string) []string {
 	}
 	readInto("MEMORY.md")
 	readInto("USER.md")
-	readInto("SOUL.md")
 	readInto("AGENTS.md")
 	// Daily memory files live under <workspace>/memory/.
 	for _, r := range roots {
@@ -472,10 +546,6 @@ func openClawMemory(dir string) []string {
 // markdown, matching Hermes's own destination parser.
 func hermesMemory(dir string) []string {
 	var entries []string
-	// SOUL.md at the install root is the agent's identity file — carry it too.
-	if data, err := os.ReadFile(filepath.Join(dir, "SOUL.md")); err == nil {
-		entries = append(entries, extractMarkdownEntries(string(data))...)
-	}
 	memDir := filepath.Join(dir, "memories")
 	files, err := os.ReadDir(memDir)
 	if err != nil {

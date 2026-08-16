@@ -399,10 +399,11 @@ func adminProject(input json.RawMessage) (string, error) {
 
 func adminAgent(input json.RawMessage) (string, error) {
 	var in struct {
-		Action string `json:"action"`
-		Name   string `json:"name"`
-		Type   string `json:"type"`
-		Model  string `json:"model"`
+		Action    string `json:"action"`
+		Name      string `json:"name"`
+		Type      string `json:"type"`
+		Model     string `json:"model"`
+		Reasoning string `json:"reasoning"`
 	}
 	if err := json.Unmarshal(input, &in); err != nil {
 		return "", err
@@ -428,11 +429,32 @@ func adminAgent(input json.RawMessage) (string, error) {
 		if settings.Agents == nil {
 			settings.Agents = map[string]gwconfig.Persona{}
 		}
-		settings.Agents[name] = gwconfig.Persona{Type: typ, Model: strings.TrimSpace(in.Model)}
+		if r := strings.TrimSpace(in.Reasoning); r != "" && r != "off" && r != "medium" && r != "high" {
+			return "", fmt.Errorf("reasoning must be off, medium, or high")
+		}
+		settings.Agents[name] = gwconfig.Persona{Type: typ, Model: strings.TrimSpace(in.Model), Reasoning: strings.TrimSpace(in.Reasoning)}
 		if err := gwconfig.Save(settings); err != nil {
 			return "", err
 		}
 		return fmt.Sprintf("Created persona %s (type %s). Bind a channel to it with gw_channel field=agent; its standing instructions live at ~/.memcode/agents/%s/MEMCODE.md.", name, typ, name), nil
+	case "reasoning":
+		p, ok := settings.Agents[name]
+		if !ok {
+			return "", fmt.Errorf("no persona %q", name)
+		}
+		r := strings.TrimSpace(in.Reasoning)
+		if r != "" && r != "off" && r != "medium" && r != "high" {
+			return "", fmt.Errorf("reasoning must be off, medium, or high (empty = automatic)")
+		}
+		p.Reasoning = r
+		settings.Agents[name] = p
+		if err := gwconfig.Save(settings); err != nil {
+			return "", err
+		}
+		if r == "" {
+			return fmt.Sprintf("Persona %s back on automatic per-turn reasoning.", name), nil
+		}
+		return fmt.Sprintf("Persona %s now thinks at %s effort everywhere it answers.", name, r), nil
 	case "model":
 		p, ok := settings.Agents[name]
 		if !ok {

@@ -24,6 +24,8 @@ type jobContext struct {
 	// Model is the persona's pinned model; when set it drives this run in place
 	// of the config default.
 	Model string `json:"model,omitempty"`
+	// Reasoning is the persona's pinned thinking effort ("off"|"medium"|"high").
+	Reasoning string `json:"reasoning,omitempty"`
 }
 
 // resolveJobAttachments turns spool IDs into engine attachments. Each ID must

@@ -24,10 +24,13 @@ type jobContext struct {
 	// Model is the persona's pinned model (agents.<id>.model); the child uses it
 	// in place of its config default. Empty = automatic routing.
 	Model string `json:"model,omitempty"`
+	// Reasoning is the persona's pinned thinking effort ("off"|"medium"|"high");
+	// empty = per-turn automatic.
+	Reasoning string `json:"reasoning,omitempty"`
 }
 
 func (jc jobContext) empty() bool {
-	return len(jc.Items) == 0 && len(jc.SkillRoots) == 0 && len(jc.Attachments) == 0 && jc.Model == ""
+	return len(jc.Items) == 0 && len(jc.SkillRoots) == 0 && len(jc.Attachments) == 0 && jc.Model == "" && jc.Reasoning == ""
 }
 
 // jobContextFor composes everything a bound persona layers onto a run: its
@@ -61,6 +64,7 @@ func personaContext(agentID string) []agentrt.ContextItem {
 			items = append(items, agentrt.ContextItem{Kind: kind, Content: txt, Source: "agent:" + agentID})
 		}
 	}
+	add("SOUL.md", agentrt.KindInstruction) // the ecosystem-standard identity file (Hermes/OpenClaw use the same name)
 	add("MEMCODE.md", agentrt.KindInstruction)
 	add("memory.md", agentrt.KindMemory)
 	return items

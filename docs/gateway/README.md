@@ -228,8 +228,9 @@ muscle memory), as are `create`/`rm`/`ls`/`get`/`pause`/`resume` for the verbs.
 over where the source stores them readably (Hermes jobs.json, OpenClaw's legacy
 cron file); jobs in OpenClaw's internal database are reported with exact
 recreate instructions — never silently dropped. MCP server configs
-(`mcp_servers` / `mcp.servers`) migrate into the user-scope .mcp.json, and
-Hermes's SOUL.md identity file is folded into global memory.
+(`mcp_servers` / `mcp.servers`) migrate into the user-scope .mcp.json, and the
+source agent's SOUL.md/IDENTITY.md become a memcode persona with the same
+SOUL.md file, verbatim.
 
 ## Run
 

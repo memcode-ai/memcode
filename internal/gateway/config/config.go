@@ -101,6 +101,9 @@ type Persona struct {
 	// e.g. "claude-sonnet-5"). Empty = automatic routing. Wherever the persona
 	// answers — any channel, any schedule — this is the model that serves it.
 	Model string `yaml:"model,omitempty"`
+	// Reasoning pins the persona's thinking effort: "off", "medium", or "high".
+	// Empty = per-turn automatic (the engine judges each turn's depth).
+	Reasoning string `yaml:"reasoning,omitempty"`
 }
 
 // Project is a registered working directory. Path is the configured location;
