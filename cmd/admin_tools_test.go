@@ -19,7 +19,7 @@ func adminIn(t *testing.T, v any) json.RawMessage {
 	return b
 }
 
-// The executor round-trip: create a agent, bind a channel to it, allow a
+// The executor round-trip: create an agent, bind a channel to it, allow a
 // sender, add a schedule — then read it all back through the overview.
 func TestAdminExecuteRoundTrip(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
@@ -27,6 +27,19 @@ func TestAdminExecuteRoundTrip(t *testing.T) {
 
 	if _, err := adminExecute(ctx, tools.GwAgent, adminIn(t, map[string]string{"action": "add", "name": "researcher"})); err != nil {
 		t.Fatal(err)
+	}
+	// Pin the agent's model and reasoning; both land in gateway.yaml.
+	if _, err := adminExecute(ctx, tools.GwAgent, adminIn(t, map[string]string{"action": "model", "name": "researcher", "model": "claude-opus-5"})); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := adminExecute(ctx, tools.GwAgent, adminIn(t, map[string]string{"action": "reasoning", "name": "researcher", "reasoning": "high"})); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := adminExecute(ctx, tools.GwAgent, adminIn(t, map[string]string{"action": "reasoning", "name": "researcher", "reasoning": "bogus"})); err == nil {
+		t.Error("a bogus reasoning level must be rejected")
+	}
+	if cfg, _ := gwconfig.Load(); cfg.Agents["researcher"].Model != "claude-opus-5" || cfg.Agents["researcher"].Reasoning != "high" {
+		t.Errorf("agent model/reasoning pins not persisted: %+v", cfg.Agents["researcher"])
 	}
 	if _, err := adminExecute(ctx, tools.GwChannel, adminIn(t, map[string]string{"channel": "telegram", "field": "agent", "value": "researcher"})); err != nil {
 		t.Fatal(err)
@@ -69,7 +82,7 @@ func TestAdminExecuteRoundTrip(t *testing.T) {
 		t.Error("unknown channel accepted")
 	}
 	if _, err := adminExecute(ctx, tools.GwAgent, adminIn(t, map[string]string{"action": "remove", "name": "researcher"})); err == nil {
-		t.Error("removed a agent still bound to a channel")
+		t.Error("removed an agent still bound to a channel")
 	}
 	if _, err := adminExecute(ctx, tools.GwChannel, adminIn(t, map[string]string{"channel": "slack", "field": "agent", "value": "ghost"})); err == nil {
 		t.Error("bound a channel to a missing agent")

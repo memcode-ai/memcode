@@ -405,7 +405,7 @@ func (s *Session) SetContext(items []ContextItem) { s.supplemental = items }
 
 // SetSkillRoots supplies caller-provided EXTRA skill discovery roots (e.g. a
 // gateway agent's own skills dir). They rank between repo-local and
-// user-global skills, so a agent can carry capabilities without editing the
+// user-global skills, so an agent can carry capabilities without editing the
 // project or the user's global skill set. Empty for the CLI and Desktop.
 func (s *Session) SetSkillRoots(roots []string) { s.extraSkillRoots = roots }
 

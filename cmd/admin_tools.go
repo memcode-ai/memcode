@@ -411,7 +411,7 @@ func adminAgent(input json.RawMessage) (string, error) {
 	action := strings.ToLower(strings.TrimSpace(in.Action))
 	name := strings.TrimSpace(in.Name)
 	if name == "" {
-		return "", fmt.Errorf("a agent needs a name")
+		return "", fmt.Errorf("an agent needs a name")
 	}
 	settings, err := gwconfig.Load()
 	if err != nil {

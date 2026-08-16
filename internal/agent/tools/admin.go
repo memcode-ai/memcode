@@ -52,7 +52,7 @@ func AdminDefs() []wire.ToolDef {
 		},
 		{
 			Name:        GwAgent,
-			Description: "Create or remove a agent: a lasting assistant identity with its own memory and skills (identity file: ~/.memcode/agents/<name>/SOUL.md). Bind a channel to one with gw_channel field=agent. action=model pins/clears its model; action=reasoning pins/clears its thinking effort.",
+			Description: "Create or remove an agent: a lasting assistant identity with its own memory and skills (identity file: ~/.memcode/agents/<name>/SOUL.md). Bind a channel to one with gw_channel field=agent. action=model pins/clears its model; action=reasoning pins/clears its thinking effort.",
 			InputSchema: obj(map[string]any{
 				"action":    str("add, remove, model, or reasoning"),
 				"name":      str("agent name, e.g. personal, coder, researcher"),

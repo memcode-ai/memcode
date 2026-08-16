@@ -216,7 +216,7 @@ type Channel struct {
 	// routing (cheap for routine work). Lets a code-review channel run strong while
 	// a status channel stays cheap.
 	Tier string `yaml:"tier,omitempty"`
-	// Agent binds this channel to a agent by id (see Settings.Agents). Empty
+	// Agent binds this channel to an agent by id (see Settings.Agents). Empty
 	// means the gateway's plain default (no agent context layered on).
 	Agent string `yaml:"agent,omitempty"`
 	// Projects narrows which registered projects this channel may execute
@@ -358,7 +358,7 @@ func MediaDir() (string, error) {
 	return filepath.Join(dir, "media"), nil
 }
 
-// AgentHome is a agent's state directory: ~/.memcode/agents/<id>, holding its
+// AgentHome is an agent's state directory: ~/.memcode/agents/<id>, holding its
 // own memory.md, MEMCODE.md, and skills. Distinct from the project (the cwd) and
 // from user-global ~/.memcode (shared by all agents).
 func AgentHome(id string) (string, error) {

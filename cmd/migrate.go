@@ -60,14 +60,15 @@ directory:
 			return fmt.Errorf("no OpenClaw install found (looked in %s)", strings.Join(searched, ", "))
 		}
 		return runMigration(cmd, migrationSource{
-			display:    "OpenClaw",
-			slug:       "openclaw",
-			dir:        dir,
-			channels:   openClawChannels,
-			memory:     openClawMemory,
-			schedules:  importer.ImportOpenClawSchedules,
-			mcpServers: openClawMCP,
-			identity:   openClawIdentity,
+			display:     "OpenClaw",
+			slug:        "openclaw",
+			dir:         dir,
+			channels:    openClawChannels,
+			memory:      openClawMemory,
+			schedules:   importer.ImportOpenClawSchedules,
+			mcpServers:  openClawMCP,
+			identity:    openClawIdentity,
+			agentMemory: openClawAgentMemory,
 		})
 	},
 }
@@ -100,14 +101,15 @@ directory:
 			return fmt.Errorf("no Hermes install found (looked in %s)", filepath.Join(home, ".hermes"))
 		}
 		return runMigration(cmd, migrationSource{
-			display:    "Hermes",
-			slug:       "hermes",
-			dir:        dir,
-			channels:   hermesChannels,
-			memory:     hermesMemory,
-			schedules:  importer.ImportHermesSchedules,
-			mcpServers: hermesMCP,
-			identity:   hermesIdentity,
+			display:     "Hermes",
+			slug:        "hermes",
+			dir:         dir,
+			channels:    hermesChannels,
+			memory:      hermesMemory,
+			schedules:   importer.ImportHermesSchedules,
+			mcpServers:  hermesMCP,
+			identity:    hermesIdentity,
+			agentMemory: hermesAgentMemory,
 		})
 	},
 }
@@ -129,6 +131,11 @@ type migrationSource struct {
 	// identity reads the source agent's identity/agent files (SOUL.md and
 	// friends) verbatim — they seed a memcode agent, not global memory.
 	identity func(dir string) string
+	// agentMemory reads the source AGENT's memory (its MEMORY.md and daily
+	// files) — tiered into the migrated agent's own memory.md, never into
+	// user-global memory. Global memory gets only USER.md (facts about the
+	// user, which every agent shares).
+	agentMemory func(dir string) []string
 }
 
 // runMigration performs the full migration for a source: channels, provider API
@@ -225,7 +232,7 @@ func runMigration(cmd *cobra.Command, src migrationSource) error {
 		}
 	}
 
-	// 5. Identity → a agent. SOUL.md is the source AGENT's identity, so it
+	// 5. Identity → an agent. SOUL.md is the source AGENT's identity, so it
 	// becomes a memcode agent (its MEMCODE.md), not global memory: bind a
 	// channel to it and you're talking to the same assistant you migrated.
 	personaID := ""
@@ -262,7 +269,46 @@ func runMigration(cmd *cobra.Command, src migrationSource) error {
 		}
 	}
 
-	// 6. Memory → extracted from the source's markdown stores into global memory.md.
+	// 6. Agent memory → the migrated agent's OWN memory.md. The source agent's
+	// memory is that agent's, not the user's: it lands in the per-agent tier
+	// (~/.memcode/agents/<id>/memory.md) so it travels with the agent and never
+	// pollutes the memory every other agent shares.
+	agentMemCount := 0
+	if src.agentMemory != nil {
+		entries := dedupEntries(src.agentMemory(src.dir))
+		entries, truncated := capEntries(entries, memoryImportBudget)
+		if len(entries) > 0 {
+			id := src.slug
+			if home, herr := gwconfig.AgentHome(id); herr != nil {
+				res.Notes = append(res.Notes, fmt.Sprintf("agent memory: %v", herr))
+			} else if memPath := filepath.Join(home, "memory.md"); fileExists(memPath) {
+				res.Notes = append(res.Notes, fmt.Sprintf("agent memory: agent %q already has a memory.md — left yours; the source agent's memory was NOT merged", id))
+			} else if err := os.MkdirAll(home, 0o755); err != nil {
+				res.Notes = append(res.Notes, fmt.Sprintf("agent memory: %v", err))
+			} else if err := os.WriteFile(memPath, []byte(strings.Join(entries, "\n\n")+"\n"), 0o644); err != nil {
+				res.Notes = append(res.Notes, fmt.Sprintf("agent memory: %v", err))
+			} else {
+				agentMemCount = len(entries)
+				if truncated {
+					res.Notes = append(res.Notes, "agent memory: import capped — the oldest entries were left behind")
+				}
+				if _, ok := cur.Agents[id]; !ok {
+					if cur.Agents == nil {
+						cur.Agents = map[string]gwconfig.Agent{}
+					}
+					cur.Agents[id] = gwconfig.Agent{Type: "assistant"}
+					if err := gwconfig.Save(cur); err != nil {
+						res.Notes = append(res.Notes, fmt.Sprintf("agent memory: memory written but agent %q not registered: %v", id, err))
+					}
+				}
+				if personaID == "" {
+					personaID = id
+				}
+			}
+		}
+	}
+
+	// 7. User memory → extracted from the source's USER-tier files into global memory.md.
 	memCount, err := migrateMemories(src)
 	if err != nil {
 		return err
@@ -283,6 +329,9 @@ func runMigration(cmd *cobra.Command, src migrationSource) error {
 	}
 	if personaID != "" {
 		cmd.Printf("  identity:  SOUL.md → agent %q (~/.memcode/agents/%s/SOUL.md) — bind a channel with `channels.<name>.agent: %s`\n", personaID, personaID, personaID)
+	}
+	if agentMemCount > 0 {
+		cmd.Printf("  agent mem: %d entries → ~/.memcode/agents/%s/memory.md (that agent's own memory)\n", agentMemCount, src.slug)
 	}
 	if memCount > 0 {
 		cmd.Printf("  memory:    %d entries → ~/.memcode/memory.md (global, loaded every session)\n", memCount)
@@ -497,11 +546,12 @@ func migrateMemories(src migrationSource) (int, error) {
 	return len(entries), nil
 }
 
-// openClawMemory reads OpenClaw's workspace memory files — MEMORY.md, USER.md,
-// SOUL.md, AGENTS.md, and the daily memory/*.md files — and parses each into
-// entries. It searches the workspace directory the way OpenClaw itself lays it
-// out: the configured agents.defaults.workspace, then the default workspace/ and
-// its renamed variants (workspace-main, workspace-assistant).
+// openClawMemory reads the files that are about the USER — USER.md and
+// AGENTS.md (workspace operating notes) — into user-global memory. The agent's
+// OWN memory (MEMORY.md, daily files) is tiered into the migrated agent
+// instead: see openClawAgentMemory. It searches the workspace directory the
+// way OpenClaw itself lays it out: the configured agents.defaults.workspace,
+// then the default workspace/ and its renamed variants.
 func openClawMemory(dir string) []string {
 	roots := openClawWorkspaceRoots(dir)
 	var entries []string
@@ -513,10 +563,23 @@ func openClawMemory(dir string) []string {
 			}
 		}
 	}
-	readInto("MEMORY.md")
 	readInto("USER.md")
 	readInto("AGENTS.md")
-	// Daily memory files live under <workspace>/memory/.
+	return entries
+}
+
+// openClawAgentMemory reads the OpenClaw AGENT's own memory — the workspace
+// MEMORY.md and the daily memory/*.md files — for the migrated agent's
+// memory.md, never user-global memory.
+func openClawAgentMemory(dir string) []string {
+	roots := openClawWorkspaceRoots(dir)
+	var entries []string
+	for _, r := range roots {
+		if data, err := os.ReadFile(filepath.Join(r, "MEMORY.md")); err == nil {
+			entries = append(entries, extractMarkdownEntries(string(data))...)
+			break
+		}
+	}
 	for _, r := range roots {
 		md := filepath.Join(r, "memory")
 		files, err := os.ReadDir(md)
@@ -540,11 +603,13 @@ func openClawMemory(dir string) []string {
 	return entries
 }
 
-// hermesMemory reads Hermes's own store, ~/.hermes/memories/*.md, whose entries
-// are already discrete (context-prefixed when Hermes imported them) and
-// separated by bare § lines. Split on that delimiter rather than re-parsing the
-// markdown, matching Hermes's own destination parser.
-func hermesMemory(dir string) []string {
+// hermesMemoryEntries reads ~/.hermes/memories/*.md, whose entries are already
+// discrete (context-prefixed when Hermes imported them) and separated by bare §
+// lines — split on that delimiter, matching Hermes's own destination parser.
+// keepUser selects the tier: true = only USER.md (facts about the user, shared
+// by every agent → global memory); false = everything else (the agent's own
+// memory → the migrated agent's memory.md).
+func hermesMemoryEntries(dir string, keepUser bool) []string {
 	var entries []string
 	memDir := filepath.Join(dir, "memories")
 	files, err := os.ReadDir(memDir)
@@ -553,7 +618,11 @@ func hermesMemory(dir string) []string {
 	}
 	var names []string
 	for _, e := range files {
-		if !e.IsDir() && strings.EqualFold(filepath.Ext(e.Name()), ".md") {
+		if e.IsDir() || !strings.EqualFold(filepath.Ext(e.Name()), ".md") {
+			continue
+		}
+		isUser := strings.EqualFold(e.Name(), "USER.md")
+		if isUser == keepUser {
 			names = append(names, e.Name())
 		}
 	}
@@ -571,6 +640,9 @@ func hermesMemory(dir string) []string {
 	}
 	return entries
 }
+
+func hermesMemory(dir string) []string      { return hermesMemoryEntries(dir, true) }
+func hermesAgentMemory(dir string) []string { return hermesMemoryEntries(dir, false) }
 
 // openClawWorkspaceRoots returns the existing directories to search for OpenClaw
 // workspace files, in priority order: the workspace configured in openclaw.json,

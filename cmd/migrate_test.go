@@ -49,6 +49,9 @@ func TestRunMigrationOpenClaw(t *testing.T) {
 	// A daily memory file too.
 	mustMkdir(t, filepath.Join(ws, "memory"))
 	mustWrite(t, filepath.Join(ws, "memory", "2026-08-01.md"), "- Shipped the gateway\n")
+	// USER.md is about the user (global tier); SOUL.md is the agent's identity.
+	mustWrite(t, filepath.Join(ws, "USER.md"), "- Tim ships straight to main\n")
+	mustWrite(t, filepath.Join(ws, "SOUL.md"), "# Soul\nBe direct.\n")
 
 	dir, _ := openClawDir("")
 	if dir != src {
@@ -61,8 +64,10 @@ func TestRunMigrationOpenClaw(t *testing.T) {
 		cmd.SetOut(&buf)
 		if err := runMigration(cmd, migrationSource{
 			display: "OpenClaw", slug: "openclaw", dir: dir,
-			channels: openClawChannels,
-			memory:   openClawMemory,
+			channels:    openClawChannels,
+			memory:      openClawMemory,
+			identity:    openClawIdentity,
+			agentMemory: openClawAgentMemory,
 		}); err != nil {
 			t.Fatalf("runMigration: %v", err)
 		}
@@ -86,24 +91,37 @@ func TestRunMigrationOpenClaw(t *testing.T) {
 		t.Error("a directory without SKILL.md must not be imported as a skill")
 	}
 
-	// Memory extracted into global memory.md, with heading context and code/table
-	// content dropped.
-	mem := mustRead(t, filepath.Join(home, ".memcode", "memory.md"))
+	// TIERING: the agent's own memory (MEMORY.md + dailies) lands in the
+	// migrated agent's memory.md; user-global memory.md gets ONLY the
+	// user-tier files (USER.md) — never the agent's.
+	agentMem := mustRead(t, filepath.Join(home, ".memcode", "agents", "openclaw", "memory.md"))
 	for _, want := range []string{
 		"Preferences: Prefers Go over Python",
 		"Preferences: Uses tabs",
 		"Preferences > Editor: Works in Neovim.",
 		"Shipped the gateway",
 	} {
-		if !strings.Contains(mem, want) {
-			t.Errorf("memory.md missing entry %q; got:\n%s", want, mem)
+		if !strings.Contains(agentMem, want) {
+			t.Errorf("agent memory.md missing entry %q; got:\n%s", want, agentMem)
 		}
 	}
-	if strings.Contains(mem, "do not import this secret") {
-		t.Errorf("code-block content must be dropped; got:\n%s", mem)
+	if strings.Contains(agentMem, "do not import this secret") {
+		t.Errorf("code-block content must be dropped; got:\n%s", agentMem)
 	}
-	if strings.Contains(mem, "| col |") {
-		t.Errorf("table rows must be dropped; got:\n%s", mem)
+	if strings.Contains(agentMem, "| col |") {
+		t.Errorf("table rows must be dropped; got:\n%s", agentMem)
+	}
+	mem := mustRead(t, filepath.Join(home, ".memcode", "memory.md"))
+	if !strings.Contains(mem, "Tim ships straight to main") {
+		t.Errorf("global memory.md missing the USER.md entry; got:\n%s", mem)
+	}
+	if strings.Contains(mem, "Prefers Go over Python") || strings.Contains(mem, "Shipped the gateway") {
+		t.Errorf("the agent's own memory must NOT leak into global memory.md; got:\n%s", mem)
+	}
+	// Identity: SOUL.md becomes the migrated agent's SOUL.md, verbatim-ish.
+	soul := mustRead(t, filepath.Join(home, ".memcode", "agents", "openclaw", "SOUL.md"))
+	if !strings.Contains(soul, "Be direct.") {
+		t.Errorf("agent SOUL.md missing identity content; got:\n%s", soul)
 	}
 
 	// Re-run is idempotent: exactly one import block, not a duplicate.
@@ -143,15 +161,32 @@ func TestExtractMarkdownEntries(t *testing.T) {
 	}
 }
 
-func TestHermesMemorySplitsOnDelimiter(t *testing.T) {
+func TestHermesMemoryTiering(t *testing.T) {
 	dir := t.TempDir()
 	mustMkdir(t, filepath.Join(dir, "memories"))
 	mustWrite(t, filepath.Join(dir, "memories", "MEMORY.md"),
 		"First fact\n§\nSecond fact\n§\n  \n§\nThird fact")
-	got := hermesMemory(dir)
+	mustWrite(t, filepath.Join(dir, "memories", "USER.md"), "About the user")
+	// The agent's own memory: MEMORY.md entries, split on §, USER.md excluded.
+	got := hermesAgentMemory(dir)
 	want := []string{"First fact", "Second fact", "Third fact"}
 	if strings.Join(got, "|") != strings.Join(want, "|") {
-		t.Errorf("hermesMemory = %v, want %v", got, want)
+		t.Errorf("hermesAgentMemory = %v, want %v", got, want)
+	}
+	// Global memory: only USER.md.
+	if got := hermesMemory(dir); strings.Join(got, "|") != "About the user" {
+		t.Errorf("hermesMemory (user tier) = %v, want only USER.md content", got)
+	}
+}
+
+func TestHermesIdentityReadsSoul(t *testing.T) {
+	dir := t.TempDir()
+	mustWrite(t, filepath.Join(dir, "SOUL.md"), "# Soul\nWarm but blunt.")
+	if got := hermesIdentity(dir); !strings.Contains(got, "Warm but blunt.") {
+		t.Errorf("hermesIdentity = %q", got)
+	}
+	if got := hermesIdentity(t.TempDir()); got != "" {
+		t.Errorf("no SOUL.md must mean empty identity, got %q", got)
 	}
 }
 

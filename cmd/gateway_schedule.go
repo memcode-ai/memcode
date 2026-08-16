@@ -235,12 +235,37 @@ var gatewayScheduleEditCmd = &cobra.Command{
 	},
 }
 
+// scheduleRunTarget resolves the agent and project a run-now task snapshots,
+// mirroring the gateway's own Deliver-time resolution: the conversation's
+// explicit choice, else the channel/gateway defaults; the schedule's pinned
+// agent overrides (a Trusted fire carries it); the project always satisfies
+// the channel's project policy.
+func scheduleRunTarget(settings gwconfig.Settings, sc gwconfig.Schedule, channel, convAgent, convProject string) (agent, project string) {
+	agent = settings.Get(channel).Agent
+	project = settings.DefaultProject
+	if convAgent != "" {
+		agent = convAgent
+	}
+	if convProject != "" {
+		project = convProject
+	}
+	if sc.Agent != "" {
+		agent = sc.Agent
+	}
+	if !settings.ProjectAllowed(channel, project) {
+		if ps := settings.Get(channel).Projects; len(ps) > 0 {
+			project = ps[0]
+		}
+	}
+	return agent, project
+}
+
 var gatewayScheduleRunCmd = &cobra.Command{
 	Use:   "run <name>",
 	Short: "Run a schedule's task now, without waiting for its next fire",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		sc, _, err := findSchedule(args[0])
+		sc, settings, err := findSchedule(args[0])
 		if err != nil {
 			return err
 		}
@@ -253,12 +278,19 @@ var gatewayScheduleRunCmd = &cobra.Command{
 			return err
 		}
 		defer gw.Close()
+		// Snapshot the SAME selection a timed fire gets from Deliver — the
+		// conversation's chosen agent/project, else channel/gateway defaults,
+		// with the schedule's own agent pin winning — so run-now never silently
+		// downgrades to the gateway defaults.
+		convAgent, convProject, _ := gw.Conversation(cmd.Context(), ch, convo)
+		agent, project := scheduleRunTarget(settings, sc, ch, convAgent, convProject)
 		// Enqueue the same Trusted item a timed fire would; the running gateway's
 		// worker drains it within seconds.
 		_, err = gw.Accept(cmd.Context(), state.Item{
 			Channel: ch, Conversation: convo,
 			MessageID: fmt.Sprintf("cli:%s:%d", sc.Name, time.Now().UnixNano()),
 			Principal: "schedule:" + sc.Name, Text: sc.Task, Trusted: true,
+			Agent: agent, Project: project,
 		}, time.Now())
 		if err != nil {
 			return err

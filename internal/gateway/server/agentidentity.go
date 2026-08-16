@@ -72,7 +72,7 @@ func agentIdentityContext(agentID string) []agentrt.ContextItem {
 
 // agentSkillRoots returns the agent's own skills directory
 // (~/.memcode/agents/<id>/skills) when it exists — an extra discovery root that
-// ranks between repo-local and user-global skills, so a agent carries its own
+// ranks between repo-local and user-global skills, so an agent carries its own
 // capabilities without touching the project or the user's global skill set.
 func agentSkillRoots(agentID string) []string {
 	if agentID == "" {

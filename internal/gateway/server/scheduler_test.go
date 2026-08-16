@@ -98,10 +98,10 @@ func TestConversationSessionStable(t *testing.T) {
 		t.Error("distinct conversations must get distinct session ids")
 	}
 	if a == conversationSession("telegram", "42", "coder") {
-		t.Error("a agent must get its own session, not the default agent's transcript")
+		t.Error("an agent must get its own session, not the default agent's transcript")
 	}
 	if conversationSession("telegram", "42", "coder") != conversationSession("telegram", "42", "coder") {
-		t.Error("a agent's session id must be deterministic")
+		t.Error("an agent's session id must be deterministic")
 	}
 	if len(a) < 6 || a[:5] != "sess_" {
 		t.Errorf("session id must match the sess_ shape, got %q", a)
@@ -190,5 +190,61 @@ func TestApplySchedulesDisabledAndOneShot(t *testing.T) {
 	rt.applySchedules(ctx)
 	if len(rt.timers) != 0 {
 		t.Error("clearing schedules must drop armed one-shots")
+	}
+}
+
+// A schedule's pinned agent rides the Trusted inbound and overrides the
+// conversation's selection; the same field on an UNTRUSTED chat message is
+// ignored — senders pick agents via /agent, never through a message field.
+func TestAgentPinTrustedOnly(t *testing.T) {
+	ctx := context.Background()
+	gw, err := state.Open(ctx, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer gw.Close()
+
+	rt := &runtime{
+		gw: gw,
+		settings: gwconfig.Settings{Channels: map[string]gwconfig.Channel{
+			"telegram": {Agent: "personal", AllowFrom: []string{"u1"}},
+		}},
+		byName: map[string]replySender{"telegram": fakeSender{}},
+		out:    io.Discard,
+		notify: make(chan struct{}, 1),
+	}
+
+	// Trusted fire with a pinned agent → the item snapshots that agent.
+	if err := rt.Deliver(ctx, channels.Inbound{
+		Channel: "telegram", Conversation: "42", Principal: "schedule:x",
+		Text: "do it", Trusted: true, Agent: "researcher", MessageID: "m1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Untrusted chat message trying to smuggle the same field → ignored; the
+	// channel's bound agent is snapshotted instead.
+	if err := rt.Deliver(ctx, channels.Inbound{
+		Channel: "telegram", Conversation: "42", Principal: "u1",
+		Text: "hi", IsDirect: true, Agent: "researcher", MessageID: "m2",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	pending, err := gw.Pending(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pending) != 2 {
+		t.Fatalf("want 2 pending items, got %d", len(pending))
+	}
+	byID := map[string]state.Item{}
+	for _, it := range pending {
+		byID[it.MessageID] = it
+	}
+	if got := byID["m1"].Agent; got != "researcher" {
+		t.Errorf("trusted pin: item agent = %q, want researcher", got)
+	}
+	if got := byID["m2"].Agent; got != "personal" {
+		t.Errorf("untrusted message must not smuggle an agent pin: got %q, want the channel's bound agent", got)
 	}
 }
