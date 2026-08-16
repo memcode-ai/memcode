@@ -8,7 +8,7 @@ import (
 // ContextItem is one piece of supplemental context handed to the engine by a
 // caller (the agent runtime, an API, CI). The engine stays ignorant of where it
 // came from: Kind is a GENERIC content class, never an orchestration concept like
-// "persona", "user", "channel", or "conversation". Those live above the engine
+// "agent", "user", "channel", or "conversation". Those live above the engine
 // and are flattened into these generic items before an invocation.
 type ContextItem struct {
 	Kind    string `json:"kind"`

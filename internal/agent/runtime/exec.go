@@ -703,7 +703,7 @@ func reviewTool(name string) bool {
 func (s *Session) toolDefs() []wire.ToolDef {
 	if s.adminMode {
 		// Admin sessions get the admin registry plus a small file surface for
-		// persona homes (instructions, memory, skills): read/edit/search/bash
+		// agent homes (instructions, memory, skills): read/edit/search/bash
 		// and ask_user. No MCP, no browser, no repo/coding tools — config
 		// changes go through the typed gw_* tools, which validate and
 		// hot-reload.

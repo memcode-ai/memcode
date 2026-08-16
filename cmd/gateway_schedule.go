@@ -388,7 +388,7 @@ func scheduleSpecFlags(c *cobra.Command) {
 	c.Flags().StringVar(&scheduleAt, "at", "", "one-shot: a duration from now (30m) or a date-time (2026-03-01T09:00)")
 	c.Flags().StringVar(&scheduleTo, "to", "", "where the result is delivered: \"channel:conversation\"")
 	c.Flags().StringVar(&scheduleTZ, "tz", "", "evaluate --cron in this zone, e.g. America/Los_Angeles (default: local)")
-	c.Flags().StringVar(&scheduleAgent, "agent", "", "run as this persona (its pinned model and instructions apply)")
+	c.Flags().StringVar(&scheduleAgent, "agent", "", "run as this agent (its pinned model and instructions apply)")
 }
 
 func init() {

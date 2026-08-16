@@ -99,7 +99,7 @@ func HermesSchedules(data []byte) ([]gwconfig.Schedule, []string) {
 			sch.Disabled = true
 		}
 		if strings.TrimSpace(j.Model) != "" {
-			notes = append(notes, fmt.Sprintf("cron: job %q was pinned to model %s — in memcode the model lives on the persona: set agents.<name>.model (or tell `memcode admin`) and bind the conversation to it", name, strings.TrimSpace(j.Model)))
+			notes = append(notes, fmt.Sprintf("cron: job %q was pinned to model %s — in memcode the model lives on the agent: set agents.<name>.model (or tell `memcode admin`) and bind the conversation to it", name, strings.TrimSpace(j.Model)))
 		}
 		if len(j.Skills) > 0 {
 			notes = append(notes, fmt.Sprintf("cron: job %q used Hermes skills (%s); imported memcode skills join discovery automatically", name, strings.Join(j.Skills, ", ")))

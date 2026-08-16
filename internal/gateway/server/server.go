@@ -284,10 +284,10 @@ func (r *runtime) fireSchedule(ctx context.Context, sch gwconfig.Schedule, chann
 }
 
 // conversationSession derives a stable session id for a (channel, conversation,
-// persona) so every message in that conversation resumes the same agent session.
-// The persona is part of the key: switching /agent switches to that persona's OWN
-// transcript instead of inheriting the previous persona's, and switching back
-// resumes where that persona left off. It's deterministic, so no mapping needs to
+// agent) so every message in that conversation resumes the same agent session.
+// The agent is part of the key: switching /agent switches to that agent's OWN
+// transcript instead of inheriting the previous agent's, and switching back
+// resumes where that agent left off. It's deterministic, so no mapping needs to
 // be stored; the child resumes it if the transcript exists and creates it under
 // this id otherwise. Matches the "sess_" id shape the runtime uses. (The project
 // needs no key part: transcripts live under the project root, so a different
@@ -388,11 +388,11 @@ func (r *runtime) Deliver(ctx context.Context, inb channels.Inbound) error {
 	if r.handleCommand(ctx, inb) {
 		return nil
 	}
-	// Snapshot the conversation's current persona + project at receipt, so a later
+	// Snapshot the conversation's current agent + project at receipt, so a later
 	// /project changes only the NEXT task, never this queued one.
 	agent, project := r.resolveSelection(ctx, inb.Channel, inb.Conversation)
 	if inb.Trusted && inb.Agent != "" {
-		agent = inb.Agent // a schedule's pinned persona overrides the conversation's
+		agent = inb.Agent // a schedule's pinned agent overrides the conversation's
 	}
 	ids := make([]string, 0, len(inb.Attachments))
 	for _, a := range inb.Attachments {
@@ -529,14 +529,14 @@ func (r *runtime) runJob(ctx context.Context, it state.Item) {
 		return
 	}
 	it.Text = task
-	// Compose the snapshotted persona's context + skill roots + this message's
+	// Compose the snapshotted agent's context + skill roots + this message's
 	// media (as spool IDs) and persist it keyed by session; the spawned child
-	// self-discovers it (no jobs.Spawn signature change). No persona and no media
+	// self-discovers it (no jobs.Spawn signature change). No agent and no media
 	// → empty envelope → the coding engine runs exactly as the CLI.
 	jc := jobContextFor(it.Agent)
 	jc.Attachments = rest
 	if it.Agent != "" {
-		jc.Model = settings.Agents[it.Agent].Model // persona's pinned model drives its runs
+		jc.Model = settings.Agents[it.Agent].Model // agent's pinned model drives its runs
 		jc.Reasoning = settings.Agents[it.Agent].Reasoning
 	}
 	if err := writeContext(session, jc); err != nil {

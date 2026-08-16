@@ -120,7 +120,7 @@ func adminOverview(ctx context.Context) (string, error) {
 		}
 		fmt.Fprintf(&b, "- %s: %s enabled=%v%s\n", id, p.Path, p.Enabled, def)
 	}
-	b.WriteString("\nAGENTS (personas):\n")
+	b.WriteString("\nAGENTS (agents):\n")
 	if len(settings.Agents) == 0 {
 		b.WriteString("- none\n")
 	}
@@ -221,7 +221,7 @@ func adminChannel(input json.RawMessage) (string, error) {
 	case "agent":
 		if val != "" {
 			if _, ok := settings.Agents[val]; !ok {
-				return "", fmt.Errorf("no persona %q — create it first with gw_agent", val)
+				return "", fmt.Errorf("no agent %q — create it first with gw_agent", val)
 			}
 		}
 		ch.Agent = val
@@ -411,7 +411,7 @@ func adminAgent(input json.RawMessage) (string, error) {
 	action := strings.ToLower(strings.TrimSpace(in.Action))
 	name := strings.TrimSpace(in.Name)
 	if name == "" {
-		return "", fmt.Errorf("a persona needs a name")
+		return "", fmt.Errorf("a agent needs a name")
 	}
 	settings, err := gwconfig.Load()
 	if err != nil {
@@ -427,20 +427,20 @@ func adminAgent(input json.RawMessage) (string, error) {
 			return "", fmt.Errorf("type must be assistant, coding, or research")
 		}
 		if settings.Agents == nil {
-			settings.Agents = map[string]gwconfig.Persona{}
+			settings.Agents = map[string]gwconfig.Agent{}
 		}
 		if r := strings.TrimSpace(in.Reasoning); r != "" && r != "off" && r != "medium" && r != "high" {
 			return "", fmt.Errorf("reasoning must be off, medium, or high")
 		}
-		settings.Agents[name] = gwconfig.Persona{Type: typ, Model: strings.TrimSpace(in.Model), Reasoning: strings.TrimSpace(in.Reasoning)}
+		settings.Agents[name] = gwconfig.Agent{Type: typ, Model: strings.TrimSpace(in.Model), Reasoning: strings.TrimSpace(in.Reasoning)}
 		if err := gwconfig.Save(settings); err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("Created persona %s (type %s). Bind a channel to it with gw_channel field=agent; its standing instructions live at ~/.memcode/agents/%s/MEMCODE.md.", name, typ, name), nil
+		return fmt.Sprintf("Created agent %s (type %s). Bind a channel to it with gw_channel field=agent; its standing instructions live at ~/.memcode/agents/%s/MEMCODE.md.", name, typ, name), nil
 	case "reasoning":
 		p, ok := settings.Agents[name]
 		if !ok {
-			return "", fmt.Errorf("no persona %q", name)
+			return "", fmt.Errorf("no agent %q", name)
 		}
 		r := strings.TrimSpace(in.Reasoning)
 		if r != "" && r != "off" && r != "medium" && r != "high" {
@@ -452,13 +452,13 @@ func adminAgent(input json.RawMessage) (string, error) {
 			return "", err
 		}
 		if r == "" {
-			return fmt.Sprintf("Persona %s back on automatic per-turn reasoning.", name), nil
+			return fmt.Sprintf("Agent %s back on automatic per-turn reasoning.", name), nil
 		}
-		return fmt.Sprintf("Persona %s now thinks at %s effort everywhere it answers.", name, r), nil
+		return fmt.Sprintf("Agent %s now thinks at %s effort everywhere it answers.", name, r), nil
 	case "model":
 		p, ok := settings.Agents[name]
 		if !ok {
-			return "", fmt.Errorf("no persona %q", name)
+			return "", fmt.Errorf("no agent %q", name)
 		}
 		p.Model = strings.TrimSpace(in.Model)
 		settings.Agents[name] = p
@@ -466,23 +466,23 @@ func adminAgent(input json.RawMessage) (string, error) {
 			return "", err
 		}
 		if p.Model == "" {
-			return fmt.Sprintf("Persona %s back on automatic model routing.", name), nil
+			return fmt.Sprintf("Agent %s back on automatic model routing.", name), nil
 		}
-		return fmt.Sprintf("Persona %s now runs on %s everywhere it answers.", name, p.Model), nil
+		return fmt.Sprintf("Agent %s now runs on %s everywhere it answers.", name, p.Model), nil
 	case "remove":
 		if _, ok := settings.Agents[name]; !ok {
-			return "", fmt.Errorf("no persona %q", name)
+			return "", fmt.Errorf("no agent %q", name)
 		}
 		for chName, ch := range settings.Channels {
 			if ch.Agent == name {
-				return "", fmt.Errorf("persona %q is bound to channel %s — unbind it first", name, chName)
+				return "", fmt.Errorf("agent %q is bound to channel %s — unbind it first", name, chName)
 			}
 		}
 		delete(settings.Agents, name)
 		if err := gwconfig.Save(settings); err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("Removed persona %s. Its home under ~/.memcode/agents is kept; delete it yourself if you want the memory gone.", name), nil
+		return fmt.Sprintf("Removed agent %s. Its home under ~/.memcode/agents is kept; delete it yourself if you want the memory gone.", name), nil
 	}
 	return "", fmt.Errorf("action must be add, remove, enable, or disable")
 }

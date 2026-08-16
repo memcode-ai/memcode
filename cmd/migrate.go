@@ -126,8 +126,8 @@ type migrationSource struct {
 	schedules func(dir string) ([]gwconfig.Schedule, []string)
 	// mcpServers reads the source's MCP server config into memcode's shape.
 	mcpServers func(dir string) (map[string]mcp.ServerConfig, []string)
-	// identity reads the source agent's identity/persona files (SOUL.md and
-	// friends) verbatim — they seed a memcode persona, not global memory.
+	// identity reads the source agent's identity/agent files (SOUL.md and
+	// friends) verbatim — they seed a memcode agent, not global memory.
 	identity func(dir string) string
 }
 
@@ -225,20 +225,20 @@ func runMigration(cmd *cobra.Command, src migrationSource) error {
 		}
 	}
 
-	// 5. Identity → a persona. SOUL.md is the source AGENT's identity, so it
-	// becomes a memcode persona (its MEMCODE.md), not global memory: bind a
+	// 5. Identity → a agent. SOUL.md is the source AGENT's identity, so it
+	// becomes a memcode agent (its MEMCODE.md), not global memory: bind a
 	// channel to it and you're talking to the same assistant you migrated.
 	personaID := ""
 	if src.identity != nil {
 		if content := strings.TrimSpace(src.identity(src.dir)); content != "" {
 			id := src.slug
-			home, herr := gwconfig.PersonaHome(id)
+			home, herr := gwconfig.AgentHome(id)
 			mcPath := filepath.Join(home, "SOUL.md")
 			switch {
 			case herr != nil:
-				res.Notes = append(res.Notes, fmt.Sprintf("identity: could not resolve the persona home: %v", herr))
+				res.Notes = append(res.Notes, fmt.Sprintf("identity: could not resolve the agent home: %v", herr))
 			case fileExists(mcPath):
-				res.Notes = append(res.Notes, fmt.Sprintf("identity: persona %q already has a SOUL.md — left yours in place; the source's was NOT copied", id))
+				res.Notes = append(res.Notes, fmt.Sprintf("identity: agent %q already has a SOUL.md — left yours in place; the source's was NOT copied", id))
 			default:
 				if err := os.MkdirAll(home, 0o755); err != nil {
 					res.Notes = append(res.Notes, fmt.Sprintf("identity: %v", err))
@@ -249,12 +249,12 @@ func runMigration(cmd *cobra.Command, src migrationSource) error {
 					break
 				}
 				if cur.Agents == nil {
-					cur.Agents = map[string]gwconfig.Persona{}
+					cur.Agents = map[string]gwconfig.Agent{}
 				}
 				if _, ok := cur.Agents[id]; !ok {
-					cur.Agents[id] = gwconfig.Persona{Type: "assistant"}
+					cur.Agents[id] = gwconfig.Agent{Type: "assistant"}
 					if err := gwconfig.Save(cur); err != nil {
-						res.Notes = append(res.Notes, fmt.Sprintf("identity: persona %q written but not registered: %v", id, err))
+						res.Notes = append(res.Notes, fmt.Sprintf("identity: agent %q written but not registered: %v", id, err))
 					}
 				}
 				personaID = id
@@ -282,7 +282,7 @@ func runMigration(cmd *cobra.Command, src migrationSource) error {
 		cmd.Printf("  mcp:       %d server(s) → ~/.memcode/mcp.json (user scope, all projects)\n", mcpCount)
 	}
 	if personaID != "" {
-		cmd.Printf("  identity:  SOUL.md → persona %q (~/.memcode/agents/%s/SOUL.md) — bind a channel with `channels.<name>.agent: %s`\n", personaID, personaID, personaID)
+		cmd.Printf("  identity:  SOUL.md → agent %q (~/.memcode/agents/%s/SOUL.md) — bind a channel with `channels.<name>.agent: %s`\n", personaID, personaID, personaID)
 	}
 	if memCount > 0 {
 		cmd.Printf("  memory:    %d entries → ~/.memcode/memory.md (global, loaded every session)\n", memCount)

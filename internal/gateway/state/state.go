@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS inbox (
     trusted      INTEGER NOT NULL,
     status       TEXT NOT NULL,          -- 'pending' | 'replied' | 'done'
     reply        TEXT NOT NULL DEFAULT '', -- the job's result, held durably until delivered
-    agent        TEXT NOT NULL DEFAULT '', -- persona snapshot at receipt (immutable for this task)
+    agent        TEXT NOT NULL DEFAULT '', -- agent snapshot at receipt (immutable for this task)
     project      TEXT NOT NULL DEFAULT '', -- project id snapshot at receipt (immutable for this task)
     attachments  TEXT NOT NULL DEFAULT '', -- JSON array of media spool IDs riding this message
     voice        TEXT NOT NULL DEFAULT '', -- spool ID of the synthesized voice reply (synthesized ONCE, at job completion)
@@ -55,7 +55,7 @@ CREATE TABLE IF NOT EXISTS cursors (
     cursor  TEXT NOT NULL
 );
 
--- Durable per-conversation selection: which persona and project this
+-- Durable per-conversation selection: which agent and project this
 -- conversation is currently pointed at. /agent and /project update these; a task
 -- snapshots them at receipt, so changing them affects only subsequent tasks.
 CREATE TABLE IF NOT EXISTS conversations (
@@ -109,7 +109,7 @@ type Item struct {
 	Text         string
 	Trusted      bool
 	Reply        string
-	Agent        string   // persona snapshot at receipt
+	Agent        string   // agent snapshot at receipt
 	Project      string   // project id snapshot at receipt
 	Attachments  []string // media spool IDs (bare filenames; resolved only inside the spool)
 	Voice        string   // spool ID of the synthesized voice reply ("" = text only)
@@ -365,7 +365,7 @@ func (s *Store) SetCursor(ctx context.Context, channel, cursor string) error {
 	return nil
 }
 
-// Conversation returns the persona and project this conversation currently
+// Conversation returns the agent and project this conversation currently
 // points at (empty when unset — the caller applies channel/gateway defaults).
 func (s *Store) Conversation(ctx context.Context, channel, conversation string) (agent, project string, err error) {
 	err = s.db.QueryRowContext(ctx,
@@ -380,7 +380,7 @@ func (s *Store) Conversation(ctx context.Context, channel, conversation string) 
 	return agent, project, nil
 }
 
-// SetConversationAgent points a conversation at a persona for its SUBSEQUENT
+// SetConversationAgent points a conversation at a agent for its SUBSEQUENT
 // tasks (upsert, preserving the current project).
 func (s *Store) SetConversationAgent(ctx context.Context, channel, conversation, agent string) error {
 	_, err := s.db.ExecContext(ctx,

@@ -8,10 +8,10 @@ import "github.com/memcode-ai/memcode/internal/wire"
 
 const (
 	GwOverview = "gw_overview" // full current state: channels, projects, agents, schedules, pending pairings
-	GwChannel  = "gw_channel"  // per-channel settings: allow list, persona, tier, pairing, voice, group behavior
+	GwChannel  = "gw_channel"  // per-channel settings: allow list, agent, tier, pairing, voice, group behavior
 	GwPairing  = "gw_pairing"  // approve/deny a pending pairing code
 	GwProject  = "gw_project"  // register/remove working directories
-	GwAgent    = "gw_agent"    // create/remove personas
+	GwAgent    = "gw_agent"    // create/remove agents
 	GwSchedule = "gw_schedule" // recurring tasks (cron)
 	GwService  = "gw_service"  // the background daemon: status, install, uninstall
 )
@@ -21,12 +21,12 @@ func AdminDefs() []wire.ToolDef {
 	return []wire.ToolDef{
 		{
 			Name:        GwOverview,
-			Description: "Read the full current configuration and live state: every channel (configured or not, allow list, persona, tier, pairing, voice replies), registered projects, personas, schedules, and pending pairing requests. Call this before answering questions about current state.",
+			Description: "Read the full current configuration and live state: every channel (configured or not, allow list, agent, tier, pairing, voice replies), registered projects, agents, schedules, and pending pairing requests. Call this before answering questions about current state.",
 			InputSchema: obj(map[string]any{}),
 		},
 		{
 			Name:        GwChannel,
-			Description: "Change one channel's settings. Fields: allow_add / allow_remove (a stable user id, or \"*\" for anyone), agent (persona name), tier (\"\", \"strong\", \"frontier\"), pairing (\"true\"/\"false\" — offer codes to unknown DM senders), respond_to_all (\"true\"/\"false\" — act on every group message), voice_replies (\"off\", \"in_kind\", \"always\"), poll (email only, a duration like \"30s\"), projects (comma-separated project ids this channel is limited to; empty clears the limit).",
+			Description: "Change one channel's settings. Fields: allow_add / allow_remove (a stable user id, or \"*\" for anyone), agent (agent name), tier (\"\", \"strong\", \"frontier\"), pairing (\"true\"/\"false\" — offer codes to unknown DM senders), respond_to_all (\"true\"/\"false\" — act on every group message), voice_replies (\"off\", \"in_kind\", \"always\"), poll (email only, a duration like \"30s\"), projects (comma-separated project ids this channel is limited to; empty clears the limit).",
 			InputSchema: obj(map[string]any{
 				"channel": str("channel name: telegram, discord, slack, email, signal, matrix, mattermost, msteams, googlechat, sms, github, whatsapp"),
 				"field":   str("one of: allow_add, allow_remove, agent, tier, pairing, respond_to_all, voice_replies, poll, projects"),
@@ -52,12 +52,12 @@ func AdminDefs() []wire.ToolDef {
 		},
 		{
 			Name:        GwAgent,
-			Description: "Create or remove a persona: a lasting assistant identity with its own memory and skills (identity file: ~/.memcode/agents/<name>/SOUL.md). Bind a channel to one with gw_channel field=agent. action=model pins/clears its model; action=reasoning pins/clears its thinking effort.",
+			Description: "Create or remove a agent: a lasting assistant identity with its own memory and skills (identity file: ~/.memcode/agents/<name>/SOUL.md). Bind a channel to one with gw_channel field=agent. action=model pins/clears its model; action=reasoning pins/clears its thinking effort.",
 			InputSchema: obj(map[string]any{
 				"action":    str("add, remove, model, or reasoning"),
-				"name":      str("persona name, e.g. personal, coder, researcher"),
+				"name":      str("agent name, e.g. personal, coder, researcher"),
 				"type":      str("add only: assistant (default), coding, or research"),
-				"model":     str("add/model: pin the model that drives this persona everywhere (catalog id, e.g. \"claude-sonnet-5\"); empty = automatic routing"),
+				"model":     str("add/model: pin the model that drives this agent everywhere (catalog id, e.g. \"claude-sonnet-5\"); empty = automatic routing"),
 				"reasoning": str("add/reasoning: pin thinking effort — off, medium, or high; empty = per-turn automatic"),
 			}, "action", "name"),
 		},
@@ -72,7 +72,7 @@ func AdminDefs() []wire.ToolDef {
 				"at":         str("add only: one-shot RFC3339 time, e.g. \"2026-03-01T09:00:00Z\""),
 				"task":       str("add only: the task to run, in plain language"),
 				"deliver_to": str("add only: where the result goes, channel:conversation"),
-				"agent":      str("add only: run as this persona (its pinned model and instructions apply)"),
+				"agent":      str("add only: run as this agent (its pinned model and instructions apply)"),
 			}, "action", "name"),
 		},
 		{

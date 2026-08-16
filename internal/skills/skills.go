@@ -60,7 +60,7 @@ type rootSpec struct {
 //   - Claude Code:           .claude/skills (anywhere in the repo) + user ~/.claude/{skills,plugins}
 //
 // Repo-local dirs (including nested ones) outrank caller-supplied extra roots
-// (a gateway persona's own skills — more specific than the user), which outrank
+// (a gateway agent's own skills — more specific than the user), which outrank
 // user-global ones.
 func discoveryRoots(repoRoot string, extra []string) []rootSpec {
 	roots := []rootSpec{{filepath.Join(repoRoot, ".memcode", "skills"), 0}}
@@ -132,7 +132,7 @@ func nestedSkillDirs(repoRoot string) []string {
 func Discover(repoRoot string) []Skill { return DiscoverIn(repoRoot, nil) }
 
 // DiscoverIn is Discover plus caller-supplied extra roots (e.g. a gateway
-// persona's own skills dir), which rank between repo-local and user-global.
+// agent's own skills dir), which rank between repo-local and user-global.
 func DiscoverIn(repoRoot string, extraRoots []string) []Skill {
 	var cands []candidate
 	for _, r := range discoveryRoots(repoRoot, extraRoots) {

@@ -31,7 +31,7 @@ func TestHandleCommandAndSelection(t *testing.T) {
 		gw: gw,
 		settings: gwconfig.Settings{
 			Channels:       map[string]gwconfig.Channel{"telegram": {Agent: "personal"}},
-			Agents:         map[string]gwconfig.Persona{"personal": {}, "coder": {}},
+			Agents:         map[string]gwconfig.Agent{"personal": {}, "coder": {}},
 			Projects:       map[string]gwconfig.Project{"memcode": {Path: t.TempDir(), Enabled: true}},
 			DefaultProject: "memcode",
 		},
@@ -48,7 +48,7 @@ func TestHandleCommandAndSelection(t *testing.T) {
 		t.Errorf("unknown agent must not change selection, got %q", a)
 	}
 
-	// Valid /agent switches the conversation's persona.
+	// Valid /agent switches the conversation's agent.
 	rt.handleCommand(ctx, channels.Inbound{Channel: "telegram", Conversation: "1", Text: "/agent coder"})
 	if a, _, _ := gw.Conversation(ctx, "telegram", "1"); a != "coder" {
 		t.Errorf("agent = %q, want coder", a)

@@ -209,7 +209,7 @@ func TestBuildSymbolMapOnThisModule(t *testing.T) {
 	// the default map (the exact top-N ordering is rank-dependent; the test pins
 	// presence, not order).
 	central := 0
-	for _, marker := range []string{"internal/store/", "internal/events/", "internal/llm/", "internal/agent/", "internal/config/", "internal/vxui/", "internal/provider/"} {
+	for _, marker := range []string{"internal/store/", "internal/events/", "internal/llm/", "internal/agent/", "internal/config/", "internal/vxui/", "internal/provider/", "internal/gateway/", "internal/channels/"} {
 		if strings.Contains(digest, marker) {
 			central++
 		}

@@ -11,7 +11,7 @@ import (
 )
 
 // jobContext mirrors the envelope the gateway persists at gwconfig.ContextPath —
-// the persona's supplemental context, its extra skill roots, and this task's
+// the agent's supplemental context, its extra skill roots, and this task's
 // media as spool IDs. The JSON shape is the contract with internal/gateway/server.
 type jobContext struct {
 	Items      []runtime.ContextItem `json:"items,omitempty"`
@@ -21,10 +21,10 @@ type jobContext struct {
 	// paths: the spool is the trust boundary, so a corrupted context file cannot
 	// point this job at arbitrary local files.
 	Attachments []string `json:"attachments,omitempty"`
-	// Model is the persona's pinned model; when set it drives this run in place
+	// Model is the agent's pinned model; when set it drives this run in place
 	// of the config default.
 	Model string `json:"model,omitempty"`
-	// Reasoning is the persona's pinned thinking effort ("off"|"medium"|"high").
+	// Reasoning is the agent's pinned thinking effort ("off"|"medium"|"high").
 	Reasoning string `json:"reasoning,omitempty"`
 }
 
@@ -59,7 +59,7 @@ func resolveJobAttachments(ids []string) []input.Attachment {
 }
 
 // loadJobContext reads the job context the gateway persisted for this session
-// (persona context and skill roots composed above the engine). Returns a zero
+// (agent context and skill roots composed above the engine). Returns a zero
 // envelope when there is none — which is always the case for the interactive
 // CLI, since only the gateway sets --session and writes this file, so the
 // engine runs unchanged by default. A file in the pre-envelope shape (a bare

@@ -80,7 +80,7 @@ for local gateway development. Never store keys in .memcode.`,
 		}
 
 		model := provider.EffectiveModel(cfg.Models.Coder)
-		// A gateway persona may pin the model that drives it (agents.<name>.model);
+		// A gateway agent may pin the model that drives it (agents.<name>.model);
 		// the pin rides the session's job-context envelope and replaces the config
 		// default here, before session construction.
 		gwSession, _ := cmd.Flags().GetString("session")
@@ -153,11 +153,11 @@ for local gateway development. Never store keys in .memcode.`,
 			if sessionID := gwSession; sessionID != "" {
 				sess.SetSessionID(sessionID)
 				if gwContext.Reasoning != "" {
-					sess.SetEffortOverride(gwContext.Reasoning) // persona's pinned thinking effort
+					sess.SetEffortOverride(gwContext.Reasoning) // agent's pinned thinking effort
 				}
 				if jc := gwContext; len(jc.Items) > 0 || len(jc.SkillRoots) > 0 || len(jc.Attachments) > 0 {
-					sess.SetContext(jc.Items)                                      // gateway-supplied persona/user context for this run
-					sess.SetSkillRoots(jc.SkillRoots)                              // persona's own skills join discovery
+					sess.SetContext(jc.Items)                                      // gateway-supplied agent/user context for this run
+					sess.SetSkillRoots(jc.SkillRoots)                              // agent's own skills join discovery
 					sess.SetTaskAttachments(resolveJobAttachments(jc.Attachments)) // channel media rides this turn
 				}
 				if _, err := runtime.ResolveSession(cfg.Root, sessionID); err == nil {

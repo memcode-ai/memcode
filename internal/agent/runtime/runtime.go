@@ -154,7 +154,7 @@ type Session struct {
 	userMd            string             // user's MEMCODE.md instructions, loaded once per session, injected every turn
 	memoryMd          string             // durable memory (global + project memory.md), loaded once per session, injected every turn
 	supplemental      []ContextItem      // caller-supplied supplemental context (empty for the CLI/Desktop; set only by the agent runtime), injected every turn
-	extraSkillRoots   []string           // caller-supplied extra skill roots (a gateway persona's skills dir); empty for the CLI/Desktop
+	extraSkillRoots   []string           // caller-supplied extra skill roots (a gateway agent's skills dir); empty for the CLI/Desktop
 	taskAttachments   []input.Attachment // caller-resolved attachments for the next submitted turn (gateway channel media); consumed by Submit
 	editsAllowed      bool               // user said "don't ask again for edits" this session (scoped: edits only, not commands; never catastrophic)
 
@@ -404,8 +404,8 @@ func (s *Session) SetSessionID(id string) { s.pinnedID = id }
 func (s *Session) SetContext(items []ContextItem) { s.supplemental = items }
 
 // SetSkillRoots supplies caller-provided EXTRA skill discovery roots (e.g. a
-// gateway persona's own skills dir). They rank between repo-local and
-// user-global skills, so a persona can carry capabilities without editing the
+// gateway agent's own skills dir). They rank between repo-local and
+// user-global skills, so a agent can carry capabilities without editing the
 // project or the user's global skill set. Empty for the CLI and Desktop.
 func (s *Session) SetSkillRoots(roots []string) { s.extraSkillRoots = roots }
 

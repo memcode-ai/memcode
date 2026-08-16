@@ -78,7 +78,7 @@ channels:
     allow_from: ["123456789"]           # STABLE user ids (not @handles); "*" = anyone
     # respond_to_all: true              # act on every message in a group (default: mention required)
     # tier: strong                      # route this channel to a stronger model (strong|frontier)
-    # agent: personal                   # bind this channel to a persona (see agents:)
+    # agent: personal                   # bind this channel to an agent (see agents:)
     # projects: [www]                   # restrict /project on this channel to these ids
   github:
     reply_to: "telegram:123456789"      # where CI-failure results are posted
@@ -90,7 +90,7 @@ projects:                                # written by `memcode project add`
   memcode: { path: ~/github/memcode, enabled: true }
   www:     { path: ~/github/www, enabled: true }
 default_project: memcode
-agents:                                  # durable personas; state in ~/.memcode/agents/<id>
+agents:                                  # durable agents; identity + state in ~/.memcode/agents/<id>
   personal: { type: assistant }
   coder:    { type: coding }
 schedules:
@@ -102,8 +102,8 @@ schedules:
 
 Conversations are **stateful**: each `(channel, conversation, agent)` keeps its
 own agent session, so follow-up messages continue with context instead of
-starting fresh — and each persona keeps its own transcript, so switching
-`/agent` never inherits another persona's conversation. Per-channel `tier`
+starting fresh — and each agent keeps its own transcript, so switching
+`/agent` never inherits another agent's conversation. Per-channel `tier`
 routes a channel to a stronger model (a code-review channel can run strong while
 a status channel stays cheap).
 
@@ -118,13 +118,13 @@ conversation hasn't chosen, and `channels.<name>.projects` narrows a channel to
 a subset of the registry, so a shared group channel can't be pointed at your
 other repos.
 
-## Agents (personas)
+## Agents (agents)
 
-`agents:` declares durable personas. Each has a home at `~/.memcode/agents/<id>`
+`agents:` declares durable agents. Each has a home at `~/.memcode/agents/<id>`
 holding its own `MEMCODE.md` (instructions), `memory.md`, and `skills/` — layered
 onto the run as supplemental context and an extra skill root, above whatever the
-project itself provides. A channel binds to a persona with `channels.<name>.agent`,
-and a conversation switches with `/agent <id>`. Each persona gets its own session
+project itself provides. A channel binds to a agent with `channels.<name>.agent`,
+and a conversation switches with `/agent <id>`. Each agent gets its own session
 transcript per conversation.
 
 ## Authorization and triggering
@@ -218,8 +218,8 @@ memcode gateway schedule disable standup      # pause; enable resumes
 memcode gateway schedule remove standup
 ```
 
-A schedule can run as a specific persona (`--agent`, or `agent:` in yaml) —
-bringing that persona's instructions, memory, and pinned model
+A schedule can run as a specific agent (`--agent`, or `agent:` in yaml) —
+bringing that agent's instructions, memory, and pinned model
 (`agents.<name>.model`) — and evaluate cron in a named zone (`--tz`).
 
 `cron` and `automations` are accepted aliases for `schedule` (OpenClaw/Hermes
@@ -229,7 +229,7 @@ over where the source stores them readably (Hermes jobs.json, OpenClaw's legacy
 cron file); jobs in OpenClaw's internal database are reported with exact
 recreate instructions — never silently dropped. MCP server configs
 (`mcp_servers` / `mcp.servers`) migrate into the user-scope .mcp.json, and the
-source agent's SOUL.md/IDENTITY.md become a memcode persona with the same
+source agent's SOUL.md/IDENTITY.md become a memcode agent with the same
 SOUL.md file, verbatim.
 
 ## Run

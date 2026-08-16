@@ -85,23 +85,23 @@ type Settings struct {
 	// DefaultProject is the project id the gateway executes against when a task
 	// carries no explicit project (all of them, until conversations land).
 	DefaultProject string `yaml:"default_project,omitempty"`
-	// Agents is the registry of durable personas (internally Persona) — an
+	// Agents is the registry of durable agents (internally Agent) — an
 	// assistant identity with its own home (memory/skills/instructions), distinct
 	// from any project. A channel binds to one by name (Channel.Agent).
-	Agents map[string]Persona `yaml:"agents,omitempty"`
+	Agents map[string]Agent `yaml:"agents,omitempty"`
 }
 
-// Persona is a durable agent identity: a home directory (~/.memcode/agents/<id>)
+// Agent is a durable agent identity: a home directory (~/.memcode/agents/<id>)
 // holding its own memory.md, MEMCODE.md, and skills, plus a coarse type. It is NOT
-// a project and NOT the `memcode run` CLI command — the persona's context is
+// a project and NOT the `memcode run` CLI command — the agent's context is
 // composed and handed to the coding engine as generic supplemental context.
-type Persona struct {
+type Agent struct {
 	Type string `yaml:"type,omitempty"` // assistant | coding | research (coarse behavior hint)
-	// Model pins the model that drives this persona (an id from the catalog,
-	// e.g. "claude-sonnet-5"). Empty = automatic routing. Wherever the persona
+	// Model pins the model that drives this agent (an id from the catalog,
+	// e.g. "claude-sonnet-5"). Empty = automatic routing. Wherever the agent
 	// answers — any channel, any schedule — this is the model that serves it.
 	Model string `yaml:"model,omitempty"`
-	// Reasoning pins the persona's thinking effort: "off", "medium", or "high".
+	// Reasoning pins the agent's thinking effort: "off", "medium", or "high".
 	// Empty = per-turn automatic (the engine judges each turn's depth).
 	Reasoning string `yaml:"reasoning,omitempty"`
 }
@@ -187,8 +187,8 @@ type Schedule struct {
 	TZ        string `yaml:"tz,omitempty"`
 	Task      string `yaml:"task"`
 	DeliverTo string `yaml:"deliver_to"`
-	// Agent runs this task as a specific persona — which also decides the model
-	// when that persona pins one. Empty = the conversation's current persona.
+	// Agent runs this task as a specific agent — which also decides the model
+	// when that agent pins one. Empty = the conversation's current agent.
 	Agent    string `yaml:"agent,omitempty"`
 	Disabled bool   `yaml:"disabled,omitempty"`
 }
@@ -216,8 +216,8 @@ type Channel struct {
 	// routing (cheap for routine work). Lets a code-review channel run strong while
 	// a status channel stays cheap.
 	Tier string `yaml:"tier,omitempty"`
-	// Agent binds this channel to a persona by id (see Settings.Agents). Empty
-	// means the gateway's plain default (no persona context layered on).
+	// Agent binds this channel to a agent by id (see Settings.Agents). Empty
+	// means the gateway's plain default (no agent context layered on).
 	Agent string `yaml:"agent,omitempty"`
 	// Projects narrows which registered projects this channel may execute
 	// against (/project and the default). Empty means every enabled project —
@@ -358,10 +358,10 @@ func MediaDir() (string, error) {
 	return filepath.Join(dir, "media"), nil
 }
 
-// PersonaHome is a persona's state directory: ~/.memcode/agents/<id>, holding its
+// AgentHome is a agent's state directory: ~/.memcode/agents/<id>, holding its
 // own memory.md, MEMCODE.md, and skills. Distinct from the project (the cwd) and
-// from user-global ~/.memcode (shared by all personas).
-func PersonaHome(id string) (string, error) {
+// from user-global ~/.memcode (shared by all agents).
+func AgentHome(id string) (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err

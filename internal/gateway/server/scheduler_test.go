@@ -98,10 +98,10 @@ func TestConversationSessionStable(t *testing.T) {
 		t.Error("distinct conversations must get distinct session ids")
 	}
 	if a == conversationSession("telegram", "42", "coder") {
-		t.Error("a persona must get its own session, not the default persona's transcript")
+		t.Error("a agent must get its own session, not the default agent's transcript")
 	}
 	if conversationSession("telegram", "42", "coder") != conversationSession("telegram", "42", "coder") {
-		t.Error("a persona's session id must be deterministic")
+		t.Error("a agent's session id must be deterministic")
 	}
 	if len(a) < 6 || a[:5] != "sess_" {
 		t.Errorf("session id must match the sess_ shape, got %q", a)

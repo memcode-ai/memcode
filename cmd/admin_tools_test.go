@@ -19,7 +19,7 @@ func adminIn(t *testing.T, v any) json.RawMessage {
 	return b
 }
 
-// The executor round-trip: create a persona, bind a channel to it, allow a
+// The executor round-trip: create a agent, bind a channel to it, allow a
 // sender, add a schedule — then read it all back through the overview.
 func TestAdminExecuteRoundTrip(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
@@ -63,15 +63,15 @@ func TestAdminExecuteRoundTrip(t *testing.T) {
 		}
 	}
 
-	// Guard rails: unknown channel, bound persona can't be removed, binding to
-	// a missing persona fails.
+	// Guard rails: unknown channel, bound agent can't be removed, binding to
+	// a missing agent fails.
 	if _, err := adminExecute(ctx, tools.GwChannel, adminIn(t, map[string]string{"channel": "icq", "field": "allow_add", "value": "1"})); err == nil {
 		t.Error("unknown channel accepted")
 	}
 	if _, err := adminExecute(ctx, tools.GwAgent, adminIn(t, map[string]string{"action": "remove", "name": "researcher"})); err == nil {
-		t.Error("removed a persona still bound to a channel")
+		t.Error("removed a agent still bound to a channel")
 	}
 	if _, err := adminExecute(ctx, tools.GwChannel, adminIn(t, map[string]string{"channel": "slack", "field": "agent", "value": "ghost"})); err == nil {
-		t.Error("bound a channel to a missing persona")
+		t.Error("bound a channel to a missing agent")
 	}
 }

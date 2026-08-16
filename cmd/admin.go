@@ -24,7 +24,7 @@ import (
 
 // adminCmd opens the admin session: the same TUI as `memcode`, but it is the
 // control room for your agents and gateway, not a coding session. Its toolset
-// is the typed gw_* operations plus a file surface for persona homes; there
+// is the typed gw_* operations plus a file surface for agent homes; there
 // are no repo/coding tools. It runs from anywhere — its home is ~/.memcode,
 // not the current repo.
 var adminCmd = &cobra.Command{
@@ -53,7 +53,7 @@ func runAdmin(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	// The admin session's working root is the memcode home (persona homes,
+	// The admin session's working root is the memcode home (agent homes,
 	// user-global memory) — never the current repo.
 	root := filepath.Join(home, ".memcode")
 	if err := os.MkdirAll(root, 0o700); err != nil {

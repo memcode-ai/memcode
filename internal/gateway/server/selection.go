@@ -63,7 +63,7 @@ func (r *runtime) handleCommand(ctx context.Context, inb channels.Inbound) bool 
 	return true
 }
 
-// resolveSelection returns the persona and project id a new task should snapshot:
+// resolveSelection returns the agent and project id a new task should snapshot:
 // the conversation's explicit choice if set, else the channel/gateway defaults.
 // The project always satisfies the channel's project policy: a default (or a
 // selection made before the policy tightened) that is no longer allowed falls to
