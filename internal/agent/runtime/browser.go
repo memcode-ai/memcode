@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -461,12 +462,14 @@ func (s *Session) browserUploadTool(ctx context.Context, input json.RawMessage) 
 	if sel == "" || path == "" {
 		return errResult("browser_upload needs a `selector` and a `path`.")
 	}
+	// Gate BEFORE any path resolution: the tool must not act as a host
+	// file-existence oracle. The approval shows the path as requested.
+	if tr, ok := s.browserGate(ctx, "Browser upload", fmt.Sprintf("%s → %s", path, sel)); !ok {
+		return *tr
+	}
 	resolved, size, err := resolveUploadPath(s.root, path)
 	if err != nil {
 		return errResult("upload refused: " + err.Error())
-	}
-	if tr, ok := s.browserGate(ctx, "Browser upload", fmt.Sprintf("%s → %s", filepath.Base(resolved), sel)); !ok {
-		return *tr
 	}
 	sess, err := s.browserOrInit()
 	if err != nil {
@@ -479,28 +482,48 @@ func (s *Session) browserUploadTool(ctx context.Context, input json.RawMessage) 
 	return textResult(fmt.Sprintf("uploaded %s (%d bytes) into %s", filepath.Base(resolved), size, sel))
 }
 
-// resolveUploadPath canonicalizes both the project root and the requested file
-// (absolute + symlinks evaluated) and requires the file to be inside the root
-// AFTER resolution. Only regular files are eligible.
+// errUploadOutside is the ONE refusal for any path outside the project — the
+// same message whether the target exists or not, so a refused upload leaks
+// nothing about the host filesystem.
+var errUploadOutside = errors.New("the path is outside the project root — only files inside the project can be uploaded")
+
+// resolveUploadPath confines an upload to the project root in two layers:
+// LEXICAL first — an absolute path outside the root, or a dot-dot escape, is
+// refused before the filesystem is touched at all (no existence oracle) —
+// then symlink resolution, which must also land inside the root. Only regular
+// files are eligible.
 func resolveUploadPath(root, path string) (string, int64, error) {
 	rootAbs, err := filepath.Abs(root)
 	if err != nil {
 		return "", 0, err
 	}
+	inside := func(base, p string) bool {
+		rel, err := filepath.Rel(base, p)
+		return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+	}
+	// Layer 1: lexical, zero filesystem access.
+	var candidate string
+	if filepath.IsAbs(path) {
+		candidate = filepath.Clean(path)
+	} else {
+		candidate = filepath.Join(rootAbs, path)
+	}
+	if !inside(rootAbs, candidate) {
+		return "", 0, errUploadOutside
+	}
+	// Layer 2: resolve symlinks (root and file) — the resolved file must still
+	// be inside the resolved root, so a symlink inside the repo pointing at
+	// ~/.ssh is refused with the SAME generic error.
 	rootReal, err := filepath.EvalSymlinks(rootAbs)
 	if err != nil {
 		return "", 0, err
 	}
-	if !filepath.IsAbs(path) {
-		path = filepath.Join(rootReal, path)
-	}
-	real, err := filepath.EvalSymlinks(path)
+	real, err := filepath.EvalSymlinks(candidate)
 	if err != nil {
 		return "", 0, fmt.Errorf("cannot resolve %s: %w", path, err)
 	}
-	rel, err := filepath.Rel(rootReal, real)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return "", 0, fmt.Errorf("%s resolves outside the project root — only files inside the project can be uploaded", path)
+	if !inside(rootReal, real) {
+		return "", 0, errUploadOutside
 	}
 	fi, err := os.Stat(real)
 	if err != nil {

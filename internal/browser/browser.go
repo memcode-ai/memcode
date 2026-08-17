@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	goruntime "runtime"
 	"strings"
 	"sync"
@@ -95,6 +96,9 @@ type Options struct {
 func New(opt Options) (*Session, error) {
 	path, ok := browserrender.Find()
 	if !ok {
+		if p := os.Getenv("CHROME_PATH"); p != "" {
+			return nil, fmt.Errorf("CHROME_PATH is set to %q but no browser binary exists there — fix or unset it", p)
+		}
 		return nil, errors.New("Chrome not found — install Google Chrome or set CHROME_PATH to the browser binary")
 	}
 
@@ -346,8 +350,11 @@ func (s *Session) Forward(ctx context.Context) error {
 // (capped at 60s). This is how the agent settles SPA navigation instead of
 // racing it.
 func (s *Session) WaitFor(ctx context.Context, selector, state string, timeout time.Duration) error {
-	if timeout <= 0 || timeout > 60*time.Second {
-		timeout = 60 * time.Second
+	if timeout <= 0 {
+		timeout = 30 * time.Second // schema default
+	}
+	if timeout > 60*time.Second {
+		timeout = 60 * time.Second // hard cap
 	}
 	var action chromedp.Action
 	switch state {
@@ -528,17 +535,18 @@ func (s *Session) ScrollTo(ctx context.Context, selector string) error {
 func (s *Session) Screenshot(ctx context.Context, fullPage bool) ([]byte, string, error) {
 	var buf []byte
 	if fullPage {
-		// FullScreenshot with quality<100 emits JPEG.
-		if err := s.run(ctx, chromedp.FullScreenshot(&buf, 85)); err != nil {
-			return nil, "", err
+		// FullScreenshot with quality<100 emits JPEG. Walk the quality ladder;
+		// if even the lowest rung is over the cap, fail CLOSED — an oversized
+		// image must never reach the context.
+		for _, q := range []int{85, 50, 25} {
+			if err := s.run(ctx, chromedp.FullScreenshot(&buf, q)); err != nil {
+				return nil, "", err
+			}
+			if len(buf) <= maxImageBytes {
+				return buf, "image/jpeg", nil
+			}
 		}
-		if len(buf) <= maxImageBytes {
-			return buf, "image/jpeg", nil
-		}
-		if err := s.run(ctx, chromedp.FullScreenshot(&buf, 50)); err != nil {
-			return nil, "", err
-		}
-		return buf, "image/jpeg", nil
+		return nil, "", fmt.Errorf("full-page screenshot is %dKB even at lowest quality (cap %dKB) — the page is too tall; capture the viewport instead and scroll", len(buf)/1024, maxImageBytes/1024)
 	}
 	if err := s.run(ctx, chromedp.CaptureScreenshot(&buf)); err != nil {
 		return nil, "", err
@@ -546,22 +554,29 @@ func (s *Session) Screenshot(ctx context.Context, fullPage bool) ([]byte, string
 	if len(buf) <= maxImageBytes {
 		return buf, "image/png", nil
 	}
-	// PNG too big (dense page) — recapture the viewport as JPEG.
-	err := s.run(ctx, chromedp.ActionFunc(func(cctx context.Context) error {
-		b, err := page.CaptureScreenshot().
-			WithFormat(page.CaptureScreenshotFormatJpeg).
-			WithQuality(70).
-			Do(cctx)
+	// PNG too big (dense page) — recapture the viewport as JPEG down the
+	// quality ladder; fail closed if it never fits.
+	for _, q := range []int64{70, 40} {
+		q := q
+		err := s.run(ctx, chromedp.ActionFunc(func(cctx context.Context) error {
+			b, err := page.CaptureScreenshot().
+				WithFormat(page.CaptureScreenshotFormatJpeg).
+				WithQuality(q).
+				Do(cctx)
+			if err != nil {
+				return err
+			}
+			buf = b
+			return nil
+		}))
 		if err != nil {
-			return err
+			return nil, "", err
 		}
-		buf = b
-		return nil
-	}))
-	if err != nil {
-		return nil, "", err
+		if len(buf) <= maxImageBytes {
+			return buf, "image/jpeg", nil
+		}
 	}
-	return buf, "image/jpeg", nil
+	return nil, "", fmt.Errorf("screenshot is %dKB even at lowest quality (cap %dKB) — resize the viewport smaller (browser_resize) and retry", len(buf)/1024, maxImageBytes/1024)
 }
 
 // Eval runs JavaScript in the page and returns the result rendered as a

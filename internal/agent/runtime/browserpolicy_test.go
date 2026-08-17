@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -31,17 +32,28 @@ func TestResolveUploadPathConfinement(t *testing.T) {
 	if _, _, err := resolveUploadPath(root, "doc.txt"); err != nil {
 		t.Errorf("a file inside the root must be uploadable: %v", err)
 	}
-	if _, _, err := resolveUploadPath(root, link); err == nil {
-		t.Error("a symlink escaping the root must be refused")
-	}
-	if _, _, err := resolveUploadPath(root, secret); err == nil {
-		t.Error("an absolute path outside the root must be refused")
-	}
-	if _, _, err := resolveUploadPath(root, "../"+filepath.Base(outside)+"/id_rsa"); err == nil {
-		t.Error("a dot-dot traversal must be refused")
+	if _, _, err := resolveUploadPath(root, link); !errors.Is(err, errUploadOutside) {
+		t.Errorf("a symlink escaping the root must be refused generically, got %v", err)
 	}
 	if _, _, err := resolveUploadPath(root, root); err == nil {
 		t.Error("a directory must be refused (regular files only)")
+	}
+
+	// NO EXISTENCE ORACLE: an outside path that exists and one that doesn't
+	// must be indistinguishable — the identical generic refusal, decided
+	// lexically before the filesystem is touched.
+	_, _, errExists := resolveUploadPath(root, secret)
+	_, _, errMissing := resolveUploadPath(root, filepath.Join(outside, "no-such-file"))
+	if !errors.Is(errExists, errUploadOutside) || !errors.Is(errMissing, errUploadOutside) {
+		t.Fatalf("outside paths must both refuse generically: exists=%v missing=%v", errExists, errMissing)
+	}
+	if errExists.Error() != errMissing.Error() {
+		t.Errorf("refusals must be identical (no oracle): %q vs %q", errExists, errMissing)
+	}
+	_, _, errDotDot := resolveUploadPath(root, "../"+filepath.Base(outside)+"/id_rsa")
+	_, _, errDotDotMissing := resolveUploadPath(root, "../definitely-missing-dir/x")
+	if !errors.Is(errDotDot, errUploadOutside) || !errors.Is(errDotDotMissing, errUploadOutside) {
+		t.Errorf("dot-dot traversals must both refuse generically: %v / %v", errDotDot, errDotDotMissing)
 	}
 }
 
