@@ -96,7 +96,6 @@ type Settings struct {
 // a project and NOT the `memcode run` CLI command — the agent's context is
 // composed and handed to the coding engine as generic supplemental context.
 type Agent struct {
-	Type string `yaml:"type,omitempty"` // assistant | coding | research (coarse behavior hint)
 	// Model pins the model that drives this agent (an id from the catalog,
 	// e.g. "claude-sonnet-5"). Empty = automatic routing. Wherever the agent
 	// answers — any channel, any schedule — this is the model that serves it.

@@ -56,7 +56,6 @@ func AdminDefs() []wire.ToolDef {
 			InputSchema: obj(map[string]any{
 				"action":    str("add, remove, model, or reasoning"),
 				"name":      str("agent name, e.g. personal, coder, researcher"),
-				"type":      str("add only: assistant (default), coding, or research"),
 				"model":     str("add/model: pin the model that drives this agent everywhere (catalog id, e.g. \"claude-sonnet-5\"); empty = automatic routing"),
 				"reasoning": str("add/reasoning: pin thinking effort — off, medium, or high; empty = per-turn automatic"),
 			}, "action", "name"),

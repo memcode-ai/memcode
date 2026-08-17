@@ -91,8 +91,8 @@ projects:                                # written by `memcode project add`
   www:     { path: ~/github/www, enabled: true }
 default_project: memcode
 agents:                                  # durable agents; identity + state in ~/.memcode/agents/<id>
-  personal: { type: assistant }
-  coder:    { type: coding }
+  personal: {}
+  coder:    { model: claude-sonnet-5, reasoning: medium }
 schedules:
   - name: standup
     cron: "0 9 * * 1-5"                  # or  every: "24h"

@@ -130,7 +130,15 @@ func adminOverview(ctx context.Context) (string, error) {
 	}
 	sort.Strings(agentNames)
 	for _, name := range agentNames {
-		fmt.Fprintf(&b, "- %s: type=%s (home: ~/.memcode/agents/%s)\n", name, settings.Agents[name].Type, name)
+		a := settings.Agents[name]
+		extra := ""
+		if a.Model != "" {
+			extra += " model=" + a.Model
+		}
+		if a.Reasoning != "" {
+			extra += " reasoning=" + a.Reasoning
+		}
+		fmt.Fprintf(&b, "- %s:%s (home: ~/.memcode/agents/%s)\n", name, extra, name)
 	}
 	b.WriteString("\nSCHEDULES:\n")
 	if len(settings.Schedules) == 0 {
@@ -401,7 +409,6 @@ func adminAgent(input json.RawMessage) (string, error) {
 	var in struct {
 		Action    string `json:"action"`
 		Name      string `json:"name"`
-		Type      string `json:"type"`
 		Model     string `json:"model"`
 		Reasoning string `json:"reasoning"`
 	}
@@ -419,24 +426,17 @@ func adminAgent(input json.RawMessage) (string, error) {
 	}
 	switch action {
 	case "add":
-		typ := strings.TrimSpace(in.Type)
-		if typ == "" {
-			typ = "assistant"
-		}
-		if typ != "assistant" && typ != "coding" && typ != "research" {
-			return "", fmt.Errorf("type must be assistant, coding, or research")
-		}
 		if settings.Agents == nil {
 			settings.Agents = map[string]gwconfig.Agent{}
 		}
 		if r := strings.TrimSpace(in.Reasoning); r != "" && r != "off" && r != "medium" && r != "high" {
 			return "", fmt.Errorf("reasoning must be off, medium, or high")
 		}
-		settings.Agents[name] = gwconfig.Agent{Type: typ, Model: strings.TrimSpace(in.Model), Reasoning: strings.TrimSpace(in.Reasoning)}
+		settings.Agents[name] = gwconfig.Agent{Model: strings.TrimSpace(in.Model), Reasoning: strings.TrimSpace(in.Reasoning)}
 		if err := gwconfig.Save(settings); err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("Created agent %s (type %s). Bind a channel to it with gw_channel field=agent; its standing instructions live at ~/.memcode/agents/%s/MEMCODE.md.", name, typ, name), nil
+		return fmt.Sprintf("Created agent %s. Bind a channel to it with gw_channel field=agent; its identity lives at ~/.memcode/agents/%s/SOUL.md.", name, name), nil
 	case "reasoning":
 		p, ok := settings.Agents[name]
 		if !ok {

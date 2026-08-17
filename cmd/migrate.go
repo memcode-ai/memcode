@@ -260,7 +260,7 @@ func runMigration(cmd *cobra.Command, src migrationSource) error {
 					cur.Agents = map[string]gwconfig.Agent{}
 				}
 				if _, ok := cur.Agents[id]; !ok {
-					cur.Agents[id] = gwconfig.Agent{Type: "assistant"}
+					cur.Agents[id] = gwconfig.Agent{}
 					if err := gwconfig.Save(cur); err != nil {
 						res.Notes = append(res.Notes, fmt.Sprintf("identity: agent %q written but not registered: %v", id, err))
 					}
@@ -297,7 +297,7 @@ func runMigration(cmd *cobra.Command, src migrationSource) error {
 					if cur.Agents == nil {
 						cur.Agents = map[string]gwconfig.Agent{}
 					}
-					cur.Agents[id] = gwconfig.Agent{Type: "assistant"}
+					cur.Agents[id] = gwconfig.Agent{}
 					if err := gwconfig.Save(cur); err != nil {
 						res.Notes = append(res.Notes, fmt.Sprintf("agent memory: memory written but agent %q not registered: %v", id, err))
 					}
