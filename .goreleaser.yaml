@@ -54,7 +54,10 @@ snapshot:
 
 changelog:
   sort: asc
-  use: github
+  # use git, not the GitHub compare API: the API 404'd release runs (v0.24.0)
+  # on the Actions token while the refs were fine. Local history is
+  # deterministic; the workflow checks out fetch-depth 0.
+  use: git
   filters:
     exclude:
       - "^docs:"
