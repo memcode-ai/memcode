@@ -5,6 +5,8 @@
 // documented at memcode.ai/docs/agents/tools — rename one only with the docs.
 package tools
 
+import "strings"
+
 // toolsetDefs maps each toolset name to its member tools, in display order.
 var toolsetOrder = []string{
 	"files", "shell", "code", "web", "browser", "mcp",
@@ -61,10 +63,59 @@ func knownTool(name string) bool {
 	return false
 }
 
-// ValidPolicyEntry reports whether a policy list entry names a toolset or a tool.
+// PolicyAliases accepts the names OpenClaw and Hermes users already know, so
+// a pasted or migrated policy just works. Canonical names stay memcode's own
+// (the wire-advertised tool names + toolset names); aliases only ever expand
+// to them.
+var PolicyAliases = map[string][]string{
+	// OpenClaw tool IDs and group refs
+	"exec": {Bash}, "process": {"shell"}, "terminal": {"shell"},
+	"read": {ReadFile}, "write": {EditFile}, "edit": {EditFile},
+	"web_fetch": {Fetch},
+	"group:fs":  {"files"}, "group:runtime": {"shell"}, "group:web": {"web"},
+	"group:session": {"delegation"}, "group:memory": {"memory"},
+	// Hermes toolset names (where they differ from ours)
+	// Hermes toolset names (where they differ from ours). Only LOSSLESS
+	// aliases live here: an alias must grant exactly what the source name
+	// meant. Hermes's "safe" composite (web+vision+image_gen+moa) is NOT
+	// aliased — we don't have vision/image-gen tools, and silently narrowing
+	// it would pretend we do; it surfaces as unknown instead.
+	"file": {"files"}, "search": {WebSearch}, "clarify": {AskUser},
+	"code_execution": {"shell"},
+	"debugging":      {"shell", "web", "files"},
+}
+
+// wildcardMatches returns the known tools matching a * pattern ("browser_*").
+func wildcardMatches(pattern string) []string {
+	prefix, ok := strings.CutSuffix(pattern, "*")
+	if !ok || strings.Contains(prefix, "*") {
+		return nil // only trailing-star patterns
+	}
+	var out []string
+	for _, members := range toolsetDefs {
+		for _, m := range members {
+			if strings.HasPrefix(m, prefix) {
+				out = append(out, m)
+			}
+		}
+	}
+	return out
+}
+
+// ValidPolicyEntry reports whether a policy list entry names a toolset, a
+// tool, an accepted alias, or a wildcard matching at least one tool.
 func ValidPolicyEntry(name string) bool {
-	_, isSet := toolsetDefs[name]
-	return isSet || knownTool(name)
+	name = strings.ToLower(strings.TrimSpace(name))
+	if _, isSet := toolsetDefs[name]; isSet {
+		return true
+	}
+	if knownTool(name) {
+		return true
+	}
+	if _, ok := PolicyAliases[name]; ok {
+		return true
+	}
+	return strings.Contains(name, "*") && len(wildcardMatches(name)) > 0
 }
 
 // Policy is a compiled tool policy: allow (empty = everything) minus deny.
@@ -83,16 +134,40 @@ func NewPolicy(allow, deny []string) (Policy, []string) {
 			return nil
 		}
 		m := map[string]bool{}
-		for _, e := range entries {
+		var one func(e string)
+		one = func(e string) {
+			e = strings.ToLower(strings.TrimSpace(e))
+			if e == "" {
+				return
+			}
 			if members, ok := toolsetDefs[e]; ok {
 				for _, t := range members {
 					m[t] = true
 				}
-			} else if knownTool(e) {
-				m[e] = true
-			} else {
-				unknown = append(unknown, e)
+				return
 			}
+			if knownTool(e) {
+				m[e] = true
+				return
+			}
+			if targets, ok := PolicyAliases[e]; ok {
+				for _, t := range targets {
+					one(t)
+				}
+				return
+			}
+			if strings.Contains(e, "*") {
+				if hits := wildcardMatches(e); len(hits) > 0 {
+					for _, t := range hits {
+						m[t] = true
+					}
+					return
+				}
+			}
+			unknown = append(unknown, e)
+		}
+		for _, e := range entries {
+			one(e)
 		}
 		return m
 	}

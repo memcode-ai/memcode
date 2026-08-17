@@ -79,13 +79,14 @@ func TestOpenClawSchedules(t *testing.T) {
 }
 
 func TestToolPolicyMapping(t *testing.T) {
-	// Hermes: toolsets allow-list + disabled_toolsets deny, real hermes names.
+	// Hermes: entries the policy compiler understands carry over VERBATIM
+	// (aliases resolve at compile time); unknowns are noted.
 	allowH, disabled, notes := HermesToolPolicy([]byte("toolsets: [file, terminal, clarify]\nagent:\n  disabled_toolsets: [terminal, browser, honcho]\n"))
-	if strings.Join(allowH, ",") != "files,shell,ask_user" {
-		t.Errorf("hermes allow mapping = %v, want [files shell ask_user]", allowH)
+	if strings.Join(allowH, ",") != "file,terminal,clarify" {
+		t.Errorf("hermes allow = %v, want entries carried verbatim", allowH)
 	}
-	if strings.Join(disabled, ",") != "shell,browser" {
-		t.Errorf("hermes deny mapping = %v, want [shell browser]", disabled)
+	if strings.Join(disabled, ",") != "terminal,browser" {
+		t.Errorf("hermes deny = %v, want [terminal browser]", disabled)
 	}
 	if len(notes) == 0 || !strings.Contains(notes[0], "honcho") {
 		t.Errorf("unmappable entry must be noted, got %v", notes)
@@ -95,17 +96,16 @@ func TestToolPolicyMapping(t *testing.T) {
 	if len(allowH) != 0 {
 		t.Errorf("hermes all must mean unrestricted, got %v", allowH)
 	}
-	// OpenClaw: real tool IDs and group: refs map; wildcards and per-sender
-	// overrides become notes.
-	allow, deny, notes := OpenClawToolPolicy([]byte(`{"tools":{"profile":"coding","allow":["read","web_fetch","group:fs","sessions_*"],"deny":["exec"],"toolsBySender":{"u1":{"deny":["bash"]}}}}`))
-	if strings.Join(allow, ",") != "read_file,fetch,files" {
-		t.Errorf("openclaw allow = %v, want [read_file fetch files]", allow)
+	// OpenClaw: tool IDs, group: refs, and matching wildcards carry; profiles,
+	// non-matching wildcards, and per-sender overrides become notes.
+	allow, deny, notes := OpenClawToolPolicy([]byte(`{"tools":{"profile":"coding","allow":["read","web_fetch","group:fs","browser_*","sessions_*"],"deny":["exec"],"toolsBySender":{"u1":{"deny":["bash"]}}}}`))
+	if strings.Join(allow, ",") != "read,web_fetch,group:fs,browser_*" {
+		t.Errorf("openclaw allow = %v", allow)
 	}
-	if len(deny) != 1 || deny[0] != "bash" {
-		t.Errorf("openclaw deny = %v, want [bash]", deny)
+	if strings.Join(deny, ",") != "exec" {
+		t.Errorf("openclaw deny = %v", deny)
 	}
-	wantNotes := []string{"profile", "wildcard", "toolsBySender"}
-	for _, w := range wantNotes {
+	for _, w := range []string{"profile", "sessions_*", "toolsBySender"} {
 		found := false
 		for _, n := range notes {
 			if strings.Contains(n, w) {
@@ -113,8 +113,7 @@ func TestToolPolicyMapping(t *testing.T) {
 			}
 		}
 		if !found {
-			t.Errorf("expected a %s note, got %v", w, notes)
+			t.Errorf("expected a note about %s, got %v", w, notes)
 		}
 	}
-	_ = notes
 }
