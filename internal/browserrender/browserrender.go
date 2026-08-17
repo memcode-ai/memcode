@@ -31,6 +31,13 @@ func ManagedDir() string {
 // Find returns the path to a usable Chrome/Chromium and whether one was found. It
 // checks a managed install first, then PATH, then the OS's standard locations.
 func Find() (string, bool) {
+	// CHROME_PATH pins the browser binary explicitly — highest priority, and an
+	// invalid value falls through to discovery rather than silently winning.
+	if p := os.Getenv("CHROME_PATH"); p != "" {
+		if st, err := os.Stat(p); err == nil && !st.IsDir() {
+			return p, true
+		}
+	}
 	// A managed install (future `memcode capabilities install browser-render`).
 	for _, p := range managedCandidates() {
 		if isExecutable(p) {

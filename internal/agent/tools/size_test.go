@@ -23,7 +23,9 @@ func TestToolDefsWireBudget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(browser) > 8_000 {
-		t.Errorf("browser tool defs = %dB (~%d tokens) — over the 8KB budget", len(browser), len(browser)/4)
+	// Raised 8KB→9KB when the suite grew 17→20 tools (wait/upload/resize);
+	// the per-tool average must stay lean.
+	if len(browser) > 9_000 {
+		t.Errorf("browser tool defs = %dB (~%d tokens) — over the 9KB budget", len(browser), len(browser)/4)
 	}
 }

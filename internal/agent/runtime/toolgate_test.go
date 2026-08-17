@@ -91,7 +91,7 @@ func TestBrowserToolsGatedOnChromeFlag(t *testing.T) {
 		}
 	}
 
-	// Enable --chrome → all six browser tools appear.
+	// Enable --chrome → the browser tools appear.
 	s.SetBrowserEnabled(true)
 	for _, name := range []string{
 		tools.BrowserNavigate, tools.BrowserClick, tools.BrowserType,

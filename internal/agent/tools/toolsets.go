@@ -28,6 +28,7 @@ var toolsetDefs = map[string][]string{
 		BrowserEval, BrowserText, BrowserScroll, BrowserPressKey, BrowserHover,
 		BrowserSelect, BrowserBack, BrowserForward, BrowserConsole,
 		BrowserNewTab, BrowserSwitchTab, BrowserCloseTab, BrowserListTabs,
+		BrowserWait, BrowserUpload, BrowserResize,
 	},
 	// Connected MCP servers (and orchestrating them from code).
 	"mcp": {MCP, MCPResource, MCPPrompt, MCPCodeExec},

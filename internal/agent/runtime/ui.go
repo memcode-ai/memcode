@@ -193,6 +193,16 @@ func (s *Session) SetToolPolicy(allow, deny []string) (unknown []string) {
 	return unknown
 }
 
+// SetBrowserHeadless makes the lazily-launched Chrome run headless — required
+// for gateway/service children with no desktop session.
+func (s *Session) SetBrowserHeadless(on bool) { s.browserHeadless = on }
+
+// SetNoApprover marks this session as having no human to answer approval
+// prompts (a detached job child). Tools whose every use would be denied (e.g.
+// browser_eval at Dangerous outside allow-all) are then not advertised at all
+// — a tool that can never run must not be offered.
+func (s *Session) SetNoApprover(on bool) { s.noApprover = on }
+
 // SetEffortOverride forces the per-turn thinking effort from the /effort command: "off",
 // "medium", or "high" pin it every turn; "auto" (or anything else) clears the override and
 // returns to the per-turn heuristic (effortForTurn). EffortOverride reports the current setting.

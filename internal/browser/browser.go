@@ -2,18 +2,24 @@
 // Protocol (chromedp) so the agent can fully interact with web pages as tools —
 // the same dispatch as read_file/bash. It exposes the full browser interaction
 // surface a user has: navigate, click, type, scroll, hover, keyboard, dropdowns,
-// history, tabs, screenshots, console logs, and arbitrary JS.
+// history, tabs, uploads, viewport, screenshots, console logs, and arbitrary JS.
 //
 // The Session wraps a persistent chromedp context created once (on New) and
 // reused across tool calls — a single Chrome process for the whole agent
 // session, torn down on Close. It tracks multiple tabs (each a child chromedp
 // context) and a rolling console-log buffer captured via CDP Runtime events.
-// It reuses browserrender.Find to locate the Chrome binary (no new dependency,
-// no Node).
+// The profile is EPHEMERAL (a fresh temp profile per launch): no existing
+// cookies or logins, nothing persisted across sessions. It reuses
+// browserrender.Find to locate the Chrome binary (no new dependency, no Node).
+//
+// Every operation runs under a bounded, caller-cancellable context derived
+// from the tab's context: the timeout/cancel propagates into the in-flight CDP
+// command (chromedp aborts it) while the tab itself survives for the next op.
 package browser
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	goruntime "runtime"
@@ -22,6 +28,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/chromedp/cdproto/page"
 	cdpruntime "github.com/chromedp/cdproto/runtime"
 	"github.com/chromedp/chromedp"
 	"github.com/memcode-ai/memcode/internal/browserrender"
@@ -31,6 +38,18 @@ import (
 // on demand (browser_console), and we keep the last N entries so a page that
 // logs heavily doesn't grow the buffer unbounded.
 const maxConsoleEntries = 200
+
+// maxConsoleEntryLen bounds one captured entry (a page can console.log a
+// megabyte string; the buffer must stay context-safe).
+const maxConsoleEntryLen = 512
+
+// opTimeout bounds every single browser operation. A page that never settles
+// must never hang the agent turn.
+const opTimeout = 30 * time.Second
+
+// maxImageBytes caps a screenshot's payload (~1MB raw ≈ ~1.4MB base64). Larger
+// captures are retried as JPEG at decreasing quality.
+const maxImageBytes = 1 << 20
 
 // Session is a persistent Chrome instance controlled via CDP, with multi-tab
 // support and a rolling console-log buffer.
@@ -51,36 +70,51 @@ type Session struct {
 type tabHandle struct {
 	ctx    context.Context
 	cancel context.CancelFunc
-	title  string // last known title (for listing)
-	url    string // last known URL (for listing)
 }
 
-// consoleEntry is one captured console message (console.log/error/warn, or an
-// uncaught exception).
+// consoleEntry is one captured console message (console.log/error/warn, an
+// uncaught exception, or an auto-handled JS dialog).
 type consoleEntry struct {
 	Tab   int    // which tab index it came from
-	Level string // "log", "error", "warn", "info", "debug", "exception"
+	Level string // "log", "error", "warn", "info", "debug", "exception", "dialog"
 	Text  string // the message text (args joined)
 	Time  time.Time
 }
 
-// New launches a Chrome instance with a visible window (headed) and returns a
-// persistent Session with one open tab. You can watch Chrome work as the agent
-// navigates, clicks, and types. The Chrome binary is discovered via
-// browserrender.Find — a clear error is returned when none is available.
-func New() (*Session, error) {
+// Options configures a Session launch.
+type Options struct {
+	// Headless runs Chrome without a window — required when there is no desktop
+	// session (a gateway job under launchd/systemd). Interactive sessions run
+	// headed so the user can watch the agent work.
+	Headless bool
+}
+
+// New launches a Chrome instance and returns a persistent Session with one
+// open tab. The Chrome binary is discovered via browserrender.Find (which
+// honors CHROME_PATH) — a clear error is returned when none is available.
+func New(opt Options) (*Session, error) {
 	path, ok := browserrender.Find()
 	if !ok {
-		return nil, errors.New("Chrome not found — install Google Chrome or set CHROME_PATH")
+		return nil, errors.New("Chrome not found — install Google Chrome or set CHROME_PATH to the browser binary")
 	}
 
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
 		chromedp.ExecPath(path),
-		chromedp.Flag("headless", false), // visible window — headed by default
 		chromedp.DisableGPU,
 		chromedp.NoFirstRun,
 		chromedp.NoDefaultBrowserCheck,
 	)
+	if opt.Headless {
+		// The proven headless flag set from browserrender: new headless mode plus
+		// enough stealth that ordinary sites serve real content.
+		opts = append(opts,
+			chromedp.Flag("headless", "new"),
+			chromedp.Flag("disable-blink-features", "AutomationControlled"),
+			chromedp.Flag("lang", "en-US,en"),
+		)
+	} else {
+		opts = append(opts, chromedp.Flag("headless", false)) // visible window
+	}
 	// --no-sandbox is needed on Linux CI / containers (Chrome refuses to start
 	// as root without it). Harmless elsewhere.
 	if goruntime.GOOS == "linux" {
@@ -128,13 +162,14 @@ func New() (*Session, error) {
 	// browserCtx IS the first tab's CDP target — reuse it directly as tab 0
 	// rather than spawning a child context. Spawning a child context (NewContext)
 	// creates a second Chrome tab, leaving the original about:blank orphaned.
-	// cancelBrow tears it down at session Close, so no separate cancel needed.
-	s.tabs = []*tabHandle{{ctx: browserCtx, cancel: nil, title: "New Tab"}}
+	// cancelBrow tears it down at session Close; because the session's whole CDP
+	// connection lives on this target, tab 1 can never be closed individually.
+	s.tabs = []*tabHandle{{ctx: browserCtx, cancel: nil}}
 	s.active = 0
 
-	// Start capturing console events from the first tab. Each new tab gets its
-	// own listener in NewTab.
-	s.listenConsole(s.tabs[0])
+	// Start capturing console + dialog events from the first tab. Each new tab
+	// gets its own listener in NewTab.
+	s.listenTab(s.tabs[0])
 
 	return s, nil
 }
@@ -149,10 +184,36 @@ func (s *Session) currentTab() context.Context {
 	return s.tabs[s.active].ctx
 }
 
-// listenConsole attaches a CDP Runtime event listener to a tab that captures
-// console.log/error/warn and uncaught exceptions into the session's rolling
-// buffer. It runs in a goroutine for the lifetime of the tab.
-func (s *Session) listenConsole(tab *tabHandle) {
+// run executes chromedp actions on the active tab under a context that is (a)
+// bounded by opTimeout and (b) cancelled when the caller's ctx is — both
+// propagate INTO the in-flight CDP command (chromedp aborts it); the tab
+// context itself is the parent and survives for the next operation. No
+// goroutine wrapper that abandons a still-running CDP call.
+func (s *Session) run(ctx context.Context, actions ...chromedp.Action) error {
+	return s.runOn(ctx, s.currentTab(), opTimeout, actions...)
+}
+
+func (s *Session) runOn(ctx context.Context, tabCtx context.Context, timeout time.Duration, actions ...chromedp.Action) error {
+	opCtx, cancel := context.WithTimeout(tabCtx, timeout)
+	defer cancel()
+	if ctx != nil {
+		stop := context.AfterFunc(ctx, cancel)
+		defer stop()
+	}
+	err := chromedp.Run(opCtx, actions...)
+	if err != nil && errors.Is(opCtx.Err(), context.DeadlineExceeded) {
+		return fmt.Errorf("browser operation timed out after %s (the page may still be loading — try browser_wait or a screenshot)", timeout)
+	}
+	return err
+}
+
+// listenTab attaches CDP event listeners to a tab: console.log/error/warn and
+// uncaught exceptions feed the rolling buffer, and JavaScript dialogs are
+// auto-handled so they can never hang the tab (there is no human to click OK).
+// Alerts and beforeunload are accepted (so the page and navigation proceed);
+// confirm/prompt are dismissed (the conservative answer). The dialog text is
+// recorded in the console buffer so the model sees what happened.
+func (s *Session) listenTab(tab *tabHandle) {
 	tabIdx := -1
 	s.mu.Lock()
 	for i, t := range s.tabs {
@@ -194,18 +255,34 @@ func (s *Session) listenConsole(tab *tabHandle) {
 					text = e.ExceptionDetails.Exception.Description
 				}
 			}
+			s.addConsole(consoleEntry{Tab: tabIdx, Level: "exception", Text: text, Time: time.Now()})
+		case *page.EventJavascriptDialogOpening:
+			accept := e.Type == page.DialogTypeAlert || e.Type == page.DialogTypeBeforeunload
+			verb := "dismissed"
+			if accept {
+				verb = "accepted"
+			}
 			s.addConsole(consoleEntry{
 				Tab:   tabIdx,
-				Level: "exception",
-				Text:  text,
+				Level: "dialog",
+				Text:  fmt.Sprintf("auto-%s %s: %s", verb, e.Type, e.Message),
 				Time:  time.Now(),
 			})
+			// Must respond from a goroutine — the listener runs on the CDP event
+			// loop and HandleJavaScriptDialog is itself a CDP command.
+			go func() {
+				_ = chromedp.Run(tab.ctx, page.HandleJavaScriptDialog(accept))
+			}()
 		}
 	})
 }
 
-// addConsole appends a console entry to the rolling buffer (thread-safe).
+// addConsole appends a console entry to the rolling buffer (thread-safe),
+// bounding each entry's length.
 func (s *Session) addConsole(e consoleEntry) {
+	if len(e.Text) > maxConsoleEntryLen {
+		e.Text = e.Text[:maxConsoleEntryLen] + "…"
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.console = append(s.console, e)
@@ -226,7 +303,7 @@ func (s *Session) Console(level string) []string {
 		if level != "" && e.Level != level {
 			continue
 		}
-		out = append(out, fmt.Sprintf("[tab %d] %s: %s", e.Tab, e.Level, e.Text))
+		out = append(out, fmt.Sprintf("[tab %d] %s: %s", e.Tab+1, e.Level, e.Text))
 	}
 	return out
 }
@@ -242,54 +319,108 @@ func (s *Session) ClearConsole() {
 
 // Navigate loads a URL in the current tab and waits for the body to be ready.
 func (s *Session) Navigate(ctx context.Context, url string) error {
-	tctx := s.currentTab()
-	err := chromedp.Run(tctx,
+	return s.run(ctx,
 		chromedp.Navigate(url),
 		chromedp.WaitReady("body", chromedp.ByQuery),
 	)
-	if err == nil {
-		s.mu.Lock()
-		if s.active < len(s.tabs) {
-			s.tabs[s.active].url = url
-		}
-		s.mu.Unlock()
-	}
-	return err
 }
 
 // Back navigates the current tab to the previous page in browser history.
 func (s *Session) Back(ctx context.Context) error {
-	return chromedp.Run(s.currentTab(),
-		chromedp.Evaluate(`history.back()`, nil),
+	return s.run(ctx,
+		chromedp.NavigateBack(),
 		chromedp.WaitReady("body", chromedp.ByQuery),
 	)
 }
 
 // Forward navigates the current tab to the next page in browser history.
 func (s *Session) Forward(ctx context.Context) error {
-	return chromedp.Run(s.currentTab(),
-		chromedp.Evaluate(`history.forward()`, nil),
+	return s.run(ctx,
+		chromedp.NavigateForward(),
 		chromedp.WaitReady("body", chromedp.ByQuery),
 	)
+}
+
+// WaitFor waits until an element matching the selector reaches the given state
+// ("visible", "hidden", or "ready" = attached to the DOM), bounded by timeout
+// (capped at 60s). This is how the agent settles SPA navigation instead of
+// racing it.
+func (s *Session) WaitFor(ctx context.Context, selector, state string, timeout time.Duration) error {
+	if timeout <= 0 || timeout > 60*time.Second {
+		timeout = 60 * time.Second
+	}
+	var action chromedp.Action
+	switch state {
+	case "", "visible":
+		action = chromedp.WaitVisible(selector, chromedp.ByQuery)
+	case "hidden":
+		action = chromedp.WaitNotVisible(selector, chromedp.ByQuery)
+	case "ready":
+		action = chromedp.WaitReady(selector, chromedp.ByQuery)
+	default:
+		return fmt.Errorf("wait: unknown state %q — use visible, hidden, or ready", state)
+	}
+	err := s.runOn(ctx, s.currentTab(), timeout, action)
+	if err != nil && strings.Contains(err.Error(), "timed out") {
+		return fmt.Errorf("wait: %q did not become %s within %s", selector, stateWord(state), timeout)
+	}
+	return err
+}
+
+func stateWord(state string) string {
+	if state == "" {
+		return "visible"
+	}
+	return state
 }
 
 // ─── Interaction ─────────────────────────────────────────────────────────────
 
 // Click an element matching a CSS selector.
 func (s *Session) Click(ctx context.Context, selector string) error {
-	return chromedp.Run(s.currentTab(),
+	return s.run(ctx,
 		chromedp.WaitVisible(selector, chromedp.ByQuery),
 		chromedp.Click(selector, chromedp.ByQuery),
 	)
 }
 
-// Type text into an element matching a CSS selector.
-func (s *Session) Type(ctx context.Context, selector, text string) error {
-	return chromedp.Run(s.currentTab(),
+// Type text into an element matching a CSS selector. By default the field is
+// cleared first (what a user means by "type X into the box"); append=true
+// keeps the existing value and appends.
+func (s *Session) Type(ctx context.Context, selector, text string, appendTo bool) error {
+	actions := []chromedp.Action{
 		chromedp.WaitVisible(selector, chromedp.ByQuery),
 		chromedp.Click(selector, chromedp.ByQuery),
-		chromedp.SendKeys(selector, text, chromedp.ByQuery),
+	}
+	if !appendTo {
+		clear := fmt.Sprintf(`(function(){
+			var el = document.querySelector(%q);
+			if (el && ('value' in el)) { el.value = ''; el.dispatchEvent(new Event('input', {bubbles:true})); }
+			return true;
+		})()`, selector)
+		var ok bool
+		actions = append(actions, chromedp.Evaluate(clear, &ok))
+	}
+	actions = append(actions, chromedp.SendKeys(selector, text, chromedp.ByQuery))
+	return s.run(ctx, actions...)
+}
+
+// Upload sets the files of a file input matching the selector. Path validation
+// (project-root confinement, symlink resolution) is the CALLER's job — this
+// layer only drives CDP.
+func (s *Session) Upload(ctx context.Context, selector string, files []string) error {
+	return s.run(ctx,
+		chromedp.WaitReady(selector, chromedp.ByQuery),
+		chromedp.SetUploadFiles(selector, files, chromedp.ByQuery),
 	)
+}
+
+// Resize sets the viewport to the given CSS dimensions.
+func (s *Session) Resize(ctx context.Context, width, height int) error {
+	if width < 64 || width > 4096 || height < 64 || height > 4096 {
+		return fmt.Errorf("resize: dimensions must be between 64 and 4096 (got %dx%d)", width, height)
+	}
+	return s.run(ctx, chromedp.EmulateViewport(int64(width), int64(height)))
 }
 
 // Hover moves the mouse over an element matching a CSS selector, triggering
@@ -297,7 +428,8 @@ func (s *Session) Type(ctx context.Context, selector, text string) error {
 func (s *Session) Hover(ctx context.Context, selector string) error {
 	// Scroll the element into view first, then dispatch a real mouseover via JS
 	// (chromedp's MouseEvent needs coordinates; JS dispatch is simpler and
-	// triggers DOM mouseover/mouseenter events the page listens for).
+	// triggers DOM mouseover/mouseenter events the page listens for). CSS
+	// :hover states may not trigger — this is DOM-event hover.
 	js := fmt.Sprintf(`(function(){
 		var el = document.querySelector(%q);
 		if(!el) return "element not found: %s";
@@ -307,10 +439,7 @@ func (s *Session) Hover(ctx context.Context, selector string) error {
 		return "hovered";
 	})()`, selector, selector)
 	var result string
-	err := chromedp.Run(s.currentTab(),
-		chromedp.Evaluate(js, &result),
-	)
-	if err != nil {
+	if err := s.run(ctx, chromedp.Evaluate(js, &result)); err != nil {
 		return err
 	}
 	if result != "hovered" {
@@ -335,9 +464,7 @@ func (s *Session) PressKey(ctx context.Context, key string) error {
 			return fmt.Errorf("press_key: unknown key %q — use a single char or one of: Enter, Escape, Tab, Backspace, Space, ArrowUp, ArrowDown, ArrowLeft, ArrowRight", key)
 		}
 	}
-	return chromedp.Run(s.currentTab(),
-		chromedp.KeyEvent(rune),
-	)
+	return s.run(ctx, chromedp.KeyEvent(rune))
 }
 
 // keyToRune maps named keys to chromedp's kb package rune constants.
@@ -365,10 +492,7 @@ func (s *Session) Select(ctx context.Context, selector, value string) error {
 		return "selected";
 	})()`, selector, selector, value)
 	var result string
-	err := chromedp.Run(s.currentTab(),
-		chromedp.Evaluate(js, &result),
-	)
-	if err != nil {
+	if err := s.run(ctx, chromedp.Evaluate(js, &result)); err != nil {
 		return err
 	}
 	if result != "selected" {
@@ -377,78 +501,120 @@ func (s *Session) Select(ctx context.Context, selector, value string) error {
 	return nil
 }
 
-// Scroll scrolls the page by the given x and y deltas in CSS pixels. Positive y
-// scrolls down; positive x scrolls right. Use (0, 500) to scroll down half a
-// viewport, or a large y to reach the bottom.
-func (s *Session) Scroll(ctx context.Context, dx, dy int) error {
+// Scroll scrolls the page by the given x and y deltas in CSS pixels and
+// returns the resulting position ("scrolled to X,Y (viewport Hpx, total Tpx)")
+// so the agent knows whether it hit the bottom.
+func (s *Session) Scroll(ctx context.Context, dx, dy int) (string, error) {
 	js := fmt.Sprintf(`(function(){
 		window.scrollBy(%d, %d);
-		return "scrolled to " + window.scrollX + "," + window.scrollY + " (page " + window.innerHeight + "px tall, total " + document.body.scrollHeight + "px)";
+		return "scrolled to " + window.scrollX + "," + window.scrollY + " (viewport " + window.innerHeight + "px, total " + document.body.scrollHeight + "px)";
 	})()`, dx, dy)
 	var result string
-	err := chromedp.Run(s.currentTab(),
-		chromedp.Evaluate(js, &result),
-	)
-	if err != nil {
-		return err
-	}
-	// result carries the post-scroll position — useful for the agent to know if
-	// it hit the bottom. We don't return it as an error; the caller (tool handler)
-	// gets it via a separate call or we could thread it. For now, scroll is
-	// fire-and-forget; the agent can browser_screenshot to see where it is.
-	_ = result
-	return nil
+	err := s.run(ctx, chromedp.Evaluate(js, &result))
+	return result, err
 }
 
 // ScrollTo scrolls the element matching the selector into view (centered).
 func (s *Session) ScrollTo(ctx context.Context, selector string) error {
-	return chromedp.Run(s.currentTab(),
-		chromedp.ScrollIntoView(selector, chromedp.ByQuery),
-	)
+	return s.run(ctx, chromedp.ScrollIntoView(selector, chromedp.ByQuery))
 }
 
 // ─── Inspection ──────────────────────────────────────────────────────────────
 
-// Screenshot captures the current viewport as a PNG. When fullPage is true it
-// captures the entire scrollable page instead (can be very large — token cost).
-func (s *Session) Screenshot(ctx context.Context, fullPage bool) ([]byte, error) {
-	if fullPage {
-		var buf []byte
-		err := chromedp.Run(s.currentTab(),
-			chromedp.FullScreenshot(&buf, 90),
-		)
-		return buf, err
-	}
+// Screenshot captures the current viewport (or the full scrollable page) and
+// returns the image bytes plus their actual mime type. Captures above
+// maxImageBytes are retried as JPEG at decreasing quality so a single
+// screenshot can't flood the model's context.
+func (s *Session) Screenshot(ctx context.Context, fullPage bool) ([]byte, string, error) {
 	var buf []byte
-	err := chromedp.Run(s.currentTab(),
-		chromedp.CaptureScreenshot(&buf),
-	)
-	return buf, err
+	if fullPage {
+		// FullScreenshot with quality<100 emits JPEG.
+		if err := s.run(ctx, chromedp.FullScreenshot(&buf, 85)); err != nil {
+			return nil, "", err
+		}
+		if len(buf) <= maxImageBytes {
+			return buf, "image/jpeg", nil
+		}
+		if err := s.run(ctx, chromedp.FullScreenshot(&buf, 50)); err != nil {
+			return nil, "", err
+		}
+		return buf, "image/jpeg", nil
+	}
+	if err := s.run(ctx, chromedp.CaptureScreenshot(&buf)); err != nil {
+		return nil, "", err
+	}
+	if len(buf) <= maxImageBytes {
+		return buf, "image/png", nil
+	}
+	// PNG too big (dense page) — recapture the viewport as JPEG.
+	err := s.run(ctx, chromedp.ActionFunc(func(cctx context.Context) error {
+		b, err := page.CaptureScreenshot().
+			WithFormat(page.CaptureScreenshotFormatJpeg).
+			WithQuality(70).
+			Do(cctx)
+		if err != nil {
+			return err
+		}
+		buf = b
+		return nil
+	}))
+	if err != nil {
+		return nil, "", err
+	}
+	return buf, "image/jpeg", nil
 }
 
-// Eval runs a JavaScript expression and returns its result as a string.
+// Eval runs JavaScript in the page and returns the result rendered as a
+// string: strings verbatim, numbers/booleans/objects/arrays as JSON,
+// undefined/null as "undefined". Accepts both expressions ("1+1",
+// "document.title") and statements ("var x = 5; x * 2").
 func (s *Session) Eval(ctx context.Context, js string) (string, error) {
-	var result string
-	// Wrap in a function call so bare expressions work (chromedp.Evaluate expects
-	// an expression that returns a value; wrapping in `(function(){ … })()` is
-	// the idiomatic pattern and handles both expressions and statements).
-	wrapped := fmt.Sprintf("(function(){ return %s; })()", js)
-	err := chromedp.Run(s.currentTab(),
-		chromedp.Evaluate(wrapped, &result),
-	)
-	return result, err
+	out, err := s.evalWrapped(ctx, fmt.Sprintf("(function(){ return %s\n; })()", js))
+	if err != nil && strings.Contains(err.Error(), "SyntaxError") {
+		// Statements don't fit an expression return — run as a body; the result
+		// is whatever the last `return` yields (or undefined).
+		out, err = s.evalWrapped(ctx, fmt.Sprintf("(function(){ %s\n })()", js))
+	}
+	return out, err
+}
+
+func (s *Session) evalWrapped(ctx context.Context, wrapped string) (string, error) {
+	var raw json.RawMessage
+	err := s.run(ctx, chromedp.Evaluate(wrapped, &raw))
+	if err != nil {
+		if errors.Is(err, chromedp.ErrJSUndefined) || errors.Is(err, chromedp.ErrJSNull) {
+			return "undefined", nil
+		}
+		return "", err
+	}
+	trimmed := strings.TrimSpace(string(raw))
+	if trimmed == "" || trimmed == "null" {
+		return "undefined", nil
+	}
+	// Unquote plain strings so "hello" comes back as hello.
+	var str string
+	if json.Unmarshal(raw, &str) == nil {
+		return str, nil
+	}
+	return trimmed, nil
 }
 
 // Text returns the visible text content of the current page (body.innerText).
 func (s *Session) Text(ctx context.Context) (string, error) {
 	var text string
-	err := chromedp.Run(s.currentTab(),
-		chromedp.Evaluate(`document.body ? document.body.innerText : ""`, &text),
-	)
+	err := s.run(ctx, chromedp.Evaluate(`document.body ? document.body.innerText : ""`, &text))
 	return strings.TrimSpace(text), err
 }
 
 // ─── Tab management ──────────────────────────────────────────────────────────
+
+// TabInfo is a live snapshot of one tab.
+type TabInfo struct {
+	Index  int // 1-based
+	Active bool
+	URL    string
+	Title  string
+}
 
 // NewTab opens a new tab (about:blank) and switches focus to it. Returns the
 // tab index (1-based, for the agent's reference).
@@ -460,81 +626,101 @@ func (s *Session) NewTab(ctx context.Context) (int, error) {
 		return 0, fmt.Errorf("failed to create tab: %w", err)
 	}
 	s.mu.Lock()
-	tab := &tabHandle{ctx: tabCtx, cancel: tabCancel, title: "New Tab", url: "about:blank"}
+	tab := &tabHandle{ctx: tabCtx, cancel: tabCancel}
 	s.tabs = append(s.tabs, tab)
 	idx := len(s.tabs) - 1
 	s.active = idx
 	s.mu.Unlock()
-	s.listenConsole(tab)
+	s.listenTab(tab)
 	return idx + 1, nil // 1-based
 }
 
-// SwitchTab switches focus to the tab at the given 1-based index. Returns the
-// tab's current URL and title.
-func (s *Session) SwitchTab(index int) (url, title string, err error) {
+// SwitchTab switches focus to the tab at the given 1-based index and returns
+// its LIVE url and title (queried from the page, not cached).
+func (s *Session) SwitchTab(ctx context.Context, index int) (url, title string, err error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if index < 1 || index > len(s.tabs) {
-		return "", "", fmt.Errorf("tab %d does not exist (have %d tabs)", index, len(s.tabs))
+		n := len(s.tabs)
+		s.mu.Unlock()
+		return "", "", fmt.Errorf("tab %d does not exist (have %d tabs)", index, n)
 	}
 	s.active = index - 1
-	return s.tabs[s.active].url, s.tabs[s.active].title, nil
+	tab := s.tabs[s.active]
+	s.mu.Unlock()
+	url, title = s.tabMeta(ctx, tab)
+	return url, title, nil
 }
 
-// CloseTab closes the tab at the given 1-based index. If closing the active tab,
-// focus moves to the previous tab (or the first one). Closing the last tab is
-// not allowed (the browser needs at least one tab).
-func (s *Session) CloseTab(index int) error {
+// tabMeta queries a tab's live location and title, bounded by a short timeout
+// so a wedged tab can't stall a listing.
+func (s *Session) tabMeta(ctx context.Context, tab *tabHandle) (url, title string) {
+	_ = s.runOn(ctx, tab.ctx, 3*time.Second,
+		chromedp.Location(&url),
+		chromedp.Title(&title),
+	)
+	if url == "" {
+		url = "(no URL)"
+	}
+	if title == "" {
+		title = "(untitled)"
+	}
+	return url, title
+}
+
+// CloseTab closes the tab at the given 1-based index via CDP (the real Chrome
+// tab closes, not just our handle). Closing the ACTIVE tab deterministically
+// activates the nearest lower index. Tab 1 hosts the session's CDP connection
+// and can't be closed individually; neither can the last remaining tab.
+// Returns the new active tab's 1-based index.
+func (s *Session) CloseTab(index int) (newActive int, err error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if index < 1 || index > len(s.tabs) {
-		return fmt.Errorf("tab %d does not exist (have %d tabs)", index, len(s.tabs))
+		n := len(s.tabs)
+		s.mu.Unlock()
+		return 0, fmt.Errorf("tab %d does not exist (have %d tabs)", index, n)
 	}
 	if len(s.tabs) == 1 {
-		return errors.New("can't close the last tab — the browser needs at least one")
+		s.mu.Unlock()
+		return 0, errors.New("can't close the last tab — the browser needs at least one")
+	}
+	if index == 1 {
+		s.mu.Unlock()
+		return 0, errors.New("tab 1 hosts the browser session and can't be closed — switch to it and navigate instead, or close the other tabs")
 	}
 	idx := index - 1
 	tab := s.tabs[idx]
-	// Cancel the tab's chromedp context (closes the CDP target). The actual tab
-	// close is handled by chromedp canceling the target.
+	s.tabs = append(s.tabs[:idx], s.tabs[idx+1:]...)
+	// Deterministic active-tab fixup: closing the active tab activates the
+	// nearest LOWER index; tabs above the closed one shift left.
+	switch {
+	case s.active == idx:
+		s.active = idx - 1
+	case s.active > idx:
+		s.active--
+	}
+	newActive = s.active + 1
+	s.mu.Unlock()
+
+	// Close the real Chrome tab, then release the chromedp context.
+	_ = s.runOn(context.Background(), tab.ctx, 5*time.Second, chromedp.ActionFunc(func(cctx context.Context) error {
+		return page.Close().Do(cctx)
+	}))
 	if tab.cancel != nil {
 		tab.cancel()
 	}
-	s.tabs = append(s.tabs[:idx], s.tabs[idx+1:]...)
-	// Fix the active index.
-	if s.active >= len(s.tabs) {
-		s.active = len(s.tabs) - 1
-	} else if s.active == idx {
-		// We closed the active tab — move to the previous one.
-		s.active--
-		if s.active < 0 {
-			s.active = 0
-		}
-	} else if s.active > idx {
-		s.active-- // the active tab shifted left
-	}
-	return nil
+	return newActive, nil
 }
 
-// ListTabs returns the current tabs as "N. url — title" strings (1-based).
-func (s *Session) ListTabs() []string {
+// ListTabs returns the current tabs with LIVE urls and titles.
+func (s *Session) ListTabs(ctx context.Context) []TabInfo {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	out := make([]string, len(s.tabs))
-	for i, t := range s.tabs {
-		marker := "  "
-		if i == s.active {
-			marker = "▶ "
-		}
-		url := t.url
-		if url == "" {
-			url = "(no URL)"
-		}
-		title := t.title
-		if title == "" {
-			title = "(untitled)"
-		}
-		out[i] = fmt.Sprintf("%s%d. %s — %s", marker, i+1, url, title)
+	tabs := append([]*tabHandle(nil), s.tabs...)
+	active := s.active
+	s.mu.Unlock()
+	out := make([]TabInfo, len(tabs))
+	for i, t := range tabs {
+		url, title := s.tabMeta(ctx, t)
+		out[i] = TabInfo{Index: i + 1, Active: i == active, URL: url, Title: title}
 	}
 	return out
 }

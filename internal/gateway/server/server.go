@@ -245,6 +245,23 @@ func (r *runtime) applySchedules(ctx context.Context) {
 	r.sched = c
 }
 
+// agentWantsBrowser reports whether a gateway job for this agent gets Chrome
+// (headless in the child — a gateway job has no desktop). Browser access is an
+// EXPLICIT per-agent opt-in: only an agent whose toolsets literally list
+// "browser" qualifies. No inference from names, channels, wildcards, or
+// aliases: the deliberate entry only.
+func agentWantsBrowser(settings gwconfig.Settings, agent string) bool {
+	if agent == "" {
+		return false
+	}
+	for _, ts := range settings.Agents[agent].Toolsets {
+		if ts == "browser" {
+			return true
+		}
+	}
+	return false
+}
+
 // removeOneShot deletes a fired one-shot from gateway.yaml so it never fires
 // again. Runs on a timer goroutine; the config write is atomic and the worker's
 // reload loop picks up the change like any other edit.
@@ -544,7 +561,8 @@ func (r *runtime) runJob(ctx context.Context, it state.Item) {
 	if err := writeContext(session, jc); err != nil {
 		fmt.Fprintf(r.out, "gateway: composing context for %s: %v\n", it.Channel, err)
 	}
-	job, err := jobs.Spawn(root, it.Text, string(permissions.ModeAuto), cfg.Tier, false, true, session)
+	chrome := agentWantsBrowser(settings, it.Agent)
+	job, err := jobs.Spawn(root, it.Text, string(permissions.ModeAuto), cfg.Tier, chrome, true, session)
 	if err != nil {
 		// A spawn failure won't succeed on replay; record the error as the reply so
 		// it rides the same durable delivery path instead of being lost.

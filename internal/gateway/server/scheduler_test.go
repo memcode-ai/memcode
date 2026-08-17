@@ -248,3 +248,24 @@ func TestAgentPinTrustedOnly(t *testing.T) {
 		t.Errorf("untrusted message must not smuggle an agent pin: got %q, want the channel's bound agent", got)
 	}
 }
+
+// Browser access in gateway jobs is an EXPLICIT per-agent opt-in: only an
+// agent whose toolsets literally list "browser" gets Chrome. No inference
+// from wildcards, aliases, other toolsets, or channel config.
+func TestGatewayBrowserOptIn(t *testing.T) {
+	settings := gwconfig.Settings{Agents: map[string]gwconfig.Agent{
+		"webby":  {Toolsets: []string{"files", "browser"}},
+		"plain":  {Toolsets: []string{"files", "web"}},
+		"wild":   {Toolsets: []string{"browser_*"}}, // wildcard is NOT the literal entry
+		"norest": {},
+	}}
+	chromeFor := func(agent string) bool { return agentWantsBrowser(settings, agent) }
+	if !chromeFor("webby") {
+		t.Error("explicit browser toolset must enable Chrome")
+	}
+	for _, a := range []string{"plain", "wild", "norest", "", "unknown"} {
+		if chromeFor(a) {
+			t.Errorf("agent %q must NOT get Chrome", a)
+		}
+	}
+}

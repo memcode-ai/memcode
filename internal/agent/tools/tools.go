@@ -69,6 +69,9 @@ const (
 	BrowserSwitchTab  = "browser_switch_tab" // switch focus to a different tab
 	BrowserCloseTab   = "browser_close_tab"  // close a tab
 	BrowserListTabs   = "browser_list_tabs"  // list all open tabs
+	BrowserWait       = "browser_wait"       // wait for a selector to become visible/hidden/ready (settles SPA navigation)
+	BrowserUpload     = "browser_upload"     // set a file input's file (project files only, symlink-safe)
+	BrowserResize     = "browser_resize"     // set the viewport dimensions (responsive testing)
 )
 
 // MemcodeCommands are the introspection subcommands the `memcode` tool dispatches
@@ -343,6 +346,24 @@ type (
 	BrowserTypeInput struct {
 		Selector string `json:"selector"`
 		Text     string `json:"text"`
+		// Append keeps the field's existing value; default clears it first.
+		Append bool `json:"append,omitempty"`
+	}
+	// BrowserWaitInput waits for an element to reach a state.
+	BrowserWaitInput struct {
+		Selector       string `json:"selector"`
+		State          string `json:"state,omitempty"`           // visible (default) | hidden | ready
+		TimeoutSeconds int    `json:"timeout_seconds,omitempty"` // default 30, max 60
+	}
+	// BrowserUploadInput sets a file input's file.
+	BrowserUploadInput struct {
+		Selector string `json:"selector"`
+		Path     string `json:"path"` // inside the project root (resolved through symlinks)
+	}
+	// BrowserResizeInput sets the viewport size.
+	BrowserResizeInput struct {
+		Width  int `json:"width"`
+		Height int `json:"height"`
 	}
 	// BrowserScreenshotInput captures the current page as a PNG image (vision).
 	// Default is the viewport; full_page captures the entire scrollable page (larger — more tokens).
@@ -394,6 +415,10 @@ func obj(props map[string]any, required ...string) map[string]any {
 }
 
 func str(desc string) map[string]any { return map[string]any{"type": "string", "description": desc} }
+
+func integer(desc string) map[string]any {
+	return map[string]any{"type": "integer", "description": desc}
+}
 
 func intSchema(desc string) map[string]any {
 	return map[string]any{"type": "integer", "description": desc}
@@ -773,11 +798,37 @@ func BrowserDefs() []wire.ToolDef {
 		},
 		{
 			Name:        BrowserType,
-			Description: "Type text into an input element on the current page by CSS selector. Clicks the element first, then sends the keys. Use to fill forms, enter search queries, etc. Subject to permission approval.",
+			Description: "Type into an input by CSS selector: clicks it, clears the current value, sends the keys (append:true keeps the value). Subject to permission approval.",
 			InputSchema: obj(map[string]any{
 				"selector": str("a CSS selector for the input element"),
 				"text":     str("the text to type into the element"),
+				"append":   boolean("keep the field's existing value and append instead of clearing first (default false)"),
 			}, "selector", "text"),
+		},
+		{
+			Name:        BrowserWait,
+			Description: "Wait until an element becomes visible (default), hidden, or ready. Use after clicks that trigger SPA navigation or async loading. Read-only.",
+			InputSchema: obj(map[string]any{
+				"selector":        str("a CSS selector to wait for"),
+				"state":           str("visible (default), hidden, or ready"),
+				"timeout_seconds": integer("seconds before giving up (default 30, max 60)"),
+			}, "selector"),
+		},
+		{
+			Name:        BrowserUpload,
+			Description: "Attach a project file to a file input (<input type=file>). Files resolving outside the project root (through symlinks too) are refused. Subject to permission approval.",
+			InputSchema: obj(map[string]any{
+				"selector": str("a CSS selector for the file input"),
+				"path":     str("the file to upload, inside the project"),
+			}, "selector", "path"),
+		},
+		{
+			Name:        BrowserResize,
+			Description: "Set the viewport size in CSS pixels (64-4096) — responsive testing, e.g. 390x844 for a phone. Subject to permission approval.",
+			InputSchema: obj(map[string]any{
+				"width":  integer("viewport width in CSS pixels"),
+				"height": integer("viewport height in CSS pixels"),
+			}, "width", "height"),
 		},
 		{
 			Name:        BrowserScreenshot,

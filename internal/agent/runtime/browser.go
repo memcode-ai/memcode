@@ -4,7 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/memcode-ai/memcode/internal/agent/permissions"
 	"github.com/memcode-ai/memcode/internal/agent/tools"
@@ -13,9 +16,10 @@ import (
 
 // browserOrInit returns the persistent Chrome session, lazily launching it on the
 // first browser tool call. The session is reused across all subsequent browser
-// tool calls and torn down at session end (CloseBrowser). Chrome launches with a
-// visible window (headed). A clear error — not a chromedp stack trace — is
-// returned when Chrome isn't installed.
+// tool calls and torn down at session end (CloseBrowser). Interactive sessions
+// launch Chrome headed (a visible window, EPHEMERAL profile — no logins carried
+// over); gateway/service sessions launch headless (no desktop needed). A clear
+// error — not a chromedp stack trace — is returned when Chrome isn't installed.
 //
 // If the previously launched Chrome has died (the user quit the window, the OS
 // killed it, a crash), the cached session is torn down and a fresh Chrome is
@@ -35,8 +39,11 @@ func (s *Session) browserOrInit() (*browser.Session, error) {
 			return s.browserSession, nil
 		}
 	}
-	sess, err := browser.New()
+	sess, err := browser.New(browser.Options{Headless: s.browserHeadless})
 	if err != nil {
+		if s.browserHeadless {
+			return nil, fmt.Errorf("%s (this is a gateway job — Chrome must be installed on the GATEWAY machine for this agent's browser toolset)", err)
+		}
 		return nil, err
 	}
 	s.browserSession = sess
@@ -121,10 +128,14 @@ func (s *Session) browserTypeTool(ctx context.Context, input json.RawMessage) to
 		return errResult(err.Error())
 	}
 	s.toolLine(true, "Browser", "type", sel, false)
-	if err := sess.Type(ctx, sel, in.Text); err != nil {
+	if err := sess.Type(ctx, sel, in.Text, in.Append); err != nil {
 		return errResult("type failed: " + err.Error())
 	}
-	return textResult(fmt.Sprintf("typed %d chars into %s", len(in.Text), sel))
+	verb := "typed"
+	if in.Append {
+		verb = "appended"
+	}
+	return textResult(fmt.Sprintf("%s %d chars into %s", verb, len(in.Text), sel))
 }
 
 // browserScreenshotTool captures the current page as a PNG image and returns it as
@@ -140,13 +151,13 @@ func (s *Session) browserScreenshotTool(ctx context.Context, input json.RawMessa
 		return errResult(err.Error())
 	}
 	s.toolLine(true, "Browser", "screenshot", "", false)
-	png, err := sess.Screenshot(ctx, in.FullPage)
+	img, mime, err := sess.Screenshot(ctx, in.FullPage)
 	if err != nil {
 		return errResult("screenshot failed: " + err.Error())
 	}
 	// Return the image as a tool_result content block — the provider converters
 	// emit it as an image block in the tool_result content union (Anthropic vision).
-	return imageResult("image/png", png)
+	return imageResult(mime, img)
 }
 
 func (s *Session) browserEvalTool(ctx context.Context, input json.RawMessage) toolResult {
@@ -177,7 +188,7 @@ func (s *Session) browserEvalTool(ctx context.Context, input json.RawMessage) to
 	if err != nil {
 		return errResult("eval failed: " + err.Error())
 	}
-	return textResult(result)
+	return textResult(truncate(result, maxToolOutput))
 }
 
 func (s *Session) browserTextTool(ctx context.Context, input json.RawMessage) toolResult {
@@ -206,10 +217,11 @@ func (s *Session) browserScrollTool(ctx context.Context, input json.RawMessage) 
 		return errResult(err.Error())
 	}
 	s.toolLine(true, "Browser", "scroll", fmt.Sprintf("dx=%d dy=%d", in.DX, in.DY), false)
-	if err := sess.Scroll(ctx, in.DX, in.DY); err != nil {
+	pos, err := sess.Scroll(ctx, in.DX, in.DY)
+	if err != nil {
 		return errResult("scroll failed: " + err.Error())
 	}
-	return textResult(fmt.Sprintf("scrolled by dx=%d dy=%d", in.DX, in.DY))
+	return textResult(pos)
 }
 
 func (s *Session) browserPressKeyTool(ctx context.Context, input json.RawMessage) toolResult {
@@ -357,7 +369,7 @@ func (s *Session) browserSwitchTabTool(ctx context.Context, input json.RawMessag
 		return errResult(err.Error())
 	}
 	s.toolLine(true, "Browser", "switch_tab", fmt.Sprintf("→ %d", in.Index), false)
-	url, title, err := sess.SwitchTab(in.Index)
+	url, title, err := sess.SwitchTab(ctx, in.Index)
 	if err != nil {
 		return errResult("switch_tab failed: " + err.Error())
 	}
@@ -380,10 +392,11 @@ func (s *Session) browserCloseTabTool(ctx context.Context, input json.RawMessage
 		return errResult(err.Error())
 	}
 	s.toolLine(true, "Browser", "close_tab", fmt.Sprintf("× %d", in.Index), false)
-	if err := sess.CloseTab(in.Index); err != nil {
+	newActive, err := sess.CloseTab(in.Index)
+	if err != nil {
 		return errResult("close_tab failed: " + err.Error())
 	}
-	return textResult(fmt.Sprintf("closed tab %d", in.Index))
+	return textResult(fmt.Sprintf("closed tab %d — tab %d is now active", in.Index, newActive))
 }
 
 func (s *Session) browserListTabsTool(ctx context.Context, input json.RawMessage) toolResult {
@@ -392,9 +405,132 @@ func (s *Session) browserListTabsTool(ctx context.Context, input json.RawMessage
 		return errResult(err.Error())
 	}
 	s.toolLine(true, "Browser", "list_tabs", "", false)
-	tabs := sess.ListTabs()
+	tabs := sess.ListTabs(ctx)
 	if len(tabs) == 0 {
 		return textResult("(no tabs)")
 	}
-	return textResult(strings.Join(tabs, "\n"))
+	lines := make([]string, len(tabs))
+	for i, t := range tabs {
+		marker := "  "
+		if t.Active {
+			marker = "▶ "
+		}
+		lines[i] = fmt.Sprintf("%s%d. %s — %s", marker, t.Index, t.URL, t.Title)
+	}
+	return textResult(strings.Join(lines, "\n"))
+}
+
+// browserWaitTool waits for a selector to reach a state (visible/hidden/ready)
+// — how the agent settles SPA navigation instead of racing it. Read-only.
+func (s *Session) browserWaitTool(ctx context.Context, input json.RawMessage) toolResult {
+	var in tools.BrowserWaitInput
+	if err := json.Unmarshal(input, &in); err != nil {
+		return errResult(err.Error())
+	}
+	sel := strings.TrimSpace(in.Selector)
+	if sel == "" {
+		return errResult("browser_wait needs a `selector`.")
+	}
+	sess, err := s.browserOrInit()
+	if err != nil {
+		return errResult(err.Error())
+	}
+	timeout := time.Duration(in.TimeoutSeconds) * time.Second
+	s.toolLine(true, "Browser", "wait", sel, false)
+	if err := sess.WaitFor(ctx, sel, in.State, timeout); err != nil {
+		return errResult("wait failed: " + err.Error())
+	}
+	state := in.State
+	if state == "" {
+		state = "visible"
+	}
+	return textResult(fmt.Sprintf("%s is now %s", sel, state))
+}
+
+// browserUploadTool sets a file input's files. The file must resolve INSIDE
+// the project root after symlink evaluation — a symlink inside the repo
+// pointing at ~/.ssh resolves outside and is refused. Same trust posture as
+// the file tools.
+func (s *Session) browserUploadTool(ctx context.Context, input json.RawMessage) toolResult {
+	var in tools.BrowserUploadInput
+	if err := json.Unmarshal(input, &in); err != nil {
+		return errResult(err.Error())
+	}
+	sel := strings.TrimSpace(in.Selector)
+	path := strings.TrimSpace(in.Path)
+	if sel == "" || path == "" {
+		return errResult("browser_upload needs a `selector` and a `path`.")
+	}
+	resolved, size, err := resolveUploadPath(s.root, path)
+	if err != nil {
+		return errResult("upload refused: " + err.Error())
+	}
+	if tr, ok := s.browserGate(ctx, "Browser upload", fmt.Sprintf("%s → %s", filepath.Base(resolved), sel)); !ok {
+		return *tr
+	}
+	sess, err := s.browserOrInit()
+	if err != nil {
+		return errResult(err.Error())
+	}
+	s.toolLine(true, "Browser", "upload", filepath.Base(resolved), false)
+	if err := sess.Upload(ctx, sel, []string{resolved}); err != nil {
+		return errResult("upload failed: " + err.Error())
+	}
+	return textResult(fmt.Sprintf("uploaded %s (%d bytes) into %s", filepath.Base(resolved), size, sel))
+}
+
+// resolveUploadPath canonicalizes both the project root and the requested file
+// (absolute + symlinks evaluated) and requires the file to be inside the root
+// AFTER resolution. Only regular files are eligible.
+func resolveUploadPath(root, path string) (string, int64, error) {
+	rootAbs, err := filepath.Abs(root)
+	if err != nil {
+		return "", 0, err
+	}
+	rootReal, err := filepath.EvalSymlinks(rootAbs)
+	if err != nil {
+		return "", 0, err
+	}
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(rootReal, path)
+	}
+	real, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return "", 0, fmt.Errorf("cannot resolve %s: %w", path, err)
+	}
+	rel, err := filepath.Rel(rootReal, real)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", 0, fmt.Errorf("%s resolves outside the project root — only files inside the project can be uploaded", path)
+	}
+	fi, err := os.Stat(real)
+	if err != nil {
+		return "", 0, err
+	}
+	if !fi.Mode().IsRegular() {
+		return "", 0, fmt.Errorf("%s is not a regular file", path)
+	}
+	return real, fi.Size(), nil
+}
+
+// browserResizeTool sets the viewport dimensions (responsive testing).
+func (s *Session) browserResizeTool(ctx context.Context, input json.RawMessage) toolResult {
+	var in tools.BrowserResizeInput
+	if err := json.Unmarshal(input, &in); err != nil {
+		return errResult(err.Error())
+	}
+	if in.Width <= 0 || in.Height <= 0 {
+		return errResult("browser_resize needs `width` and `height`.")
+	}
+	if tr, ok := s.browserGate(ctx, "Browser resize", fmt.Sprintf("%dx%d", in.Width, in.Height)); !ok {
+		return *tr
+	}
+	sess, err := s.browserOrInit()
+	if err != nil {
+		return errResult(err.Error())
+	}
+	s.toolLine(true, "Browser", "resize", fmt.Sprintf("%dx%d", in.Width, in.Height), false)
+	if err := sess.Resize(ctx, in.Width, in.Height); err != nil {
+		return errResult("resize failed: " + err.Error())
+	}
+	return textResult(fmt.Sprintf("viewport is now %dx%d", in.Width, in.Height))
 }

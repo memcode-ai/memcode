@@ -141,6 +141,13 @@ for local gateway development. Never store keys in .memcode.`,
 				return err
 			}
 			defer release()
+			// No human can answer approval prompts in a detached child — tools
+			// whose every use would be denied are not advertised at all.
+			sess.SetNoApprover(true)
+			if gwSession != "" && chrome {
+				// A gateway job has no desktop session: Chrome must run headless.
+				sess.SetBrowserHeadless(true)
+			}
 			switch tier, _ := cmd.Flags().GetString("tier"); tier {
 			case "frontier":
 				sess.SetForceFrontier(true) // long-running background agent → top strong tier

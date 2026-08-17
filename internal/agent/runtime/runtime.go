@@ -98,6 +98,8 @@ type Session struct {
 	noContext         bool                                          // cold mode: skip the ContextPack (for A/B evaluation)
 	readOnly          bool                                          // explorer mode: no edit_file/bash (a "reader" sub-agent)
 	toolPolicy        tools.Policy                                  // agent tool policy (toolsets allow/deny); zero = unrestricted
+	browserHeadless   bool                                          // gateway/service sessions run Chrome headless (no desktop)
+	noApprover        bool                                          // detached job: no human can answer approval prompts
 	adminMode         bool                                          // admin session (`memcode admin`): admin tools only, settings doctrine
 	adminExec         AdminExecutor                                 // cmd-injected admin operations (engine never imports the gateway layer)
 	forceEscalate     bool                                          // strong-tier agent: pin every request to the strong vendor (balanced tier)
@@ -335,11 +337,12 @@ func (s *Session) AddRedactSecrets(values ...string) { s.redactor.Add(values...)
 // SetNoContext puts the session in cold mode (no ContextPack) — for A/B eval.
 func (s *Session) SetNoContext(v bool) { s.noContext = v }
 
-// SetBrowserEnabled enables the browser tools (--chrome). When enabled, the six
-// browser tools are advertised to the model and a persistent Chrome session is
-// lazily launched on the first browser tool call. Chrome always opens with a
-// visible window (headed) — you can watch it work. The Chrome process is torn
-// down on CloseBrowser (called at session end).
+// SetBrowserEnabled enables the browser tools (--chrome). When enabled, the
+// browser toolset is advertised to the model and a persistent Chrome session is
+// lazily launched on the first browser tool call — headed (a visible window,
+// ephemeral profile) for interactive sessions, headless for gateway children
+// (SetBrowserHeadless). The Chrome process is torn down on CloseBrowser
+// (called at session end).
 // SetAdmin switches this session into admin mode: the settings assistant for
 // the gateway and agents. Admin tools only, no shell, no editor.
 func (s *Session) SetAdmin(exec AdminExecutor) {

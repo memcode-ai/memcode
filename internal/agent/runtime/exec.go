@@ -303,6 +303,12 @@ func (s *Session) dispatch(ctx context.Context, u wire.Block) toolResult {
 		return s.browserSwitchTabTool(ctx, u.Input)
 	case tools.BrowserCloseTab:
 		return s.browserCloseTabTool(ctx, u.Input)
+	case tools.BrowserWait:
+		return s.browserWaitTool(ctx, u.Input)
+	case tools.BrowserUpload:
+		return s.browserUploadTool(ctx, u.Input)
+	case tools.BrowserResize:
+		return s.browserResizeTool(ctx, u.Input)
 	case tools.BrowserListTabs:
 		return s.browserListTabsTool(ctx, u.Input)
 	case tools.MCP:
@@ -787,6 +793,12 @@ func (s *Session) allowTool(name string) bool {
 	}
 	if name == tools.Fetch || name == tools.Trace {
 		return !s.readOnly
+	}
+	// A detached job (gateway/channel, background) has no approver: a Dangerous-
+	// gated tool would be auto-denied on every call outside allow-all, so don't
+	// advertise a tool that can never run.
+	if name == tools.BrowserEval && s.noApprover && s.effectiveMode() != permissions.ModeAllowAll {
+		return false
 	}
 	if name == tools.Reasoning {
 		// The executive session only: a read-only sub-agent runs fixed-cheap and must
