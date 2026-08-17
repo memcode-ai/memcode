@@ -380,7 +380,7 @@ func (s *Store) Conversation(ctx context.Context, channel, conversation string) 
 	return agent, project, nil
 }
 
-// SetConversationAgent points a conversation at a agent for its SUBSEQUENT
+// SetConversationAgent points a conversation at an agent for its SUBSEQUENT
 // tasks (upsert, preserving the current project).
 func (s *Store) SetConversationAgent(ctx context.Context, channel, conversation, agent string) error {
 	_, err := s.db.ExecContext(ctx,
