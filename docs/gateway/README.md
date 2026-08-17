@@ -87,12 +87,18 @@ channels:
     active: false                        # stays inert until Meta verification
     allow_from: ["+15555550123"]
 projects:                                # written by `memcode project add`
-  memcode: { path: ~/github/memcode, enabled: true }
-  www:     { path: ~/github/www, enabled: true }
+  memcode:
+    path: ~/github/memcode
+    enabled: true
+  www:
+    path: ~/github/www
+    enabled: true
 default_project: memcode
 agents:                                  # durable agents; identity + state in ~/.memcode/agents/<id>
-  personal: {}
-  coder:    { model: claude-sonnet-5, reasoning: medium }
+  personal:
+  coder:
+    model: claude-sonnet-5
+    reasoning: medium
 schedules:
   - name: standup
     cron: "0 9 * * 1-5"                  # or  every: "24h"
