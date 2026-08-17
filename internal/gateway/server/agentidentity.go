@@ -27,10 +27,15 @@ type jobContext struct {
 	// Reasoning is the agent's pinned thinking effort ("off"|"medium"|"high");
 	// empty = per-turn automatic.
 	Reasoning string `json:"reasoning,omitempty"`
+	// Toolsets/DisabledToolsets are the agent's tool policy (allow empty = all;
+	// deny wins).
+	Toolsets         []string `json:"toolsets,omitempty"`
+	DisabledToolsets []string `json:"disabled_toolsets,omitempty"`
 }
 
 func (jc jobContext) empty() bool {
-	return len(jc.Items) == 0 && len(jc.SkillRoots) == 0 && len(jc.Attachments) == 0 && jc.Model == "" && jc.Reasoning == ""
+	return len(jc.Items) == 0 && len(jc.SkillRoots) == 0 && len(jc.Attachments) == 0 &&
+		jc.Model == "" && jc.Reasoning == "" && len(jc.Toolsets) == 0 && len(jc.DisabledToolsets) == 0
 }
 
 // jobContextFor composes everything a bound agent layers onto a run: its

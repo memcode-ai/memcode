@@ -51,14 +51,17 @@ func TestJobContextEnvelopeContract(t *testing.T) {
 	 "skill_roots":["/tmp/skills"],
 	 "attachments":["abc.png"],
 	 "model":"claude-sonnet-5",
-	 "reasoning":"high"
+	 "reasoning":"high",
+	 "toolsets":["files"],
+	 "disabled_toolsets":["shell"]
 	}`
 	var jc jobContext
 	if err := json.Unmarshal([]byte(payload), &jc); err != nil {
 		t.Fatal(err)
 	}
 	if len(jc.Items) != 1 || len(jc.SkillRoots) != 1 || len(jc.Attachments) != 1 ||
-		jc.Model != "claude-sonnet-5" || jc.Reasoning != "high" {
+		jc.Model != "claude-sonnet-5" || jc.Reasoning != "high" ||
+		len(jc.Toolsets) != 1 || len(jc.DisabledToolsets) != 1 {
 		t.Errorf("envelope did not decode fully: %+v", jc)
 	}
 }

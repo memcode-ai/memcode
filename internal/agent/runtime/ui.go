@@ -13,6 +13,7 @@ import (
 	"github.com/memcode-ai/memcode/internal/agent/permissions"
 	"github.com/memcode-ai/memcode/internal/agent/plan"
 	"github.com/memcode-ai/memcode/internal/agent/room"
+	"github.com/memcode-ai/memcode/internal/agent/tools"
 	"github.com/memcode-ai/memcode/internal/objectives"
 	"github.com/memcode-ai/memcode/internal/provider"
 	"github.com/memcode-ai/memcode/internal/sessionlog"
@@ -182,6 +183,15 @@ func (s *Session) SetForceEscalate(on bool) { s.forceEscalate = on }
 // SetForceFrontier pins every turn to the FRONTIER (top strong) tier — for a
 // long-running background agent doing substantial unattended work.
 func (s *Session) SetForceFrontier(on bool) { s.forceFrontier = on }
+
+// SetToolPolicy restricts the session to the given toolsets/tools (allow;
+// empty = all) minus disabled ones (deny wins) — the gateway applies an
+// agent's configured policy here. Unknown entries are reported, not silently
+// dropped.
+func (s *Session) SetToolPolicy(allow, deny []string) (unknown []string) {
+	s.toolPolicy, unknown = tools.NewPolicy(allow, deny)
+	return unknown
+}
 
 // SetEffortOverride forces the per-turn thinking effort from the /effort command: "off",
 // "medium", or "high" pin it every turn; "auto" (or anything else) clears the override and

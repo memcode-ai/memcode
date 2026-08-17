@@ -26,6 +26,9 @@ type jobContext struct {
 	Model string `json:"model,omitempty"`
 	// Reasoning is the agent's pinned thinking effort ("off"|"medium"|"high").
 	Reasoning string `json:"reasoning,omitempty"`
+	// Toolsets/DisabledToolsets are the agent's tool policy.
+	Toolsets         []string `json:"toolsets,omitempty"`
+	DisabledToolsets []string `json:"disabled_toolsets,omitempty"`
 }
 
 // resolveJobAttachments turns spool IDs into engine attachments. Each ID must

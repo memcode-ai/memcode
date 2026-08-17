@@ -536,8 +536,10 @@ func (r *runtime) runJob(ctx context.Context, it state.Item) {
 	jc := jobContextFor(it.Agent)
 	jc.Attachments = rest
 	if it.Agent != "" {
-		jc.Model = settings.Agents[it.Agent].Model // agent's pinned model drives its runs
-		jc.Reasoning = settings.Agents[it.Agent].Reasoning
+		a := settings.Agents[it.Agent]
+		jc.Model = a.Model // agent's pinned model drives its runs
+		jc.Reasoning = a.Reasoning
+		jc.Toolsets, jc.DisabledToolsets = a.Toolsets, a.DisabledToolsets
 	}
 	if err := writeContext(session, jc); err != nil {
 		fmt.Fprintf(r.out, "gateway: composing context for %s: %v\n", it.Channel, err)

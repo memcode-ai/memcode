@@ -193,6 +193,11 @@ func (s *Session) dispatch(ctx context.Context, u wire.Block) toolResult {
 		}
 		return errResult("denied: this is a " + who + " (no " + u.Name + ")")
 	}
+	// Tool policy: enforcement at execution too, so a hallucinated call to a
+	// tool the policy hid fails closed instead of running.
+	if !s.toolPolicy.Empty() && !s.toolPolicy.Allows(u.Name) {
+		return errResult("denied: the tool " + u.Name + " is disabled by this agent's tool policy")
+	}
 	// explore fans out read-only sub-agents (chat + plan), but never nests: an
 	// explorer can't spawn more explorers.
 	if u.Name == tools.Explore && s.readOnly {
@@ -730,13 +735,21 @@ func (s *Session) toolDefs() []wire.ToolDef {
 	// explorer sub-agents (the browser is an executive-session capability).
 	if s.browserEnabled && !s.readOnly {
 		for _, d := range tools.BrowserDefs() {
+			if !s.allowTool(d.Name) {
+				continue
+			}
 			out = append(out, d)
 		}
 	}
 	// MCP tools go to the EXECUTIVE only (chat + plan), never to read-only explorer sub-agents
 	// (like web/skill tools) — and each call is still gated per-tool in callMCP.
 	if !s.readOnly {
-		out = append(out, s.mcpToolDefs()...)
+		for _, d := range s.mcpToolDefs() {
+			if !s.allowTool(d.Name) {
+				continue
+			}
+			out = append(out, d)
+		}
 	}
 	return out
 }
@@ -749,6 +762,12 @@ func (s *Session) toolDefs() []wire.ToolDef {
 //   - plan mode: research tools + bash + explore + ask_user + web_search/fetch.
 //   - normal mode: everything, including explore.
 func (s *Session) allowTool(name string) bool {
+	// The agent's tool policy (agents.<name>.toolsets / disabled_toolsets) is
+	// the outermost filter: a tool outside it is never advertised. The risk
+	// gate still judges every action of the tools that remain.
+	if !s.toolPolicy.Empty() && !s.toolPolicy.Allows(name) {
+		return false
+	}
 	if name == tools.Explore {
 		return !s.readOnly // chat + plan, but no nesting inside an explorer
 	}

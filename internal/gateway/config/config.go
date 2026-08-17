@@ -103,6 +103,13 @@ type Agent struct {
 	// Reasoning pins the agent's thinking effort: "off", "medium", or "high".
 	// Empty = per-turn automatic (the engine judges each turn's depth).
 	Reasoning string `yaml:"reasoning,omitempty"`
+	// Toolsets restricts the agent to these toolsets/tools (empty = all);
+	// DisabledToolsets removes toolsets/tools, and deny wins. Names are
+	// documented at memcode.ai/docs/agents/tools. The risk gate on dangerous
+	// commands applies regardless — policy shapes the toolbox, it never
+	// loosens safety.
+	Toolsets         []string `yaml:"toolsets,omitempty"`
+	DisabledToolsets []string `yaml:"disabled_toolsets,omitempty"`
 }
 
 // Project is a registered working directory. Path is the configured location;

@@ -97,6 +97,7 @@ type Session struct {
 	browserSession    *browser.Session                              // the persistent Chrome instance (lazily created on first browser tool call)
 	noContext         bool                                          // cold mode: skip the ContextPack (for A/B evaluation)
 	readOnly          bool                                          // explorer mode: no edit_file/bash (a "reader" sub-agent)
+	toolPolicy        tools.Policy                                  // agent tool policy (toolsets allow/deny); zero = unrestricted
 	adminMode         bool                                          // admin session (`memcode admin`): admin tools only, settings doctrine
 	adminExec         AdminExecutor                                 // cmd-injected admin operations (engine never imports the gateway layer)
 	forceEscalate     bool                                          // strong-tier agent: pin every request to the strong vendor (balanced tier)

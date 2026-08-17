@@ -70,6 +70,7 @@ directory:
 			mcpServers:  openClawMCP,
 			identity:    openClawIdentity,
 			agentMemory: openClawAgentMemory,
+			toolPolicy:  openClawToolPolicyFromDir,
 		})
 	},
 }
@@ -111,6 +112,7 @@ directory:
 			mcpServers:  hermesMCP,
 			identity:    hermesIdentity,
 			agentMemory: hermesAgentMemory,
+			toolPolicy:  hermesToolPolicyFromDir,
 		})
 	},
 }
@@ -137,6 +139,9 @@ type migrationSource struct {
 	// user-global memory. Global memory gets only USER.md (facts about the
 	// user, which every agent shares).
 	agentMemory func(dir string) []string
+	// toolPolicy reads the source's tool restrictions into memcode toolset
+	// names for the migrated agent.
+	toolPolicy func(dir string) (allow, disabled, notes []string)
 }
 
 // runMigration performs the full migration for a source: channels, provider API
@@ -309,7 +314,30 @@ func runMigration(cmd *cobra.Command, src migrationSource) error {
 		}
 	}
 
-	// 7. User memory → extracted from the source's USER-tier files into global memory.md.
+	// 7. Tool policy → the migrated agent's toolsets/disabled_toolsets.
+	if src.toolPolicy != nil {
+		allow, disabled, tpNotes := src.toolPolicy(src.dir)
+		res.Notes = append(res.Notes, tpNotes...)
+		if len(allow) > 0 || len(disabled) > 0 {
+			id := src.slug
+			if cur.Agents == nil {
+				cur.Agents = map[string]gwconfig.Agent{}
+			}
+			a := cur.Agents[id]
+			a.Toolsets, a.DisabledToolsets = allow, disabled
+			cur.Agents[id] = a
+			if err := gwconfig.Save(cur); err != nil {
+				res.Notes = append(res.Notes, fmt.Sprintf("tools: policy not saved: %v", err))
+			} else {
+				res.Notes = append(res.Notes, fmt.Sprintf("tools: agent %q tool policy carried over (allow: %v, disabled: %v)", id, allow, disabled))
+				if personaID == "" {
+					personaID = id
+				}
+			}
+		}
+	}
+
+	// 8. User memory → extracted from the source's USER-tier files into global memory.md.
 	memCount, err := migrateMemories(src)
 	if err != nil {
 		return err
@@ -369,6 +397,24 @@ func hermesChannels(dir string, env map[string]string) (importer.Result, error) 
 		return importer.Result{}, err
 	}
 	return importer.FromHermes(data, env)
+}
+
+// openClawToolPolicyFromDir / hermesToolPolicyFromDir read each source's tool
+// restrictions from its config file.
+func openClawToolPolicyFromDir(dir string) (allow, disabled, notes []string) {
+	data, err := os.ReadFile(filepath.Join(dir, "openclaw.json"))
+	if err != nil {
+		return nil, nil, nil
+	}
+	return importer.OpenClawToolPolicy(data)
+}
+
+func hermesToolPolicyFromDir(dir string) (allow, disabled, notes []string) {
+	data, err := os.ReadFile(filepath.Join(dir, "config.yaml"))
+	if err != nil {
+		return nil, nil, nil
+	}
+	return importer.HermesToolPolicy(data)
 }
 
 // openClawMCP / hermesMCP read each source's MCP server block.

@@ -155,6 +155,11 @@ for local gateway development. Never store keys in .memcode.`,
 				if gwContext.Reasoning != "" {
 					sess.SetEffortOverride(gwContext.Reasoning) // agent's pinned thinking effort
 				}
+				if len(gwContext.Toolsets) > 0 || len(gwContext.DisabledToolsets) > 0 {
+					if unknown := sess.SetToolPolicy(gwContext.Toolsets, gwContext.DisabledToolsets); len(unknown) > 0 {
+						fmt.Printf("note: tool policy entries not recognized (see memcode.ai/docs/agents/tools): %s\n", strings.Join(unknown, ", "))
+					}
+				}
 				if jc := gwContext; len(jc.Items) > 0 || len(jc.SkillRoots) > 0 || len(jc.Attachments) > 0 {
 					sess.SetContext(jc.Items)                                      // gateway-supplied agent/user context for this run
 					sess.SetSkillRoots(jc.SkillRoots)                              // agent's own skills join discovery

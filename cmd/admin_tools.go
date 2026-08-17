@@ -138,6 +138,12 @@ func adminOverview(ctx context.Context) (string, error) {
 		if a.Reasoning != "" {
 			extra += " reasoning=" + a.Reasoning
 		}
+		if len(a.Toolsets) > 0 {
+			extra += fmt.Sprintf(" toolsets=%v", a.Toolsets)
+		}
+		if len(a.DisabledToolsets) > 0 {
+			extra += fmt.Sprintf(" disabled_toolsets=%v", a.DisabledToolsets)
+		}
 		fmt.Fprintf(&b, "- %s:%s (home: ~/.memcode/agents/%s)\n", name, extra, name)
 	}
 	b.WriteString("\nSCHEDULES:\n")
@@ -407,10 +413,12 @@ func adminProject(input json.RawMessage) (string, error) {
 
 func adminAgent(input json.RawMessage) (string, error) {
 	var in struct {
-		Action    string `json:"action"`
-		Name      string `json:"name"`
-		Model     string `json:"model"`
-		Reasoning string `json:"reasoning"`
+		Action           string `json:"action"`
+		Name             string `json:"name"`
+		Model            string `json:"model"`
+		Reasoning        string `json:"reasoning"`
+		Toolsets         string `json:"toolsets"`
+		DisabledToolsets string `json:"disabled_toolsets"`
 	}
 	if err := json.Unmarshal(input, &in); err != nil {
 		return "", err
@@ -437,6 +445,30 @@ func adminAgent(input json.RawMessage) (string, error) {
 			return "", err
 		}
 		return fmt.Sprintf("Created agent %s. Bind a channel to it with gw_channel field=agent; its identity lives at ~/.memcode/agents/%s/SOUL.md.", name, name), nil
+	case "tools":
+		p, ok := settings.Agents[name]
+		if !ok {
+			return "", fmt.Errorf("no agent %q", name)
+		}
+		allow, deny := splitPolicyList(in.Toolsets), splitPolicyList(in.DisabledToolsets)
+		var bad []string
+		for _, e := range append(append([]string{}, allow...), deny...) {
+			if !tools.ValidPolicyEntry(e) {
+				bad = append(bad, e)
+			}
+		}
+		if len(bad) > 0 {
+			return "", fmt.Errorf("unknown toolsets/tools: %s (valid toolsets: %s)", strings.Join(bad, ", "), strings.Join(tools.ToolsetNames(), ", "))
+		}
+		p.Toolsets, p.DisabledToolsets = allow, deny
+		settings.Agents[name] = p
+		if err := gwconfig.Save(settings); err != nil {
+			return "", err
+		}
+		if len(allow) == 0 && len(deny) == 0 {
+			return fmt.Sprintf("Agent %s back to the full toolbox.", name), nil
+		}
+		return fmt.Sprintf("Agent %s tool policy set (allow: %v, disabled: %v).", name, allow, deny), nil
 	case "reasoning":
 		p, ok := settings.Agents[name]
 		if !ok {
@@ -567,6 +599,17 @@ func adminSchedule(input json.RawMessage) (string, error) {
 		return fmt.Sprintf("Removed schedule %s.", name), nil
 	}
 	return "", fmt.Errorf("action must be add, remove, enable, or disable")
+}
+
+// splitPolicyList parses a comma-separated policy list, trimming blanks.
+func splitPolicyList(v string) []string {
+	var out []string
+	for _, e := range strings.Split(v, ",") {
+		if e = strings.TrimSpace(e); e != "" {
+			out = append(out, e)
+		}
+	}
+	return out
 }
 
 func parseAdminBool(v string) (bool, error) {
