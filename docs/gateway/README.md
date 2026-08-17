@@ -96,6 +96,7 @@ projects:                                # written by `memcode project add`
 default_project: memcode
 agents:                                  # durable agents; identity + state in ~/.memcode/agents/<id>
   personal:
+    model: claude-haiku-4-5    # omit model to let routing pick per task
   coder:
     model: claude-sonnet-5
     reasoning: medium
