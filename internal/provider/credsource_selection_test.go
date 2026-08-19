@@ -49,7 +49,7 @@ func TestSelectedSourceUnresolvedWhenSignedOut(t *testing.T) {
 	// this is the boot warning's trigger. (No real Claude/Codex login exists
 	// in the test environment, so resolution fails by construction.)
 	t.Setenv(EnvCredentialSource, "claude")
-	t.Setenv("HOME", t.TempDir())          // no ~/.claude login
+	t.Setenv("HOME", t.TempDir()) // no ~/.claude login
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	src, bad := SelectedSourceUnresolved()
 	if !bad || src != "claude" {
