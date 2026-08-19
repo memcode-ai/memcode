@@ -43,9 +43,22 @@ environment variable.`,
 	},
 }
 
+var authDetachCmd = &cobra.Command{
+	Use:   "detach <claude|codex|copilot|grok>",
+	Short: "Detach a subscription — its models serve on memcode again",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		src, ok := canonicalSource(args[0])
+		if !ok {
+			return fmt.Errorf("unknown source %q — use one of: claude, codex, copilot, grok", args[0])
+		}
+		return detachSource(src)
+	},
+}
+
 var authUseCmd = &cobra.Command{
 	Use:   "use <claude|codex|copilot|grok>",
-	Short: "Use a subscription you already have, and remember it",
+	Short: "Attach a subscription you already have (alias of `memcode auth <source>`)",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		src, ok := canonicalSource(args[0])
@@ -70,12 +83,22 @@ var authStatusCmd = &cobra.Command{
 	Use:   "status",
 	Short: "Show how memcode is currently signed in",
 	RunE: func(cmd *cobra.Command, args []string) error {
+		attached := provider.AttachedSources()
+		loggedIn := strings.TrimSpace(os.Getenv(provider.EnvAPIToken)) != ""
+		if loggedIn {
+			fmt.Printf("  Signed in to a memcode account (serves every model family).\n")
+		}
+		for _, src := range attached {
+			state := "active"
+			if !sourceAvailable(src) {
+				state = "attached, but NOT signed in — run `memcode auth " + src + "`"
+			}
+			fmt.Printf("  Lane: %s subscription → %s models (%s)\n", src, provider.SourceVendor(src), state)
+		}
+		if loggedIn || len(attached) > 0 {
+			return nil
+		}
 		switch {
-		case strings.TrimSpace(os.Getenv(provider.EnvCredentialSource)) != "":
-			src, _ := canonicalSource(os.Getenv(provider.EnvCredentialSource))
-			fmt.Printf("  Using your %s subscription.\n", src)
-		case strings.TrimSpace(os.Getenv(provider.EnvAPIToken)) != "":
-			fmt.Printf("  Signed in to a memcode account.\n")
 		case strings.TrimSpace(os.Getenv(provider.EnvEndpointURL)) != "":
 			fmt.Printf("  Using a custom endpoint: %s\n", strings.TrimSpace(os.Getenv(provider.EnvEndpointURL)))
 		case strings.TrimSpace(os.Getenv("ANTHROPIC_API_KEY")) != "":
@@ -90,7 +113,7 @@ var authStatusCmd = &cobra.Command{
 }
 
 func init() {
-	authCmd.AddCommand(authUseCmd, authStatusCmd)
+	authCmd.AddCommand(authUseCmd, authDetachCmd, authStatusCmd)
 	rootCmd.AddCommand(authCmd)
 }
 

@@ -193,13 +193,59 @@ func grokLogin(ctx context.Context) error {
 	})
 }
 
-// selectSource persists a subscription source choice.
+// selectSource ATTACHES a subscription source: sources accumulate as family
+// lanes ("claude,codex"), each serving its own vendor's models. Idempotent.
+// Writing also migrates the legacy single-value var into the list and clears
+// it, so old installs converge on the new grammar.
 func selectSource(id string) error {
-	if err := authflow.SetGlobalEnv(map[string]string{provider.EnvCredentialSource: id}); err != nil {
+	attached := provider.AttachedSources() // reads new var, falls back to legacy
+	for _, src := range attached {
+		if src == id {
+			fmt.Printf("\n  ✓ Your %s subscription is already attached.\n\n", id)
+			return persistSources(attached) // still migrate the legacy var
+		}
+	}
+	attached = append(attached, id)
+	if err := persistSources(attached); err != nil {
 		return err
 	}
-	os.Setenv(provider.EnvCredentialSource, id)
-	fmt.Printf("\n  ✓ Using your %s subscription. Saved to %s\n\n", id, provider.GlobalEnvPath())
+	fmt.Printf("\n  ✓ Attached your %s subscription. Its models now serve on it. Saved to %s\n\n", id, provider.GlobalEnvPath())
+	return nil
+}
+
+// detachSource removes a source from the consent list.
+func detachSource(id string) error {
+	var kept []string
+	found := false
+	for _, src := range provider.AttachedSources() {
+		if src == id {
+			found = true
+			continue
+		}
+		kept = append(kept, src)
+	}
+	if !found {
+		fmt.Printf("\n  %s isn't attached.\n\n", id)
+		return nil
+	}
+	if err := persistSources(kept); err != nil {
+		return err
+	}
+	fmt.Printf("\n  ✓ Detached %s. Its models serve on memcode again.\n\n", id)
+	return nil
+}
+
+func persistSources(sources []string) error {
+	list := strings.Join(sources, ",")
+	// The legacy var is cleared on every write — the list is the truth now.
+	if err := authflow.SetGlobalEnv(map[string]string{
+		provider.EnvCredentials:      list,
+		provider.EnvCredentialSource: "",
+	}); err != nil {
+		return err
+	}
+	os.Setenv(provider.EnvCredentials, list)
+	os.Setenv(provider.EnvCredentialSource, "")
 	return nil
 }
 
