@@ -136,6 +136,21 @@ func ExplicitCredentialSource() bool {
 	return strings.TrimSpace(os.Getenv(EnvCredentialSource)) != ""
 }
 
+// SelectedSourceUnresolved reports a credential source the user explicitly
+// selected that did NOT resolve to a live login (expired token, signed out of
+// the host tool). The TUI surfaces this at boot: serving silently falling
+// back to another credential is exactly the failure users cannot see.
+func SelectedSourceUnresolved() (string, bool) {
+	src := strings.ToLower(strings.TrimSpace(os.Getenv(EnvCredentialSource)))
+	if src == "" {
+		return "", false
+	}
+	if ep, ok := discoverCredentialEndpoint(); ok && SubscriptionEndpointName(ep.Name) {
+		return "", false
+	}
+	return src, true
+}
+
 // sourceModel resolves a subscription source's initial model: an explicit
 // MEMCODE_ENDPOINT_MODEL override wins, else the source's sensible default so a
 // subscription "just works" with no configuration. The /model picker changes it

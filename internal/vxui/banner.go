@@ -37,6 +37,11 @@ var matrixGlyphs = []rune("ﾊﾐﾋｰｳｼﾅﾓﾆｻﾜｱｲｳｴｵｶ�
 // need an explicit carriage return — the cooked-mode NL→CRNL translation is off.
 func printBanner(ctx context.Context, sess *runtime.Session, raw bool) {
 	s := bannerString(ctx, sess, theme.Active().Palette)
+	// A selected subscription that failed to resolve must be LOUD: turns are
+	// about to serve (and bill) somewhere the user did not choose.
+	if src, bad := provider.SelectedSourceUnresolved(); bad {
+		s += fmt.Sprintf("⚠ %s subscription selected but not signed in — serving falls back; run `memcode auth %s` to fix\n", src, src)
+	}
 	if raw {
 		s = strings.ReplaceAll(s, "\n", "\r\n")
 	}

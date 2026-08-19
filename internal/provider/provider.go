@@ -217,6 +217,16 @@ func resolveEndpoint(endpoints []Endpoint) (Endpoint, bool) {
 		}
 		return ep, true
 	}
+	// An explicitly selected credential source is checked FIRST: the user's
+	// wizard choice must not be shadowed by a stale config endpoint or env
+	// URL. Only when the selected source fails to resolve do the other paths
+	// get a turn (and the boot surfaces that failure — see
+	// SelectedSourceUnresolved).
+	if ExplicitCredentialSource() {
+		if ep, ok := discoverCredentialEndpoint(); ok && SubscriptionEndpointName(ep.Name) {
+			return ep, true
+		}
+	}
 	for _, ep := range endpoints {
 		if ep.BaseURL != "" {
 			return pick(ep)
