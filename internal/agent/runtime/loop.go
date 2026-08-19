@@ -234,6 +234,7 @@ func (s *Session) runLoop(ctx context.Context, sys promptSpec, messages *[]wire.
 			Effort: eff, MaxTokens: maxTok,
 			Difficulty:  s.turnDifficulty,    // the judge's tier verdict → the ladder's difficulty input
 			BillingLane: s.turnBillingLane(), // "" normally; "credits" after an explicit BYOK-failure consent
+			LaneBypass:  s.turn.laneBypass,   // "" normally; "gateway" after a consented lane-exhaustion fallback
 			// Escalation signals only the CLI can see (self-heal, room friction,
 			// high-risk surfaces) — inputs to the CLI's own semantic ladder.
 			RoutingHint: s.turnRoutingHint(),
@@ -305,6 +306,19 @@ func (s *Session) runLoop(ctx context.Context, sys promptSpec, messages *[]wire.
 					continue
 				}
 				s.printf("\n■ %s\n", metaStyle.Render("Your API key was rejected — fix or remove it with /apikeys"))
+				return iterations, false, nil
+			}
+			// A subscription/own-key lane hit its usage window. Same doctrine as
+			// BYOK: never SILENTLY move spend — the only path onto credits is an
+			// explicit per-vendor choice, sticky for this session. Headless
+			// sessions fail with the reason (and the reset time when known).
+			var laneExh *provider.ErrLaneExhausted
+			if errors.As(err, &laneExh) {
+				if s.consentLaneFallback(ctx, laneExh) {
+					s.printf("\n%s\n", metaStyle.Render("⊙ "+laneExh.Error()+" — continuing on memcode credits (session choice; /status to review)"))
+					continue
+				}
+				s.printf("\n■ %s\n", metaStyle.Render(laneExh.Error()+" — turn stopped. Pick another family with /model, or wait for the window."))
 				return iterations, false, nil
 			}
 			// Token rejected (401): the SESSION is signed out (expired or revoked
@@ -1314,6 +1328,43 @@ func estimateTokens(chars int) int {
 		return 0
 	}
 	return chars / 4
+}
+
+// consentLaneFallback asks (once per vendor per session) how to continue when
+// a lane's subscription/key hits its usage window. True = serve this and
+// future exhausted turns for that vendor on memcode credits via the gateway.
+func (s *Session) consentLaneFallback(ctx context.Context, exh *provider.ErrLaneExhausted) bool {
+	if !exh.CanFallback {
+		return false // no gateway base — nothing to fall back to
+	}
+	if s.laneFallback == nil {
+		s.laneFallback = map[string]string{}
+	}
+	if choice, ok := s.laneFallback[exh.Lane.Vendor]; ok {
+		if choice == "gateway" {
+			s.turn.laneBypass = "gateway"
+			return true
+		}
+		return false
+	}
+	if s.ask == nil || s.purpose != llm.MainLoop {
+		return false // headless / sub-agent: fail with the reason
+	}
+	resp := s.ask(ctx, AskRequest{
+		Question: exh.Error() + ". How should this session continue when it's exhausted?",
+		Options: []AskOption{
+			{Label: "Stop the turn", Description: "Wait for the window, or /model another family"},
+			{Label: "Continue on memcode credits", Description: "This and future exhausted turns — billed to your credit balance"},
+		},
+	})
+	ans := strings.ToLower(strings.TrimSpace(resp.Answer))
+	if strings.HasPrefix(ans, "continue") {
+		s.laneFallback[exh.Lane.Vendor] = "gateway"
+		s.turn.laneBypass = "gateway"
+		return true
+	}
+	s.laneFallback[exh.Lane.Vendor] = "stop"
+	return false
 }
 
 // turnBillingLane returns the billing-lane extension for this turn's model

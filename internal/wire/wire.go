@@ -239,6 +239,10 @@ type Request struct {
 	// from that extension and the gateway ENFORCES it — it never silently
 	// reroutes between the user's keys and credits. NOT marshaled on this type.
 	BillingLane string `json:"-"`
+	// LaneBypass forces a turn OFF its family lane after an explicit,
+	// consented exhaustion choice: "gateway" serves it on the hosted base.
+	// Client-side routing state only — never serialized to any wire.
+	LaneBypass string `json:"-"`
 }
 
 // Response is a model completion result, plus the serving telemetry the footer/

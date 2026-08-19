@@ -16,6 +16,13 @@ import (
 func (l *Lazy) route(r wire.Request) (wire.Request, *conn, *lane, error) {
 	base := l.c.Load()
 	lanes := l.laneSet()
+	// A consented exhaustion choice bypasses lane dispatch for this turn.
+	if r.LaneBypass == "gateway" {
+		if base == nil {
+			return r, nil, nil, ErrNotLoggedIn
+		}
+		return r, base, nil, nil
+	}
 	if len(lanes) == 0 {
 		if base == nil {
 			return r, nil, nil, ErrNotLoggedIn

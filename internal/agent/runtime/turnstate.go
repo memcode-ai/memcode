@@ -21,6 +21,7 @@ type turnState struct {
 	firstBreak     string          // the FIRST broken-edit nudge this turn — the failure evidence for lesson distillation
 	lessonDone     bool            // a lesson was already distilled this turn (fire once)
 	billingCredits bool            // user consented to serve THIS turn on memcode credits after a BYOK key failure
+	laneBypass     string          // "gateway" after a consented lane-exhaustion fallback — this turn serves off-lane
 }
 
 // newTurnState returns a fresh per-turn state (with an initialized gather tracker).
