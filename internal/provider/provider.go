@@ -258,8 +258,30 @@ var ErrNotLoggedIn = fmt.Errorf("not signed in — run /login to connect to memc
 // swap).
 type Lazy struct {
 	c           atomic.Pointer[conn]
+	lanes       atomic.Pointer[[]lane]   // family lanes (subs + own keys); nil in exclusive-endpoint mode
 	fallback    atomic.Pointer[Endpoint] // configured custom endpoint — the signed-out backend
 	retryNotify atomic.Value             // func(attempt int, err error, delay time.Duration)
+}
+
+// timeNow is a test seam for exhaustion reset-time stamping.
+var timeNow = time.Now
+
+func (l *Lazy) laneSet() []lane {
+	if p := l.lanes.Load(); p != nil {
+		return *p
+	}
+	return nil
+}
+
+// Lanes reports the attached family lanes for UI/policy consumers (the
+// provider.Laner seam). Empty in exclusive-endpoint mode and plain hosted.
+func (l *Lazy) Lanes() []LaneInfo {
+	ls := l.laneSet()
+	out := make([]LaneInfo, 0, len(ls))
+	for _, ln := range ls {
+		out = append(out, ln.info())
+	}
+	return out
 }
 
 // NewFromEnvLazy constructs the lazy provider. Backend selection (one-wire
@@ -297,7 +319,7 @@ func NewFromEnvLazy(endpoints ...Endpoint) *Lazy {
 // Connected reports whether a usable backend is present — hosted gateway
 // credentials OR a configured custom endpoint (Phase C widening: endpoint
 // mode is a connected state; only token-less-and-endpoint-less is signed out).
-func (l *Lazy) Connected() bool { return l.c.Load() != nil }
+func (l *Lazy) Connected() bool { return l.c.Load() != nil || len(l.laneSet()) > 0 }
 
 // Endpoint reports the ACTIVE custom endpoint, ok=false when hosted or signed
 // out. This is the one backend-mode signal the runtime/TUI key on (via
@@ -347,19 +369,29 @@ func (l *Lazy) SetRetryNotify(fn func(attempt int, err error, delay time.Duratio
 }
 
 func (l *Lazy) Complete(ctx context.Context, r wire.Request) (wire.Response, error) {
-	c := l.c.Load()
-	if c == nil {
-		return wire.Response{}, ErrNotLoggedIn
+	rr, c, ln, err := l.route(r)
+	if err != nil {
+		return wire.Response{}, err
 	}
-	return c.Complete(ctx, r)
+	resp, err := c.Complete(ctx, rr)
+	if ln != nil {
+		restamp(&resp, ln)
+		err = l.classifyLaneErr(ln, err)
+	}
+	return resp, err
 }
 
 func (l *Lazy) Stream(ctx context.Context, r wire.Request, h wire.StreamHandler) (wire.Response, error) {
-	c := l.c.Load()
-	if c == nil {
-		return wire.Response{}, ErrNotLoggedIn
+	rr, c, ln, err := l.route(r)
+	if err != nil {
+		return wire.Response{}, err
 	}
-	return c.Stream(ctx, r, h)
+	resp, err := c.Stream(ctx, rr, h)
+	if ln != nil {
+		restamp(&resp, ln)
+		err = l.classifyLaneErr(ln, err)
+	}
+	return resp, err
 }
 
 func (l *Lazy) WebSearch(ctx context.Context, query string) (string, error) {
