@@ -248,13 +248,19 @@ func (s *appState) costDetail(byPurpose bool) string {
 	if in+out+cr+cw == 0 {
 		return "no spend yet this session."
 	}
-	_, onEndpoint := s.w.sess.Endpoint()
+	ep, onEndpoint := s.w.sess.Endpoint()
 	showUSD := costShowsUSD(onEndpoint, s.w.sess.Pin())
+	// A subscription endpoint bills NOTHING per turn — printing "$0.05" as if
+	// money moved undoes the whole "is this really on my sub?" trust story.
+	// The API-value estimate stays visible, clearly labeled as not-a-charge.
+	onSub := onEndpoint && provider.SubscriptionEndpointName(ep.Name)
 	var b strings.Builder
 	b.WriteString("session spend (estimate):\n")
 	fmt.Fprintf(&b, "  ↑ input    %-8s  cache: %s read · %s write (%d%% hit)\n", fmtTokens(in), fmtTokens(cr), fmtTokens(cw), cacheHitRate(in, cr))
 	fmt.Fprintf(&b, "  ↓ output   %-8s\n", fmtTokens(out))
-	if showUSD {
+	if onSub {
+		fmt.Fprintf(&b, "  ~ cost     $0 · %s subscription (≈$%.2f API value)", provider.ServingLabel(ep.Name), usd)
+	} else if showUSD {
 		fmt.Fprintf(&b, "  ~ cost     $%.2f", usd)
 	} else {
 		b.WriteString("  ~ cost     — (custom endpoint, model not in the rate catalog: token counts only)")
