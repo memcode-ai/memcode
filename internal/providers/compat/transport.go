@@ -12,6 +12,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,10 +20,11 @@ import (
 	"math/rand"
 	"net"
 	"net/http"
-	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
+	"github.com/memcode-ai/memcode/internal/providers/provcore"
 	"github.com/memcode-ai/memcode/internal/wire"
 )
 
@@ -260,10 +262,12 @@ func (t *Transport) Stream(ctx context.Context, r wire.Request, h wire.StreamHan
 			return acc.response(), nil
 		}
 		// A mid-stream failure rides the standard error envelope on a data:
-		// line (then [DONE]) — map it to the shared sentinels immediately.
+		// line (then [DONE]) — map it to the shared sentinels immediately,
+		// preserving whatever usage the backend already reported billed
+		// (the native adapters' error paths do the same).
 		var env ErrorResponse
 		if json.Unmarshal([]byte(data), &env) == nil && (env.Error.Message != "" || env.Error.Code != "") {
-			return wire.Response{}, streamErr(env.Error)
+			return acc.partialUsage(), streamErr(env.Error)
 		}
 		var chunk ChatChunk
 		if json.Unmarshal([]byte(data), &chunk) != nil {
@@ -273,16 +277,16 @@ func (t *Transport) Stream(ctx context.Context, r wire.Request, h wire.StreamHan
 	}
 	if err := sc.Err(); err != nil {
 		if ctx.Err() != nil {
-			return wire.Response{}, ctx.Err()
+			return acc.partialUsage(), ctx.Err()
 		}
 		// A mid-stream read failure is transient transport — tag it so the
 		// runtime retries the call rather than failing the turn.
-		return wire.Response{}, fmt.Errorf("memcode api stream read: %v: %w", err, wire.ErrStreamIncomplete)
+		return acc.partialUsage(), fmt.Errorf("memcode api stream read: %v: %w", err, wire.ErrStreamIncomplete)
 	}
 	// The stream closed cleanly but never terminated with [DONE] (e.g. the
 	// request cut at an infrastructure timeout) — also transient, also
 	// retryable from the same history.
-	return wire.Response{}, fmt.Errorf("memcode api stream ended without [DONE]: %w", wire.ErrStreamIncomplete)
+	return acc.partialUsage(), fmt.Errorf("memcode api stream ended without [DONE]: %w", wire.ErrStreamIncomplete)
 }
 
 // ── HTTP + retry ────────────────────────────────────────────────────────────
@@ -388,43 +392,62 @@ func retryableStatus(status int) bool {
 		http.StatusInternalServerError, // 500
 		http.StatusBadGateway,          // 502
 		http.StatusServiceUnavailable,  // 503
-		http.StatusGatewayTimeout:      // 504
+		http.StatusGatewayTimeout,      // 504
+		529:                            // Anthropic overloaded (same class provcore.IsRetryable covers)
 		return true
 	}
 	return false
 }
 
 // retryableNetErr reports whether a request error is transient transport (a
-// reset, a DNS hiccup, a timeout) rather than a permanent config error.
+// timeout, a reset, a DNS hiccup, an unexpected EOF) rather than a permanent
+// config error. It must NOT blanket-match net.Error: every http.Client.Do
+// error is a *url.Error, which implements net.Error, so the old errors.As
+// check retried permanent failures (bad TLS, unsupported scheme, NXDOMAIN)
+// three times each before surfacing them.
 func retryableNetErr(err error) bool {
+	// DNS: a transient resolver hiccup retries; NXDOMAIN is a config error.
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) {
+		return !dnsErr.IsNotFound
+	}
+	// TLS certificate failures are permanent — retrying can't fix trust.
+	var certErr *tls.CertificateVerificationError
+	if errors.As(err, &certErr) {
+		return false
+	}
+	// Timeouts (dial, TLS handshake, response-header stalls).
 	var netErr net.Error
-	return errors.As(err, &netErr)
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return true
+	}
+	// Connection-level transients: reset/refused mid-exchange, broken pipe,
+	// a connection cut before/mid response body.
+	for _, transient := range []error{
+		syscall.ECONNRESET, syscall.ECONNREFUSED, syscall.EPIPE,
+		io.EOF, io.ErrUnexpectedEOF,
+	} {
+		if errors.Is(err, transient) {
+			return true
+		}
+	}
+	// Everything else (unsupported scheme, malformed URL, protocol errors) is
+	// permanent — surface it immediately.
+	return false
 }
 
-// retryAfterDelay parses the Retry-After header (seconds or HTTP-date),
-// capped at retryCapMs. ok=false when absent or unparseable.
+// retryAfterDelay parses the Retry-After header (seconds or HTTP-date, via
+// the shared provcore parser), capped at retryCapMs. ok=false when absent,
+// unparseable, or already elapsed — the caller falls back to backoff.
 func retryAfterDelay(resp *http.Response) (time.Duration, bool) {
-	v := resp.Header.Get("Retry-After")
-	if v == "" {
+	d := provcore.RetryAfter(resp.Header)
+	if d <= 0 {
 		return 0, false
 	}
-	capped := func(d time.Duration) time.Duration {
-		if d > time.Duration(retryCapMs)*time.Millisecond {
-			return time.Duration(retryCapMs) * time.Millisecond
-		}
-		return d
+	if d > time.Duration(retryCapMs)*time.Millisecond {
+		d = time.Duration(retryCapMs) * time.Millisecond
 	}
-	if secs, err := strconv.Atoi(v); err == nil && secs >= 0 {
-		return capped(time.Duration(secs) * time.Second), true
-	}
-	if at, err := http.ParseTime(v); err == nil {
-		d := time.Until(at)
-		if d < 0 {
-			return 0, true
-		}
-		return capped(d), true
-	}
-	return 0, false
+	return d, true
 }
 
 // backoffDelay computes exponential backoff with full jitter:

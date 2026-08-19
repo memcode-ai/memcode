@@ -5,7 +5,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/memcode-ai/memcode/internal/llm"
 	"github.com/memcode-ai/memcode/internal/overview"
 	"github.com/memcode-ai/memcode/internal/provider"
 )
@@ -23,24 +22,18 @@ Requires MEMCODE_API_TOKEN (from the environment or a gitignored .env at the rep
 		ctx := cmd.Context()
 		refresh, _ := cmd.Flags().GetBool("refresh")
 
-		st, cfg, err := openProject(ctx)
+		st, cfg, _, runner, err := openModelProject(ctx)
 		if err != nil {
 			return err
 		}
 		defer st.Close()
-
-		provider.LoadDotEnv()
-		prov, err := provider.NewFromEnv()
-		if err != nil {
-			return err
-		}
 		model := provider.EffectiveModel(cfg.Models.Coder)
 
 		var o overview.Overview
 		if refresh {
-			o, err = overview.Synthesize(ctx, st, llm.NewRunner(prov), cfg.Root, model)
+			o, err = overview.Synthesize(ctx, st, runner, cfg.Root, model)
 		} else {
-			o, err = overview.Get(ctx, st, llm.NewRunner(prov), cfg.Root, model)
+			o, err = overview.Get(ctx, st, runner, cfg.Root, model)
 		}
 		if err != nil {
 			return err

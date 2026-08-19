@@ -316,17 +316,6 @@ func (s *schedState) activeText() string {
 	return s.active.Text
 }
 
-// clear drops every queued transaction (e.g. `/queue clear`) and returns the count.
-func (s *schedState) clear() int {
-	n := len(s.queue)
-	for _, tx := range s.queue {
-		tx.State = TxCancelled
-	}
-	s.queue = nil
-	s.last = time.Time{} // clearing is a coalesce boundary
-	return n
-}
-
 // snapshot returns the queued transactions' texts in order (for `/queue`).
 func (s *schedState) snapshot() []string {
 	out := make([]string, len(s.queue))

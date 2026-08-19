@@ -12,7 +12,6 @@ import (
 	"github.com/memcode-ai/memcode/internal/agent/permissions"
 	"github.com/memcode-ai/memcode/internal/agent/runtime"
 	"github.com/memcode-ai/memcode/internal/jobs"
-	"github.com/memcode-ai/memcode/internal/llm"
 	"github.com/memcode-ai/memcode/internal/provider"
 )
 
@@ -66,18 +65,11 @@ for local gateway development. Never store keys in .memcode.`,
 			return runInteractive(ctx, mode, modeExplicit(cmd), chrome, resumeRef(cmd))
 		}
 
-		st, cfg, err := openProject(ctx)
+		st, cfg, prov, runner, err := openModelProject(ctx)
 		if err != nil {
 			return err
 		}
 		defer st.Close()
-
-		// Load .env (gitignored) into the environment, then build the active backend.
-		provider.LoadDotEnv()
-		prov, err := provider.NewFromEnv()
-		if err != nil {
-			return err
-		}
 
 		model := provider.EffectiveModel(cfg.Models.Coder)
 		// A gateway agent may pin the model that drives it (agents.<name>.model);
@@ -99,7 +91,6 @@ for local gateway development. Never store keys in .memcode.`,
 				model = e.Model
 			}
 		}
-		runner := llm.NewRunner(prov)
 
 		// A resumed one-shot continues a saved conversation for exactly one more
 		// turn (`memcode run -c "now fix the failing test"`). Incompatible with
@@ -116,7 +107,11 @@ for local gateway development. Never store keys in .memcode.`,
 				mode = permissions.ModeAuto // a backgrounded job can't answer prompts
 				fmt.Println("note: background jobs run in --auto (can't prompt); pass --allow-all to widen")
 			}
-			job, err := jobs.Spawn(cfg.Root, task, string(mode), "", chrome, false, "")
+			if nc, _ := cmd.Flags().GetBool("no-context"); nc {
+				fmt.Println("note: --no-context is ignored with --background (the job child builds its own context)")
+			}
+			reportBack, _ := cmd.Flags().GetBool("report-back")
+			job, err := jobs.Spawn(cfg.Root, task, string(mode), "", chrome, reportBack, "")
 			if err != nil {
 				return err
 			}
@@ -154,6 +149,10 @@ for local gateway development. Never store keys in .memcode.`,
 			case "strong":
 				sess.SetForceEscalate(true) // strong-tier background agent → strong vendor's balanced tier
 			}
+			// Live readout for frontends: heartbeat activity/tokens into meta.json.
+			// stopHeartbeat is synchronous and runs before EVERY Finish below, so a
+			// late tick can never trample the terminal record.
+			stopHeartbeat := startJobHeartbeat(ctx, sess, cfg.Root, jobID)
 			// --session: a gateway conversation job. Pin the id and resume the prior
 			// transcript if it exists, so follow-up messages continue the same session.
 			// Uses the chat seams (which load + save the transcript) instead of Run.
@@ -187,6 +186,7 @@ for local gateway development. Never store keys in .memcode.`,
 				if rb, _ := cmd.Flags().GetBool("report-back"); rb {
 					result = sess.LastText()
 				}
+				stopHeartbeat()
 				_ = jobs.Finish(cfg.Root, jobID, code, result)
 				return sess.LastError()
 			}
@@ -201,6 +201,7 @@ for local gateway development. Never store keys in .memcode.`,
 			if rb, _ := cmd.Flags().GetBool("report-back"); rb {
 				result = sess.LastText()
 			}
+			stopHeartbeat()
 			_ = jobs.Finish(cfg.Root, jobID, code, result)
 			return runErr
 		}
@@ -246,15 +247,19 @@ func resolveMode(cmd *cobra.Command) permissions.Mode {
 	if ok, _ := cmd.Flags().GetBool("auto"); ok {
 		return permissions.ModeAuto
 	}
+	// Ask is the default; an EXPLICIT --ask additionally counts as a forced mode
+	// (see modeExplicit), so it overrides a remembered auto/allow-all for this run.
 	return permissions.ModeAsk
 }
 
 // modeExplicit reports whether the user forced a mode with a flag this run (so it
-// overrides — and does not overwrite — the remembered config mode).
+// overrides — and does not overwrite — the remembered config mode). An explicit
+// --ask counts: it forces prompt-mode over a remembered auto/allow-all.
 func modeExplicit(cmd *cobra.Command) bool {
 	a, _ := cmd.Flags().GetBool("auto")
 	all, _ := cmd.Flags().GetBool("allow-all")
-	return a || all
+	ask, _ := cmd.Flags().GetBool("ask")
+	return a || all || (cmd.Flags().Changed("ask") && ask)
 }
 
 // parseMode converts a stored mode string to a permissions.Mode (ok=false if it's
@@ -272,7 +277,7 @@ func parseMode(s string) (permissions.Mode, bool) {
 }
 
 func init() {
-	runCmd.Flags().Bool("ask", true, "prompt before risky actions (default)")
+	runCmd.Flags().Bool("ask", true, "prompt before risky actions (default; pass explicitly to override a remembered mode — --ask=false is a no-op)")
 	runCmd.Flags().Bool("auto", false, "run low/medium-risk actions automatically")
 	runCmd.Flags().Bool("allow-all", false, "run everything except catastrophic commands")
 	runCmd.Flags().Bool("no-context", false, "cold mode: skip the context pack (for A/B comparison)")

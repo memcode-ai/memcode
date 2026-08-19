@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"sort"
@@ -188,7 +189,7 @@ func transportFor(sc ServerConfig, opts Options) (mcpsdk.Transport, func(), erro
 		if err != nil {
 			return nil, nil, err
 		}
-		return &mcpsdk.SSEClientTransport{Endpoint: sc.URL, HTTPClient: httpClient(headers)}, nil, nil
+		return &mcpsdk.SSEClientTransport{Endpoint: sc.URL, HTTPClient: httpClient(headers, sc.URL)}, nil, nil
 	case "http":
 		if sc.URL == "" {
 			return nil, nil, fmt.Errorf("http server has no url")
@@ -197,7 +198,7 @@ func transportFor(sc ServerConfig, opts Options) (mcpsdk.Transport, func(), erro
 		if err != nil {
 			return nil, nil, err
 		}
-		hc := httpClient(headers)
+		hc := httpClient(headers, sc.URL)
 		t := &mcpsdk.StreamableClientTransport{Endpoint: sc.URL, HTTPClient: hc}
 		if wantOAuth(sc, opts, headers) {
 			h, stop, herr := oauthHandler(hc)
@@ -565,21 +566,32 @@ func flattenResource(contents []*mcpsdk.ResourceContents) string {
 }
 
 // httpClient returns an HTTP client that injects the configured headers (e.g. an
-// Authorization bearer token) on every request — the SDK's sanctioned auth hook for
-// remote servers. Returns the default client when there are no headers.
-func httpClient(headers map[string]string) *http.Client {
+// Authorization bearer token) — the SDK's sanctioned auth hook for remote servers. Injection
+// is scoped to the configured server's host ONLY: the same client also carries the SDK's
+// OAuth metadata/registration/token calls (third-party authorization servers) and follows
+// redirects, and a configured secret must never leak to any of those other hosts.
+// Returns the default client when there are no headers.
+func httpClient(headers map[string]string, serverURL string) *http.Client {
 	if len(headers) == 0 {
 		return http.DefaultClient
 	}
-	return &http.Client{Transport: &headerRoundTripper{base: http.DefaultTransport, headers: headers}}
+	host := ""
+	if u, err := url.Parse(serverURL); err == nil {
+		host = strings.ToLower(u.Host)
+	}
+	return &http.Client{Transport: &headerRoundTripper{base: http.DefaultTransport, headers: headers, host: host}}
 }
 
 type headerRoundTripper struct {
 	base    http.RoundTripper
 	headers map[string]string
+	host    string // the configured MCP server's host — the only host that gets the headers
 }
 
 func (h *headerRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	if h.host == "" || !strings.EqualFold(req.URL.Host, h.host) {
+		return h.base.RoundTrip(req) // different host (auth server, redirect) — no injection
+	}
 	req = req.Clone(req.Context())
 	for k, v := range h.headers {
 		req.Header.Set(k, v)

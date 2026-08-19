@@ -34,20 +34,20 @@ func (s *Session) connectMCP(ctx context.Context, interactive bool) {
 	approvals := mcp.LoadApprovals(s.root)
 	connect := map[string]mcp.ServerConfig{}
 	s.mcpPending = nil
+	// Retain each connected server's RAW config: approvals and invocation grants hash the raw
+	// entry (see internal/mcp approvals — env changes must not invalidate them, and resolved
+	// secrets must not feed the hash), so the gate needs the raw config at call time. Only the
+	// connect map is env-expanded.
+	s.mcpConfigs = map[string]mcp.ServerConfig{}
 	for _, ss := range mcp.Resolve(s.root) {
 		if ss.Scope == mcp.ScopeProject && approvals.Status(ss.Name, ss.Config) != mcp.Approved {
 			s.mcpPending = append(s.mcpPending, ss) // untrusted until approved
 			continue
 		}
-		connect[ss.Name] = ss.Config
+		connect[ss.Name] = mcp.ExpandServer(ss.Config)
+		s.mcpConfigs[ss.Name] = ss.Config
 	}
 	s.mcpInteractive = interactive
-	// Retain each connected server's config: invocation grants persist keyed to its hash
-	// (see internal/mcp approvals), so the gate needs the live config at call time.
-	s.mcpConfigs = map[string]mcp.ServerConfig{}
-	for name, cfg := range connect {
-		s.mcpConfigs[name] = cfg
-	}
 	s.mcp = mcp.Connect(ctx, connect, mcp.Options{Version: mcpClientVersion, AllowOAuth: interactive})
 	s.reportMCP()
 	if len(s.mcpPending) > 0 && !interactive {
@@ -64,7 +64,9 @@ func (s *Session) reviewPendingMCP(ctx context.Context) {
 	}
 	pending := s.mcpPending
 	s.mcpPending = nil
+	// approve holds the RAW configs (grants hash the raw entry); connect the expanded ones.
 	approve := map[string]mcp.ServerConfig{}
+	connect := map[string]mcp.ServerConfig{}
 	for _, ss := range pending {
 		req := ApprovalRequest{
 			Label:  "MCP server",
@@ -77,6 +79,7 @@ func (s *Session) reviewPendingMCP(ctx context.Context) {
 		if d.Allow {
 			decision = mcp.Approved
 			approve[ss.Name] = ss.Config
+			connect[ss.Name] = mcp.ExpandServer(ss.Config)
 		}
 		_ = mcp.SaveApproval(s.root, ss.Name, ss.Config, decision)
 	}
@@ -90,9 +93,9 @@ func (s *Session) reviewPendingMCP(ctx context.Context) {
 		s.mcpConfigs[name] = cfg
 	}
 	if s.mcp == nil {
-		s.mcp = mcp.Connect(ctx, approve, mcp.Options{Version: mcpClientVersion, AllowOAuth: s.mcpInteractive})
+		s.mcp = mcp.Connect(ctx, connect, mcp.Options{Version: mcpClientVersion, AllowOAuth: s.mcpInteractive})
 	} else {
-		s.mcp.Add(ctx, approve, mcp.Options{Version: mcpClientVersion, AllowOAuth: s.mcpInteractive})
+		s.mcp.Add(ctx, connect, mcp.Options{Version: mcpClientVersion, AllowOAuth: s.mcpInteractive})
 	}
 	s.reportMCP()
 }

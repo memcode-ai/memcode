@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/memcode-ai/memcode/internal/textutil"
 	"github.com/memcode-ai/memcode/internal/wire"
 )
 
@@ -363,11 +364,12 @@ func EvictStaleToolResultsOpts(messages []wire.Message, keepRecent int, opts Evi
 }
 
 // clip collapses whitespace-runs lightly and truncates s to at most n bytes with a
-// single-line ellipsis, so one transcript entry stays compact.
+// single-line ellipsis, so one transcript entry stays compact. Rune-safe cut: a
+// byte slice could split a multibyte rune and emit invalid UTF-8.
 func clip(s string, n int) string {
 	s = strings.TrimSpace(s)
 	if len(s) <= n {
 		return s
 	}
-	return s[:n] + "…"
+	return textutil.ClipBytes(s, n) + "…"
 }

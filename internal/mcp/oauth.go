@@ -9,6 +9,8 @@ import (
 	"os/exec"
 	"runtime"
 	"strings"
+	"sync"
+	"testing"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/auth"
@@ -23,15 +25,35 @@ import (
 // to complete the flow).
 
 // oauthHandler builds an OAuth handler bound to a freshly-allocated loopback redirect. The
-// returned closer releases the listener (call it when the connection is torn down). httpClient
-// is used for the SDK's metadata/registration/token requests.
+// returned closer shuts down the callback server and releases the listener (call it when the
+// connection is torn down). httpClient is used for the SDK's metadata/registration/token
+// requests.
+//
+// The callback server is started ONCE and lives for the whole connection, because the flow can
+// run more than once per connection (token expiry → re-authorization): the redirect URI is
+// registered with the authorization server at dynamic-registration time, so its port must stay
+// stable, and a per-flow Shutdown would close the shared listener and leave every later flow
+// blocking on a dead socket (the old bug).
 func oauthHandler(httpClient *http.Client) (auth.OAuthHandler, func(), error) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return nil, func() {}, err
 	}
 	redirect := fmt.Sprintf("http://%s/callback", ln.Addr().String())
-	closer := func() { _ = ln.Close() }
+
+	sink := &codeSink{}
+	srv := &http.Server{Handler: sink}
+	go func() {
+		if serr := srv.Serve(ln); serr != nil && serr != http.ErrServerClosed {
+			// Surface the failure to any current or future flow instead of hanging it.
+			sink.fail(fmt.Errorf("oauth callback server: %w", serr))
+		}
+	}()
+	closer := func() {
+		shutCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(shutCtx) // closes ln too
+	}
 
 	h, err := auth.NewAuthorizationCodeHandler(&auth.AuthorizationCodeHandlerConfig{
 		DynamicClientRegistrationConfig: &auth.DynamicClientRegistrationConfig{
@@ -41,7 +63,7 @@ func oauthHandler(httpClient *http.Client) (auth.OAuthHandler, func(), error) {
 			},
 		},
 		RedirectURL:              redirect,
-		AuthorizationCodeFetcher: loopbackFetcher(ln),
+		AuthorizationCodeFetcher: sink.fetch,
 		Client:                   httpClient,
 	})
 	if err != nil {
@@ -51,46 +73,99 @@ func oauthHandler(httpClient *http.Client) (auth.OAuthHandler, func(), error) {
 	return h, closer, nil
 }
 
-// loopbackFetcher opens the authorization URL in the user's browser and serves a single request
-// on ln to capture the redirected code/state.
-func loopbackFetcher(ln net.Listener) auth.AuthorizationCodeFetcher {
-	return func(ctx context.Context, args *auth.AuthorizationArgs) (*auth.AuthorizationResult, error) {
-		if err := openBrowser(args.URL); err != nil {
-			// Not fatal — the user can paste the URL manually.
-			fmt.Printf("  open this URL to authorize the MCP server:\n  %s\n", args.URL)
+// codeSink is the loopback redirect target, reusable across authorization flows on one
+// connection: each fetch installs a fresh result channel, opens the browser, and waits for
+// the redirect (or a server failure) to land.
+type codeSink struct {
+	mu      sync.Mutex
+	current chan sinkResult // the active flow's result channel; nil when no flow is waiting
+	err     error           // a fatal server error, failing every current and future flow
+}
+
+type sinkResult struct {
+	result *auth.AuthorizationResult
+	err    error
+}
+
+// deliver hands the outcome to the active flow, if any (non-blocking: capacity 1, first
+// outcome wins — a duplicate redirect or stray hit must never wedge a handler goroutine).
+func (s *codeSink) deliver(r sinkResult) bool {
+	s.mu.Lock()
+	ch := s.current
+	s.mu.Unlock()
+	if ch == nil {
+		return false
+	}
+	select {
+	case ch <- r:
+		return true
+	default:
+		return false
+	}
+}
+
+// fail marks the sink dead (the server stopped serving) and unblocks any waiting flow.
+func (s *codeSink) fail(err error) {
+	s.mu.Lock()
+	s.err = err
+	s.mu.Unlock()
+	s.deliver(sinkResult{nil, err})
+}
+
+// ServeHTTP captures the authorization redirect for the active flow.
+func (s *codeSink) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	if e := q.Get("error"); e != "" {
+		http.Error(w, "authorization failed: "+e, http.StatusBadRequest)
+		s.deliver(sinkResult{nil, fmt.Errorf("authorization error: %s", e)})
+		return
+	}
+	code := q.Get("code")
+	if code == "" {
+		http.NotFound(w, r) // favicon and other stray hits
+		return
+	}
+	if !s.deliver(sinkResult{&auth.AuthorizationResult{Code: code, State: q.Get("state")}, nil}) {
+		http.Error(w, "no authorization flow is waiting", http.StatusConflict)
+		return
+	}
+	_, _ = w.Write([]byte("<html><body>Authorized. You can close this tab and return to memcode.</body></html>"))
+}
+
+// fetch is the auth.AuthorizationCodeFetcher: it opens the authorization URL in the user's
+// browser and waits for the loopback redirect. Reusable — every invocation installs a fresh
+// result channel on the long-lived callback server.
+func (s *codeSink) fetch(ctx context.Context, args *auth.AuthorizationArgs) (*auth.AuthorizationResult, error) {
+	ch := make(chan sinkResult, 1)
+	s.mu.Lock()
+	if s.err != nil {
+		err := s.err
+		s.mu.Unlock()
+		return nil, err
+	}
+	s.current = ch
+	s.mu.Unlock()
+	defer func() {
+		s.mu.Lock()
+		if s.current == ch {
+			s.current = nil
 		}
-		type res struct {
-			result *auth.AuthorizationResult
-			err    error
-		}
-		ch := make(chan res, 1)
-		srv := &http.Server{}
-		srv.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			q := r.URL.Query()
-			if e := q.Get("error"); e != "" {
-				http.Error(w, "authorization failed: "+e, http.StatusBadRequest)
-				ch <- res{nil, fmt.Errorf("authorization error: %s", e)}
-				return
-			}
-			code := q.Get("code")
-			if code == "" {
-				return // ignore favicon and other stray hits
-			}
-			_, _ = w.Write([]byte("<html><body>Authorized. You can close this tab and return to memcode.</body></html>"))
-			ch <- res{&auth.AuthorizationResult{Code: code, State: q.Get("state")}, nil}
-		})
-		go func() { _ = srv.Serve(ln) }()
-		defer func() {
-			shutCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-			defer cancel()
-			_ = srv.Shutdown(shutCtx)
-		}()
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case r := <-ch:
-			return r.result, r.err
-		}
+		s.mu.Unlock()
+	}()
+
+	// NEVER from a test binary (same guard as authflow): tests drive the callback directly,
+	// and a real browser popping mid-`go test` is never wanted.
+	if testing.Testing() {
+		// no-op
+	} else if err := openBrowser(args.URL); err != nil {
+		// Not fatal — the user can paste the URL manually.
+		fmt.Printf("  open this URL to authorize the MCP server:\n  %s\n", args.URL)
+	}
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case r := <-ch:
+		return r.result, r.err
 	}
 }
 

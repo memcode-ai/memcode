@@ -29,7 +29,7 @@ func TestStaleEditGuard(t *testing.T) {
 	s := newSess(st, captureProviderNil{}, root, "allow-all", permissions.ModeAllowAll, io.Discard)
 
 	rin, _ := json.Marshal(tools.ReadFileInput{Path: "x.go"})
-	if r := s.readFile(rin); r.isError {
+	if r := s.readFile(context.Background(), rin); r.isError {
 		t.Fatal("readFile errored")
 	}
 	os.WriteFile(path, []byte("package p\n\nvar A = 2\n"), 0o644) // another actor edits it
@@ -42,7 +42,7 @@ func TestStaleEditGuard(t *testing.T) {
 	}
 
 	// Re-read the fresh content → the edit now applies.
-	s.readFile(rin)
+	s.readFile(context.Background(), rin)
 	ein2, _ := json.Marshal(tools.EditFileInput{Path: "x.go", OldString: "var A = 2", NewString: "var A = 9"})
 	if r := s.editFile(ctx, ein2); r.isError {
 		t.Fatalf("edit after re-read should apply, got error: %q", r.text())
@@ -64,7 +64,7 @@ func TestBatchEditsSameFileDontTrip(t *testing.T) {
 	s := newSess(st, captureProviderNil{}, root, "allow-all", permissions.ModeAllowAll, io.Discard)
 
 	rin, _ := json.Marshal(tools.ReadFileInput{Path: "x.go"})
-	s.readFile(rin)
+	s.readFile(context.Background(), rin)
 	for _, e := range [][2]string{{"var A = 1", "var A = 2"}, {"var A = 2", "var A = 3"}, {"var A = 3", "var A = 4"}} {
 		ein, _ := json.Marshal(tools.EditFileInput{Path: "x.go", OldString: e[0], NewString: e[1]})
 		if r := s.editFile(ctx, ein); r.isError {

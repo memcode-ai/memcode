@@ -330,7 +330,6 @@ func TestReduceMaterializesAtomically(t *testing.T) {
 type failingStore struct {
 	store.Store
 	failAfter int
-	calls     int
 }
 
 func (f *failingStore) RunInTx(ctx context.Context, fn func(store.Tx) error) error {

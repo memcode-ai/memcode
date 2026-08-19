@@ -115,31 +115,31 @@ var gatewaySetupCmd = &cobra.Command{
 				cmd.Printf("Done. Tokens in the global .env; settings in %s\n", p)
 				return nil
 			case "telegram":
-				secrets[gwconfig.EnvTelegramToken] = secret(cmd, "Bot token (from @BotFather): ")
+				secrets[gwconfig.EnvTelegramToken] = secret(in, cmd, "Bot token (from @BotFather): ")
 				ch.AllowFrom = allowList(in, cmd)
 			case "discord":
-				secrets[gwconfig.EnvDiscordToken] = secret(cmd, "Bot token (Discord developer portal): ")
+				secrets[gwconfig.EnvDiscordToken] = secret(in, cmd, "Bot token (Discord developer portal): ")
 				ch.AllowFrom = allowList(in, cmd)
 			case "slack":
-				secrets[gwconfig.EnvSlackAppToken] = secret(cmd, "App-level token (xapp-…): ")
-				secrets[gwconfig.EnvSlackBotToken] = secret(cmd, "Bot token (xoxb-…): ")
+				secrets[gwconfig.EnvSlackAppToken] = secret(in, cmd, "App-level token (xapp-…): ")
+				secrets[gwconfig.EnvSlackBotToken] = secret(in, cmd, "Bot token (xoxb-…): ")
 				ch.AllowFrom = allowList(in, cmd)
 			case "github":
-				secrets[gwconfig.EnvGitHubSecret] = secret(cmd, "Webhook secret: ")
+				secrets[gwconfig.EnvGitHubSecret] = secret(in, cmd, "Webhook secret: ")
 				// GitHub deliveries are HMAC-authenticated, so no allow-list here.
 				ch.ReplyTo = strings.TrimSpace(prompt(in, cmd, "Route results to (e.g. telegram:123456, blank for none): "))
 			case "whatsapp":
 				cmd.Println("Note: WhatsApp stays inactive until your Meta business is verified.")
 				cmd.Println("Once verified, set `whatsapp.active: true` in gateway.yaml to enable it.")
 				ch.PhoneNumberID = strings.TrimSpace(prompt(in, cmd, "Phone number ID: "))
-				secrets[gwconfig.EnvWhatsAppToken] = secret(cmd, "Access token: ")
-				secrets[gwconfig.EnvWhatsAppVerify] = secret(cmd, "Webhook verify token: ")
-				secrets[gwconfig.EnvWhatsAppSecret] = secret(cmd, "App secret (verifies inbound; required to activate): ")
+				secrets[gwconfig.EnvWhatsAppToken] = secret(in, cmd, "Access token: ")
+				secrets[gwconfig.EnvWhatsAppVerify] = secret(in, cmd, "Webhook verify token: ")
+				secrets[gwconfig.EnvWhatsAppSecret] = secret(in, cmd, "App secret (verifies inbound; required to activate): ")
 				ch.AllowFrom = allowList(in, cmd)
 			case "email":
 				cmd.Println("Use a DEDICATED mailbox (an app password for Gmail/Outlook), never your personal inbox.")
 				secrets[gwconfig.EnvEmailAddress] = strings.TrimSpace(prompt(in, cmd, "Email address: "))
-				secrets[gwconfig.EnvEmailPassword] = secret(cmd, "App password: ")
+				secrets[gwconfig.EnvEmailPassword] = secret(in, cmd, "App password: ")
 				secrets[gwconfig.EnvEmailIMAPHost] = strings.TrimSpace(prompt(in, cmd, "IMAP host (e.g. imap.gmail.com): "))
 				secrets[gwconfig.EnvEmailSMTPHost] = strings.TrimSpace(prompt(in, cmd, "SMTP host (e.g. smtp.gmail.com): "))
 				ch.AllowFrom = allowList(in, cmd)
@@ -153,15 +153,15 @@ var gatewaySetupCmd = &cobra.Command{
 			case "matrix":
 				cmd.Println("Plain rooms only for now (no end-to-end-encrypted rooms).")
 				secrets[gwconfig.EnvMatrixHomeserver] = strings.TrimSpace(prompt(in, cmd, "Homeserver URL (e.g. https://matrix.org): "))
-				secrets[gwconfig.EnvMatrixToken] = secret(cmd, "Access token: ")
+				secrets[gwconfig.EnvMatrixToken] = secret(in, cmd, "Access token: ")
 				ch.AllowFrom = allowList(in, cmd)
 			case "mattermost":
 				secrets[gwconfig.EnvMattermostURL] = strings.TrimSpace(prompt(in, cmd, "Server URL (e.g. https://mm.example.com): "))
-				secrets[gwconfig.EnvMattermostToken] = secret(cmd, "Bot access token: ")
+				secrets[gwconfig.EnvMattermostToken] = secret(in, cmd, "Bot access token: ")
 				ch.AllowFrom = allowList(in, cmd)
 			case "msteams":
 				secrets[gwconfig.EnvTeamsAppID] = strings.TrimSpace(prompt(in, cmd, "Azure app (bot) ID: "))
-				secrets[gwconfig.EnvTeamsAppPassword] = secret(cmd, "Client secret: ")
+				secrets[gwconfig.EnvTeamsAppPassword] = secret(in, cmd, "Client secret: ")
 				secrets[gwconfig.EnvTeamsTenantID] = strings.TrimSpace(prompt(in, cmd, "Tenant ID: "))
 				ch.AllowFrom = allowList(in, cmd)
 			case "googlechat":
@@ -170,7 +170,7 @@ var gatewaySetupCmd = &cobra.Command{
 				ch.AllowFrom = allowList(in, cmd)
 			case "sms":
 				secrets[gwconfig.EnvTwilioAccountSID] = strings.TrimSpace(prompt(in, cmd, "Twilio Account SID: "))
-				secrets[gwconfig.EnvTwilioAuthToken] = secret(cmd, "Auth token: ")
+				secrets[gwconfig.EnvTwilioAuthToken] = secret(in, cmd, "Auth token: ")
 				secrets[gwconfig.EnvTwilioFromNumber] = strings.TrimSpace(prompt(in, cmd, "Your Twilio number (+E.164): "))
 				ch.WebhookURL = strings.TrimSpace(prompt(in, cmd, "Exact public webhook URL (e.g. https://gw.example.com/webhook/sms): "))
 				ch.AllowFrom = allowList(in, cmd)
@@ -219,8 +219,10 @@ func prompt(in *bufio.Reader, cmd *cobra.Command, label string) string {
 }
 
 // secret reads a value without echoing it when stdin is a terminal, falling back
-// to a plain read when it isn't (piped input).
-func secret(cmd *cobra.Command, label string) string {
+// to a plain read when it isn't (piped input). The fallback reads through the
+// SAME shared reader as prompt() — a fresh bufio.Reader here would drop lines
+// the shared reader has already buffered.
+func secret(in *bufio.Reader, cmd *cobra.Command, label string) string {
 	cmd.Print(label)
 	fd := int(os.Stdin.Fd())
 	if term.IsTerminal(fd) {
@@ -230,7 +232,7 @@ func secret(cmd *cobra.Command, label string) string {
 			return strings.TrimSpace(string(b))
 		}
 	}
-	line, _ := bufio.NewReader(os.Stdin).ReadString('\n')
+	line, _ := in.ReadString('\n')
 	return strings.TrimSpace(line)
 }
 
@@ -263,6 +265,29 @@ var gatewayPairCmd = &cobra.Command{
 	},
 }
 
+// approvePairing turns a taken pairing into an allow_from entry on its channel.
+// Shared by the CLI (`gateway pair approve`) and the admin tool, so the
+// approval semantics cannot drift. Returns already=true (and saves nothing)
+// when the principal was allowed all along.
+func approvePairing(p gwstate.Pairing) (already bool, err error) {
+	settings, err := gwconfig.Load()
+	if err != nil {
+		return false, err
+	}
+	if settings.Channels == nil {
+		settings.Channels = map[string]gwconfig.Channel{}
+	}
+	ch := settings.Channels[p.Channel]
+	for _, id := range ch.AllowFrom {
+		if id == p.Principal {
+			return true, nil
+		}
+	}
+	ch.AllowFrom = append(ch.AllowFrom, p.Principal)
+	settings.Channels[p.Channel] = ch
+	return false, gwconfig.Save(settings)
+}
+
 var gatewayPairApproveCmd = &cobra.Command{
 	Use:   "approve <code>",
 	Short: "Approve a pairing request — adds the sender to the channel's allow list",
@@ -277,24 +302,13 @@ var gatewayPairApproveCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		settings, err := gwconfig.Load()
+		already, err := approvePairing(p)
 		if err != nil {
 			return err
 		}
-		if settings.Channels == nil {
-			settings.Channels = map[string]gwconfig.Channel{}
-		}
-		ch := settings.Channels[p.Channel]
-		for _, id := range ch.AllowFrom {
-			if id == p.Principal {
-				cmd.Printf("%s user %s is already allowed.\n", p.Channel, p.Principal)
-				return nil
-			}
-		}
-		ch.AllowFrom = append(ch.AllowFrom, p.Principal)
-		settings.Channels[p.Channel] = ch
-		if err := gwconfig.Save(settings); err != nil {
-			return err
+		if already {
+			cmd.Printf("%s user %s is already allowed.\n", p.Channel, p.Principal)
+			return nil
 		}
 		cmd.Printf("Approved %s user %s. The gateway picks this up within a few seconds.\n", p.Channel, p.Principal)
 		return nil

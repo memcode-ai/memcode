@@ -8,7 +8,6 @@ import (
 	"github.com/memcode-ai/memcode/internal/agent/permissions"
 	"github.com/memcode-ai/memcode/internal/agent/protocol"
 	"github.com/memcode-ai/memcode/internal/agent/runtime"
-	"github.com/memcode-ai/memcode/internal/llm"
 	"github.com/memcode-ai/memcode/internal/provider"
 )
 
@@ -18,18 +17,11 @@ import (
 // so nothing here prints to it; the session's output is redirected into
 // assistant_delta events and diagnostics go to stderr.
 func runStreamJSON(ctx context.Context, mode permissions.Mode, chrome bool) error {
-	st, cfg, err := openProject(ctx)
+	st, cfg, _, runner, err := openModelProject(ctx)
 	if err != nil {
 		return err
 	}
 	defer st.Close()
-
-	provider.LoadDotEnv()
-	prov, err := provider.NewFromEnv()
-	if err != nil {
-		return err
-	}
-	runner := llm.NewRunner(prov)
 	// Model is the gateway's call (server-owned selection); the session model is a
 	// display placeholder. Output is redirected by protocol.Run via SetOutput, so the
 	// io.Discard here is never used for protocol bytes.

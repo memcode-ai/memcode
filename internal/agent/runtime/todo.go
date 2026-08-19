@@ -24,6 +24,44 @@ func (s *Session) todoTool(ctx context.Context, input json.RawMessage) toolResul
 	action := strings.ToLower(strings.TrimSpace(in.Action))
 	items := wireToTodos(in.Items)
 
+	cur, errMsg := s.applyTodoAction(action, items, in)
+	if errMsg != "" {
+		return errResult(errMsg)
+	}
+
+	if len(cur) == 0 {
+		s.toolLine(true, "Task", action, "empty", false)
+		return textResult("todo list is empty.")
+	}
+
+	// Provenance: snapshot the list (with the action that caused it) into the
+	// event log. This is for replay/debug, not the authoritative store.
+	if action != "show" {
+		s.emit(ctx, events.KindTodosUpdated, map[string]any{"action": action, "items": cur})
+	}
+
+	// One-line marker, consistent with every other tool (⏺ Verb(arg) · status). "Task"
+	// reads more human than "Todo"; the live checklist panel carries the full list.
+	s.toolLine(true, "Task", action, cur.Summary(), false)
+	// Without a front-end (plain CLI / single-shot) there's no live region, so
+	// print the checklist inline; the TUI renders it in place instead.
+	if s.observer == nil {
+		s.printf("%s\n", cur.Render("  "))
+	} else {
+		s.observer.Todos(cur)
+	}
+
+	return textResult("todos (" + cur.Summary() + "):\n" + cur.Render("  "))
+}
+
+// applyTodoAction mutates s.todos under todosMu and returns a snapshot of the
+// resulting list (safe to render/emit without the lock). errMsg != "" means the
+// action was rejected and nothing changed. Locked because DeferWhilePlanning
+// mutates the same list from the TUI intake thread.
+func (s *Session) applyTodoAction(action string, items todos.List, in tools.TodoInput) (todos.List, string) {
+	s.todosMu.Lock()
+	defer s.todosMu.Unlock()
+
 	switch action {
 	case "create":
 		s.todos = todos.Normalize(items)
@@ -37,12 +75,12 @@ func (s *Session) todoTool(ctx context.Context, input json.RawMessage) toolResul
 		s.todos = todos.Normalize(items)
 	case "start":
 		if len(s.todos) == 0 {
-			return errResult("no todo list yet — create one first.")
+			return nil, "no todo list yet — create one first."
 		}
 		s.todos = todos.StartAt(s.todos, in.Index)
 	case "done":
 		if len(s.todos) == 0 {
-			return errResult("no todo list yet — create one first.")
+			return nil, "no todo list yet — create one first."
 		}
 		// Apply to a copy first so we can reject before committing. `indices` marks
 		// several at once (a holistic sweep → one call); else `index`/active item.
@@ -57,18 +95,21 @@ func (s *Session) todoTool(ctx context.Context, input json.RawMessage) toolResul
 		// Acceptance guardrail (enforced, not just advised): the work isn't done
 		// until it's verified. If this completes the LAST item but no build/tests
 		// passed after the last edit, refuse — don't let the agent claim success.
-		if next.AllSettled() && s.metrics.didEdit && s.metrics.lastVerifyOKSeq <= s.metrics.lastEditSeq {
-			return errResult("cannot complete the final todo: no passing verification (build/tests) after your last edit. Run a build and/or tests first, then mark it done.")
+		s.mu.Lock()
+		unverified := s.metrics.didEdit && s.metrics.lastVerifyOKSeq <= s.metrics.lastEditSeq
+		s.mu.Unlock()
+		if next.AllSettled() && unverified {
+			return nil, "cannot complete the final todo: no passing verification (build/tests) after your last edit. Run a build and/or tests first, then mark it done."
 		}
 		s.todos = next
 	case "block":
 		if len(s.todos) == 0 {
-			return errResult("no todo list yet — create one first.")
+			return nil, "no todo list yet — create one first."
 		}
 		s.todos = todos.MarkBlockedAt(s.todos, in.Index)
 	case "skip":
 		if len(s.todos) == 0 {
-			return errResult("no todo list yet — create one first.")
+			return nil, "no todo list yet — create one first."
 		}
 		if len(in.Indices) > 0 {
 			for _, idx := range in.Indices {
@@ -80,32 +121,17 @@ func (s *Session) todoTool(ctx context.Context, input json.RawMessage) toolResul
 	case "show":
 		// read-only
 	default:
-		return errResult("unknown todo action: " + action + " (try: " + strings.Join(tools.TodoActions, ", ") + ")")
+		return nil, "unknown todo action: " + action + " (try: " + strings.Join(tools.TodoActions, ", ") + ")"
 	}
+	return append(todos.List(nil), s.todos...), ""
+}
 
-	if len(s.todos) == 0 {
-		s.toolLine(true, "Task", action, "empty", false)
-		return textResult("todo list is empty.")
-	}
-
-	// Provenance: snapshot the list (with the action that caused it) into the
-	// event log. This is for replay/debug, not the authoritative store.
-	if action != "show" {
-		s.emit(ctx, events.KindTodosUpdated, map[string]any{"action": action, "items": s.todos})
-	}
-
-	// One-line marker, consistent with every other tool (⏺ Verb(arg) · status). "Task"
-	// reads more human than "Todo"; the live checklist panel carries the full list.
-	s.toolLine(true, "Task", action, s.todos.Summary(), false)
-	// Without a front-end (plain CLI / single-shot) there's no live region, so
-	// print the checklist inline; the TUI renders it in place instead.
-	if s.observer == nil {
-		s.printf("%s\n", s.todos.Render("  "))
-	} else {
-		s.observer.Todos(s.todos)
-	}
-
-	return textResult("todos (" + s.todos.Summary() + "):\n" + s.todos.Render("  "))
+// todosSnapshot returns a copy of the current todo list under todosMu — for
+// readers on other goroutines (runLoop's stall/apply gates, the TUI).
+func (s *Session) todosSnapshot() todos.List {
+	s.todosMu.Lock()
+	defer s.todosMu.Unlock()
+	return append(todos.List(nil), s.todos...)
 }
 
 func wireToTodos(items []tools.TodoItemWire) todos.List {
@@ -181,6 +207,7 @@ func (s *Session) noteSeparateRequests(ctx context.Context, activeText, activeTi
 	if len(extra) == 0 {
 		return
 	}
+	s.todosMu.Lock()
 	if len(s.todos) == 0 {
 		placeholder := synthTitle(activeTitle, activeText)
 		if placeholder == "" {
@@ -189,17 +216,19 @@ func (s *Session) noteSeparateRequests(ctx context.Context, activeText, activeTi
 		s.todos = todos.Normalize(todos.List{{Title: placeholder, Status: todos.StatusActive, Owner: "main"}})
 	}
 	s.todos = todos.Append(s.todos, extra)
+	cur := append(todos.List(nil), s.todos...)
+	s.todosMu.Unlock()
 
 	// Same provenance snapshot todoTool emits — this mutation was invisible in
 	// events.jsonl, which is what made the verbatim-title incident hard to trace.
-	s.emit(ctx, events.KindTodosUpdated, map[string]any{"action": "add", "source": "followup_classifier", "items": s.todos})
+	s.emit(ctx, events.KindTodosUpdated, map[string]any{"action": "add", "source": "followup_classifier", "items": cur})
 
 	if s.observer != nil {
-		s.observer.Todos(s.todos)
+		s.observer.Todos(cur)
 	}
 	// Same one-line marker todoTool itself prints, for scrollback consistency — this
 	// mutation didn't come from the model calling the tool, but it looks like it did.
-	s.toolLine(true, "Task", "add", s.todos.Summary(), false)
+	s.toolLine(true, "Task", "add", cur.Summary(), false)
 
 	*messages = append(*messages, wire.Message{Role: "user", Blocks: []wire.Block{{Type: "text", Text: buildSeparateNote(texts)}}})
 }

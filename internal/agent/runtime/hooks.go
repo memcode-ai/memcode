@@ -40,14 +40,14 @@ func (s *Session) executeBatchHooked(ctx context.Context, uses []wire.Block) []w
 	}
 
 	allowed := make([]wire.Block, 0, len(uses))
-	var vetoed []wire.Block
+	vetoed := make(map[string]wire.Block) // tool_use id → the veto's tool_result
 	for _, u := range uses {
 		if reason, blocked := s.preToolVeto(ctx, hs, u); blocked {
 			s.printf("  ⨯ %s blocked by hook: %s\n", u.Name, reason)
-			vetoed = append(vetoed, wire.Block{
+			vetoed[u.ID] = wire.Block{
 				Type: "tool_result", ToolUseID: u.ID, IsError: true,
 				Content: "A user-configured pre_tool_use hook blocked this call: " + reason,
-			})
+			}
 			continue
 		}
 		allowed = append(allowed, u)
@@ -70,7 +70,22 @@ func (s *Session) executeBatchHooked(ctx context.Context, uses []wire.Block) []w
 			}
 		}
 	}
-	return append(results, vetoed...)
+	// Reassemble tool_results in REQUEST order: appending the vetoed results at
+	// the end reordered them relative to the tool_use blocks, which providers
+	// pair positionally in strict validators (and it confused transcript replay).
+	byID := make(map[string]wire.Block, len(results))
+	for _, r := range results {
+		byID[r.ToolUseID] = r
+	}
+	out := make([]wire.Block, 0, len(uses))
+	for _, u := range uses {
+		if v, ok := vetoed[u.ID]; ok {
+			out = append(out, v)
+		} else if r, ok := byID[u.ID]; ok {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 // preToolVeto runs the pre_tool_use hooks for one call. First block wins.

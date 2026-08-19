@@ -128,3 +128,65 @@ func jsonKeys(js string) []string {
 	}
 	return out
 }
+
+// TestBlockMarshalJSON locks Block's thinking/redacted_thinking special-casing —
+// the comment on MarshalJSON documents an API hard-reject ("thinking.thinking:
+// Field required") when a thinking block omits its "thinking" field, so this is
+// wire-contract behavior, not cosmetics.
+func TestBlockMarshalJSON(t *testing.T) {
+	cases := []struct {
+		name  string
+		block Block
+		want  string
+	}{
+		{
+			// The hard-reject case: a signature-only thinking block MUST still
+			// carry "thinking" (empty), and the id must round-trip for OpenAI
+			// stateless reasoning items.
+			name:  "thinking empty text keeps the field",
+			block: Block{Type: "thinking", ID: "rs_1", Signature: "sig"},
+			want:  `{"type":"thinking","id":"rs_1","thinking":"","signature":"sig"}`,
+		},
+		{
+			name:  "thinking with text",
+			block: Block{Type: "thinking", Thinking: "chain", Signature: "sig"},
+			want:  `{"type":"thinking","thinking":"chain","signature":"sig"}`,
+		},
+		{
+			name:  "thinking without signature omits it",
+			block: Block{Type: "thinking", Thinking: "chain"},
+			want:  `{"type":"thinking","thinking":"chain"}`,
+		},
+		{
+			name:  "redacted_thinking carries only data",
+			block: Block{Type: "redacted_thinking", Data: "opaque", Thinking: "must-not-leak", Signature: "must-not-leak"},
+			want:  `{"type":"redacted_thinking","data":"opaque"}`,
+		},
+		{
+			name:  "text block stays minimal",
+			block: TextBlock("hi"),
+			want:  `{"type":"text","text":"hi"}`,
+		},
+		{
+			name:  "tool_use block via the alias path",
+			block: Block{Type: "tool_use", ID: "tu_1", Name: "read_file", Input: json.RawMessage(`{"path":"x"}`)},
+			want:  `{"type":"tool_use","id":"tu_1","name":"read_file","input":{"path":"x"}}`,
+		},
+	}
+	for _, c := range cases {
+		got, err := json.Marshal(c.block)
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		if string(got) != c.want {
+			t.Errorf("%s:\n  got  %s\n  want %s", c.name, got, c.want)
+		}
+	}
+
+	// Non-thinking blocks must never grow a stray empty "thinking"/"data" key
+	// (the omitempty tags are the contract for every other type).
+	for _, b := range []Block{TextBlock("x"), {Type: "tool_result", ToolUseID: "tu", Content: "ok"}} {
+		js := mustMarshal(t, b)
+		assertNoKeys(t, "Block("+b.Type+")", js, "thinking", "data", "signature")
+	}
+}

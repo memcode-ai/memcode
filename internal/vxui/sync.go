@@ -90,11 +90,10 @@ func (s *appState) handleSyncKey(k string) ui.EventResult {
 			return ui.EventHandled
 		}
 		// Persist the selection so it survives across sessions (best-effort).
-		if cfg, err := config.Load(s.w.sess.Root()); err == nil {
+		s.updateConfig(func(cfg *config.Config) {
 			cfg.Sync.Targets = targets
 			cfg.Sync.Everything = false
-			_ = cfg.Save()
-		}
+		})
 		s.runAsync(func(ctx context.Context) string {
 			out, err := s.w.sess.Sync(ctx, targets)
 			if err != nil {

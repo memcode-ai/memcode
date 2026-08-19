@@ -255,7 +255,15 @@ func Resolve(candidate, cwd, source string) (Attachment, bool) {
 		return att, true
 	}
 	att.SizeBytes = info.Size()
-	if secrets.IsSecretPath(candidate) {
+	// Judge the REAL target too: a symlink named innocently but pointing at
+	// ~/.ssh/id_rsa (or any credential file) must classify as a secret, not
+	// sniff as text. EvalSymlinks failure (racing deletion, permission) falls
+	// back to the unresolved path — the raw-candidate check still applies.
+	resolved := path
+	if r, err := filepath.EvalSymlinks(path); err == nil {
+		resolved = r
+	}
+	if secrets.IsSecretPath(candidate) || secrets.IsSecretPath(resolved) {
 		att.Kind = KindSecret
 		return att, true
 	}

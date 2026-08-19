@@ -99,61 +99,111 @@ func Run(ctx context.Context, sess *runtime.Session, in io.Reader, out io.Writer
 		}
 	}()
 
-	sc := bufio.NewScanner(in)
-	sc.Buffer(make([]byte, 1<<20), 1<<20)
-	for sc.Scan() {
-		var env wire.Envelope
-		if json.Unmarshal(sc.Bytes(), &env) != nil {
-			continue // skip a malformed line rather than killing the session
+	// stdin reader goroutine: the main loop must NEVER block on either stdin or a
+	// full turns channel. Feeding turns directly from the read loop deadlocked once
+	// >cap(turns) turns queued while the runner sat in approve() — the reader stalled
+	// on `turns <-` and the permission response it was waiting for was never read.
+	// It also let Run ignore ctx cancellation while blocked in Read. Now the reader
+	// only parses lines; the select below queues turns unbounded and stays responsive.
+	lines := make(chan wire.Envelope)
+	readErr := make(chan error, 1)
+	go func() {
+		defer close(lines)
+		sc := bufio.NewScanner(in)
+		sc.Buffer(make([]byte, 1<<20), 1<<20)
+		for sc.Scan() {
+			var env wire.Envelope
+			if json.Unmarshal(sc.Bytes(), &env) != nil {
+				continue // skip a malformed line rather than killing the session
+			}
+			select {
+			case lines <- env:
+			case <-ctx.Done():
+				readErr <- ctx.Err()
+				return
+			}
 		}
-		switch env.Type {
-		case wire.MsgInitialize:
-			var in wire.InitializeData
-			_ = json.Unmarshal(env.Data, &in)
-			switch permissions.Mode(in.Mode) {
-			case permissions.ModeAsk, permissions.ModeAuto, permissions.ModeAllowAll:
-				sess.SetMode(permissions.Mode(in.Mode))
-			}
-			// A model pin rides the handshake (headless clients have no /model
-			// picker). The window comes from the SDK catalog — the same source the
-			// picker's list is built from. An unknown label is skipped, not sent:
-			// the gateway would silently serve Automatic anyway, so surface it on
-			// stderr (the diagnostic lane) instead of pinning a lie.
-			if in.Pin != "" {
-				if m, ok := catalog.LookupModel(in.Pin); ok {
-					sess.SetPin(in.Pin, m.Window)
-				} else {
-					fmt.Fprintf(os.Stderr, "protocol: unknown model pin %q — staying on Automatic\n", in.Pin)
+		readErr <- sc.Err()
+	}()
+
+	finish := func(err error) error {
+		close(turns)
+		<-done
+		return err
+	}
+
+	var pending []string // user turns not yet handed to the runner (unbounded)
+	for {
+		// Feed the runner only when something is queued — a nil channel send is
+		// never selected, so an empty queue just waits on input/cancel.
+		var feed chan string
+		var next string
+		if len(pending) > 0 {
+			feed = turns
+			next = pending[0]
+		}
+		select {
+		case <-ctx.Done():
+			return finish(ctx.Err())
+		case feed <- next:
+			pending = pending[1:]
+		case env, ok := <-lines:
+			if !ok { // stdin closed: run out the queued turns, then drain and exit
+				for _, text := range pending {
+					select {
+					case turns <- text:
+					case <-ctx.Done():
+						return finish(ctx.Err())
+					}
 				}
+				return finish(<-readErr)
 			}
-		case wire.MsgUserTurn:
-			var u wire.UserTurnData
-			if json.Unmarshal(env.Data, &u) == nil && u.Text != "" {
-				turns <- u.Text
-			}
-		case wire.MsgPermissionResponse:
-			var r wire.PermissionResponseData
-			if json.Unmarshal(env.Data, &r) == nil {
-				select {
-				case d.perm <- permReply{id: env.ID, data: r}:
-				default: // no approval pending — drop
+			switch env.Type {
+			case wire.MsgInitialize:
+				var in wire.InitializeData
+				_ = json.Unmarshal(env.Data, &in)
+				switch permissions.Mode(in.Mode) {
+				case permissions.ModeAsk, permissions.ModeAuto, permissions.ModeAllowAll:
+					sess.SetMode(permissions.Mode(in.Mode))
 				}
-			}
-		case wire.MsgAskResponse:
-			var a wire.AskResponseData
-			if json.Unmarshal(env.Data, &a) == nil {
-				select {
-				case d.ask <- askReply{id: env.ID, data: a}:
-				default:
+				// A model pin rides the handshake (headless clients have no /model
+				// picker). The window comes from the SDK catalog — the same source the
+				// picker's list is built from. An unknown label is skipped, not sent:
+				// the gateway would silently serve Automatic anyway, so surface it on
+				// stderr (the diagnostic lane) instead of pinning a lie.
+				if in.Pin != "" {
+					if m, ok := catalog.LookupModel(in.Pin); ok {
+						sess.SetPin(in.Pin, m.Window)
+					} else {
+						fmt.Fprintf(os.Stderr, "protocol: unknown model pin %q — staying on Automatic\n", in.Pin)
+					}
 				}
+			case wire.MsgUserTurn:
+				var u wire.UserTurnData
+				if json.Unmarshal(env.Data, &u) == nil && u.Text != "" {
+					pending = append(pending, u.Text)
+				}
+			case wire.MsgPermissionResponse:
+				var r wire.PermissionResponseData
+				if json.Unmarshal(env.Data, &r) == nil {
+					select {
+					case d.perm <- permReply{id: env.ID, data: r}:
+					default: // no approval pending — drop
+					}
+				}
+			case wire.MsgAskResponse:
+				var a wire.AskResponseData
+				if json.Unmarshal(env.Data, &a) == nil {
+					select {
+					case d.ask <- askReply{id: env.ID, data: a}:
+					default:
+					}
+				}
+			case wire.MsgCancel:
+				d.cancelTurn()
 			}
-		case wire.MsgCancel:
-			d.cancelTurn()
 		}
 	}
-	close(turns)
-	<-done
-	return sc.Err()
 }
 
 // runTurn executes one turn under a cancelable context (so MsgCancel can interrupt it)

@@ -167,7 +167,9 @@ func (c *Channel) download(ctx context.Context, refs []mediaRef) []channels.Atta
 		if err != nil {
 			continue
 		}
-		req.SetBasicAuth(c.accountSID, c.authToken)
+		if twilioMediaHost(ref.url) {
+			req.SetBasicAuth(c.accountSID, c.authToken)
+		}
 		resp, err := c.dl.Do(req)
 		if err != nil {
 			continue
@@ -184,6 +186,15 @@ func (c *Channel) download(ctx context.Context, refs []mediaRef) []channels.Atta
 		out = append(out, att)
 	}
 	return out
+}
+
+// twilioMediaHost reports whether a media URL points at Twilio's own API (https on
+// twilio.com or a subdomain — inbound MediaUrlN values live on api.twilio.com). The MediaUrl
+// values ride the signed inbound form, but are treated as attacker-influenced anyway: the
+// account credentials only ever go to Twilio, never wherever a URL happens to point.
+func twilioMediaHost(raw string) bool {
+	u, err := url.Parse(raw)
+	return err == nil && u.Scheme == "https" && channels.HostAllowed(u.Host, ".twilio.com")
 }
 
 // Send posts a reply through the Messages API, split with the shared chunker.

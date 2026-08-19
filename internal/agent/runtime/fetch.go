@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"regexp"
 	"strings"
@@ -90,10 +91,15 @@ func (s *Session) fetchTool(ctx context.Context, input json.RawMessage) toolResu
 	// ESCALATE when the fast path can't give readable text.
 	switch {
 	case isPDF(ctype):
-		// Binary — only the server-side fetcher extracts PDF text.
+		// Binary — only the server-side fetcher extracts PDF text. If it can't
+		// (local/private URL, no capability, error), FAIL CLEARLY: falling
+		// through would run body2text over raw PDF bytes and hand the model
+		// compressed-stream mojibake as if it were the page.
 		if content, ok := s.tryWebFetch(ctx, url); ok {
 			return textResult(content)
 		}
+		s.toolLine(true, "Fetch", url, "pdf — no extractor", true)
+		return errResult(fmt.Sprintf("%s served a PDF (%s) and no server-side text extraction is available — download it (e.g. `curl -o doc.pdf %s` via bash) and read it with read_file instead.", url, resp.Status, url))
 	case isJSShell(text) || thinText(text, len(body)):
 		// JS-rendered shell (framework markers, OR a big page that yielded almost no
 		// readable text — the signature of client-side rendering the markers missed).
@@ -204,6 +210,9 @@ func isMetadataURL(url string) bool {
 
 // isLocalURL reports whether a URL points at the local machine / private network,
 // which the provider's server-side fetch can't reach — those use the raw GET path.
+// Real IP parsing, not prefix matching: the old "172.2" prefix wrongly claimed
+// public 172.2x.x.x/172.2xx.x.x space, and LastIndex(":") port-stripping mangled
+// unbracketed IPv6 literals.
 func isLocalURL(url string) bool {
 	h := url
 	if i := strings.Index(h, "://"); i >= 0 {
@@ -212,18 +221,18 @@ func isLocalURL(url string) bool {
 	if i := strings.IndexAny(h, "/?#"); i >= 0 {
 		h = h[:i]
 	}
-	if i := strings.LastIndex(h, ":"); i >= 0 { // strip :port
-		h = h[:i]
+	if host, _, err := net.SplitHostPort(h); err == nil {
+		h = host // "host:port" and "[v6]:port"; a bare host/IPv6 literal errors and stays whole
 	}
 	h = strings.ToLower(strings.Trim(h, "[]"))
-	if h == "localhost" || h == "127.0.0.1" || h == "::1" || h == "0.0.0.0" || strings.HasSuffix(h, ".local") {
+	if h == "localhost" || strings.HasSuffix(h, ".local") {
 		return true
 	}
-	return strings.HasPrefix(h, "10.") || strings.HasPrefix(h, "192.168.") ||
-		strings.HasPrefix(h, "169.254.") || strings.HasPrefix(h, "172.16.") ||
-		strings.HasPrefix(h, "172.17.") || strings.HasPrefix(h, "172.18.") ||
-		strings.HasPrefix(h, "172.19.") || strings.HasPrefix(h, "172.2") ||
-		strings.HasPrefix(h, "172.30.") || strings.HasPrefix(h, "172.31.")
+	ip := net.ParseIP(h)
+	if ip == nil {
+		return false
+	}
+	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified()
 }
 
 // body2text returns readable text. HTML is parsed with a REAL HTML parser

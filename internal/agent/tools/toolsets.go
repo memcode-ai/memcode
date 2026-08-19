@@ -47,11 +47,6 @@ var toolsetDefs = map[string][]string{
 // ToolsetNames returns the toolset names in display order.
 func ToolsetNames() []string { return append([]string(nil), toolsetOrder...) }
 
-// ToolsetMembers returns a toolset's tools (nil for an unknown name).
-func ToolsetMembers(set string) []string {
-	return append([]string(nil), toolsetDefs[set]...)
-}
-
 // knownTool reports whether name is a canonical tool name.
 func knownTool(name string) bool {
 	for _, members := range toolsetDefs {

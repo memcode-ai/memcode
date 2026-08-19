@@ -19,6 +19,7 @@ type parsedMessage struct {
 	inReplyTo   string   // parent Message-ID
 	references  []string // thread chain, oldest first
 	autoSubmit  string   // Auto-Submitted header (loop/bounce detection)
+	authResults []string // Authentication-Results headers, topmost first (SPF/DKIM verdicts)
 	text        string   // best-effort plain text body
 	attachments []rawAttachment
 }
@@ -66,6 +67,10 @@ func parseMessage(raw []byte) (parsedMessage, bool) {
 		}
 	}
 	p.autoSubmit = strings.ToLower(strings.TrimSpace(m.Header.Get("Auto-Submitted")))
+	// ALL Authentication-Results values, in header order: the topmost is the one our own
+	// mailbox provider prepended on receipt (RFC 8601), the only one senderAuthenticated
+	// trusts — anything below it may have been written by the sender.
+	p.authResults = m.Header["Authentication-Results"]
 	walkPart(mailHeader(m.Header), m.Body, &p, 0, new(int64))
 	p.text = strings.TrimSpace(p.text)
 	return p, true

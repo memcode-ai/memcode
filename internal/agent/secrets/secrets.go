@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -33,6 +34,7 @@ func NewFromEnv() *Redactor {
 			r.values = append(r.values, v)
 		}
 	}
+	r.sortByLen()
 	return r
 }
 
@@ -43,6 +45,14 @@ func (r *Redactor) Add(values ...string) {
 			r.values = append(r.values, v)
 		}
 	}
+	r.sortByLen()
+}
+
+// sortByLen keeps values longest-first, so a secret that is a SUBSTRING of
+// another (e.g. a token and the same token with a suffix) never masks the
+// shorter one first and leaves the longer one's tail unredacted.
+func (r *Redactor) sortByLen() {
+	sort.SliceStable(r.values, func(i, j int) bool { return len(r.values[i]) > len(r.values[j]) })
 }
 
 // Redact replaces every known secret value found in s with the placeholder.

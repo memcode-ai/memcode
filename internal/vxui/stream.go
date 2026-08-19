@@ -37,7 +37,6 @@ func stripSGR(s string) string {
 }
 
 func isCodeFence(line string) bool { return mdFence.MatchString(strings.TrimSpace(stripSGR(line))) }
-func isTableRow(line string) bool  { return strings.HasPrefix(strings.TrimSpace(stripSGR(line)), "|") }
 
 // isToolMarker reports whether a line begins a tool-activity block — either glyph the engine
 // uses to head one (⏺ for memcode/colored tools, ● for the rest). A ⎿ result sub-line is part

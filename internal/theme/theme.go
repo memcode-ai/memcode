@@ -44,13 +44,10 @@ type DiffColors struct {
 	ContextGutter string // hex for context-line gutter foreground
 }
 
-// Theme is a complete color theme: a name, identity line (for the selector),
-// palette (TUI styles), diff colors, and a chroma style name for syntax
-// highlighting.
+// Theme is a complete color theme: a name, palette (TUI styles), diff colors,
+// and a chroma style name for syntax highlighting.
 type Theme struct {
 	Name       string // stable slug — the persisted key (e.g. "tokyonight")
-	Display    string // user-facing name for the selector (e.g. "Tokyo Night")
-	Identity   string // one-line description for the selector
 	Palette    Palette
 	Diff       DiffColors
 	ChromaName string // chroma style name — must resolve via styles.Get
@@ -78,13 +75,6 @@ func Names() []string {
 	}
 	sort.Strings(names)
 	return names
-}
-
-// Get returns the Theme with the given name, or the zero value if not found.
-func Get(name string) Theme {
-	mu.RLock()
-	defer mu.RUnlock()
-	return registry[name]
 }
 
 // Active returns the current theme.

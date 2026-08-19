@@ -35,6 +35,7 @@ import (
 	"github.com/memcode-ai/memcode/internal/sources"
 	"github.com/memcode-ai/memcode/internal/store"
 	"github.com/memcode-ai/memcode/internal/structure"
+	"github.com/memcode-ai/memcode/internal/textutil"
 	"github.com/memcode-ai/memcode/internal/wire"
 )
 
@@ -645,7 +646,7 @@ func clipLine(s string, max int) string {
 		s = s[:i] + " …"
 	}
 	if len(s) > max {
-		s = s[:max] + "…"
+		s = textutil.ClipBytes(s, max) + "…" // rune-safe: never split a multibyte char
 	}
 	return s
 }
@@ -740,7 +741,7 @@ func truncate(s string, n int) string {
 	if len(s) <= n {
 		return s
 	}
-	return s[:n] + "\n…(truncated)"
+	return textutil.ClipBytes(s, n) + "\n…(truncated)" // rune-safe byte-budget cut
 }
 
 // orEmpty returns fallback when s is empty.

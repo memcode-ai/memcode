@@ -99,7 +99,7 @@ func New(opt Options) (*Session, error) {
 		if p := os.Getenv("CHROME_PATH"); p != "" {
 			return nil, fmt.Errorf("CHROME_PATH is set to %q but no browser binary exists there — fix or unset it", p)
 		}
-		return nil, errors.New("Chrome not found — install Google Chrome or set CHROME_PATH to the browser binary")
+		return nil, errors.New("no Chrome binary found — install Google Chrome or set CHROME_PATH to the browser binary")
 	}
 
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
@@ -149,12 +149,12 @@ func New(opt Options) (*Session, error) {
 		if err != nil {
 			cancelBrow()
 			cancelAlloc()
-			return nil, fmt.Errorf("Chrome failed to start: %w", err)
+			return nil, fmt.Errorf("failed to start Chrome: %w", err)
 		}
 	case <-time.After(30 * time.Second):
 		cancelBrow()
 		cancelAlloc()
-		return nil, errors.New("Chrome failed to start: timed out waiting for launch")
+		return nil, errors.New("failed to start Chrome: timed out waiting for launch")
 	}
 
 	s := &Session{

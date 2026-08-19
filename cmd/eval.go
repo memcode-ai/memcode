@@ -40,8 +40,7 @@ Requires MEMCODE_API_TOKEN (from the environment or a gitignored .env at the rep
 		if err != nil {
 			return err
 		}
-		provider.LoadDotEnv()
-		prov, err := provider.NewFromEnv()
+		prov, _, err := newModelRunner()
 		if err != nil {
 			return err
 		}

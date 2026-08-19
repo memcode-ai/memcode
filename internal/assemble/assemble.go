@@ -80,9 +80,7 @@ func Context(ctx context.Context, st store.Store, root, target string) (ContextP
 
 	// Relevant files.
 	if isPath {
-		for _, it := range targetFiles(root, relPath) {
-			pack.RelevantFiles = append(pack.RelevantFiles, it)
-		}
+		pack.RelevantFiles = append(pack.RelevantFiles, targetFiles(root, relPath)...)
 	} else {
 		hits := searchFiles(ctx, root, target)
 		pack.RankingReasons = append(pack.RankingReasons,
@@ -103,9 +101,7 @@ func Context(ctx context.Context, st store.Store, root, target string) (ContextP
 		pack.Subsystem = sub.Key
 		pack.Ecosystem = sub.Ecosystem
 		// Subsystem key files are always worth surfacing.
-		for _, it := range keyFiles(root, sub) {
-			pack.RelevantFiles = append(pack.RelevantFiles, it)
-		}
+		pack.RelevantFiles = append(pack.RelevantFiles, keyFiles(root, sub)...)
 		pack.Dependencies = dependencyItems(topo, sub.Key)
 	}
 

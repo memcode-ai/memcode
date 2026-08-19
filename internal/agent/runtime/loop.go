@@ -331,13 +331,6 @@ func (s *Session) runLoop(ctx context.Context, sys promptSpec, messages *[]wire.
 				s.printf("\n○ %s\n", metaStyle.Render("Signed out — your saved login is no longer valid. Run /login to reconnect."))
 				return iterations, false, nil
 			}
-			// Old-gateway fallback for ONE release: pre-2026-07-26 gateways send
-			// the subscription 402 as plain text with no code, so the sentinel
-			// above can't fire. Delete after the next gateway deploy is everywhere.
-			if strings.Contains(err.Error(), "subscription inactive") {
-				s.printf("\n■ %s\n", metaStyle.Render("Subscription required — choose a plan at https://memcode.ai/pricing"))
-				return iterations, false, nil
-			}
 			return iterations, false, err
 		}
 		// This is the MAIN conversation call (full message history) — its input size
@@ -375,8 +368,9 @@ func (s *Session) runLoop(ctx context.Context, sys promptSpec, messages *[]wire.
 				// doesn't change the todo state counts toward maxApplyContinuations (so a
 				// model that can't advance still terminates); real progress resets the bound.
 				if s.planCtl.IsApplying() {
-					if pending := pendingTodos(s.todos); pending > 0 {
-						if sig := todoSig(s.todos); sig != s.turn.lastTodoSig {
+					cur := s.todosSnapshot() // todos are mutated cross-thread (DeferWhilePlanning)
+					if pending := pendingTodos(cur); pending > 0 {
+						if sig := todoSig(cur); sig != s.turn.lastTodoSig {
 							s.turn.lastTodoSig, s.turn.applyConts = sig, 0
 						}
 						if s.turn.applyConts < maxApplyContinuations {
@@ -417,7 +411,7 @@ func (s *Session) runLoop(ctx context.Context, sys promptSpec, messages *[]wire.
 					// (the model degraded, often after over-gathering — the SDK-migration
 					// failure). Nudge it to resume the next pending step rather than silently
 					// completing with work unfinished. Bounded so a truly stuck turn still ends.
-					if pending := pendingTodos(s.todos); pending > 0 && s.turn.stallRounds < maxStallRounds {
+					if pending := pendingTodos(s.todosSnapshot()); pending > 0 && s.turn.stallRounds < maxStallRounds {
 						s.turn.stallRounds++
 						s.printf("%s\n", metaStyle.Render(fmt.Sprintf("  ⓘ stalled with %d task(s) pending — resuming (round %d)", pending, s.turn.stallRounds)))
 						// resp.Blocks is EMPTY on the stall path (no text, no tools). Appending an

@@ -58,6 +58,37 @@ func TestCallbackStateValidation(t *testing.T) {
 	}
 }
 
+// TestCallbackPostForm verifies the forward-compatible delivery path: the token in a POST
+// form body (kept out of the URL entirely), and the token-hygiene response headers.
+func TestCallbackPostForm(t *testing.T) {
+	const state = "abc123"
+	resultCh := make(chan loginResult, 1)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/callback", makeCallbackHandler(state, resultCh))
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	form := url.Values{"state": {state}, "token": {"memcode_posted"}, "api_url": {"https://api.memcode.ai"}}
+	res, err := http.PostForm(server.URL+"/callback", form)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Errorf("POST callback: expected 200, got %d", res.StatusCode)
+	}
+	if cc := res.Header.Get("Cache-Control"); cc != "no-store" {
+		t.Errorf("Cache-Control = %q, want no-store", cc)
+	}
+	if rp := res.Header.Get("Referrer-Policy"); rp != "no-referrer" {
+		t.Errorf("Referrer-Policy = %q, want no-referrer", rp)
+	}
+	r := <-resultCh
+	if r.token != "memcode_posted" || r.apiURL != "https://api.memcode.ai" {
+		t.Errorf("posted result = %+v", r)
+	}
+}
+
 // TestWriteAndStripGlobalEnvToken round-trips the real file logic against a
 // temp XDG config home: write replaces old values, strip removes them and
 // reports whether anything changed.

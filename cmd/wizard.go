@@ -101,66 +101,86 @@ type wizardOption struct {
 	action func(ctx context.Context) error
 }
 
-func runFirstRunWizard(ctx context.Context) {
-	fmt.Print("\n  Welcome to memcode.\n  Pick how you'd like to run it — you can change this anytime.\n\n")
-
+// signInOptions builds the sign-in menu shared by the first-run wizard and
+// `memcode auth` — ONE list of ways to get a live agent, so the two surfaces
+// never drift. firstRun adds the wizard's framing: "no extra cost" notes, a
+// [recommended] marker on the best detected option, and a "Skip for now" exit.
+//
+// A subscription the machine already has costs the user nothing at the margin,
+// so when one is detected it leads the menu as the recommended, pre-selected
+// default. Order of preference: Claude, ChatGPT, Copilot, Grok. Hosted
+// (memcode's metered product) stays available, just not the default.
+func signInOptions(firstRun bool) []wizardOption {
 	var opts []wizardOption
 	add := func(label string, action func(context.Context) error) {
 		opts = append(opts, wizardOption{label, action})
 	}
-
-	// A subscription the machine already has costs the user nothing at the
-	// margin, so when one is detected it leads the menu as the recommended,
-	// pre-selected default. Order of preference: Claude, ChatGPT, Copilot.
-	// Hosted (memcode's metered product) stays available, just not the default.
+	noCost := func(label string) string {
+		if firstRun {
+			return label + " — no extra cost"
+		}
+		return label
+	}
 	haveSub := false
 	rec := func(first bool) string {
-		if first {
+		if firstRun && first {
 			return "  [recommended]"
 		}
 		return ""
 	}
 	if claudesub.Available() {
-		add("Use your Claude (Pro/Max) subscription — no extra cost"+rec(!haveSub), func(context.Context) error { return selectSource("claude") })
+		add(noCost("Use your Claude (Pro/Max) subscription")+rec(!haveSub), func(context.Context) error { return selectSource("claude") })
 		haveSub = true
 	}
 	if codex.Available() {
-		add("Use your ChatGPT (Codex) subscription — no extra cost"+rec(!haveSub), func(context.Context) error { return selectSource("codex") })
+		add(noCost("Use your ChatGPT (Codex) subscription")+rec(!haveSub), func(context.Context) error { return selectSource("codex") })
 		haveSub = true
 	}
 	if copilot.Available() {
-		add("Use your GitHub Copilot subscription — no extra cost"+rec(!haveSub), func(context.Context) error { return selectSource("copilot") })
+		add(noCost("Use your GitHub Copilot subscription")+rec(!haveSub), func(context.Context) error { return selectSource("copilot") })
 		haveSub = true
 	}
 	if grok.Available() {
-		add("Use your SuperGrok / X Premium+ subscription (Grok) — no extra cost"+rec(!haveSub), func(context.Context) error { return selectSource("grok") })
+		add(noCost("Use your SuperGrok / X Premium+ subscription (Grok)")+rec(!haveSub), func(context.Context) error { return selectSource("grok") })
 		haveSub = true
 	} else {
 		// Not detectable up front (memcode runs this login itself), so it is
 		// offered but never pre-selected.
-		add("Sign in with a SuperGrok / X Premium+ subscription (Grok) — no extra cost", useGrok)
+		add(noCost("Sign in with a SuperGrok / X Premium+ subscription (Grok)"), useGrok)
 	}
-	add("Sign in to memcode (hosted — metered, no API keys)"+rec(!haveSub), func(context.Context) error {
-		return runLogin()
-	})
+	hosted := "Sign in to memcode (hosted, metered)"
+	if firstRun {
+		hosted = "Sign in to memcode (hosted — metered, no API keys)"
+	}
+	add(hosted+rec(!haveSub), func(context.Context) error { return runLogin() })
 	add("Use your own API key (Anthropic or OpenAI)", func(context.Context) error { return promptOwnKey() })
 	add("Point at a custom endpoint (Ollama, vLLM, a provider URL)", func(context.Context) error { return promptEndpoint() })
-	add("Skip for now", func(context.Context) error {
-		fmt.Print("\n  No problem — run `memcode login`, or set a key, whenever you're ready.\n\n")
-		return nil
-	})
+	if firstRun {
+		add("Skip for now", func(context.Context) error {
+			fmt.Print("\n  No problem — run `memcode login`, or set a key, whenever you're ready.\n\n")
+			return nil
+		})
+	}
+	return opts
+}
 
+// pickOption renders the menu, reads a choice, and returns the selected option
+// (the first entry when the answer is blank or invalid).
+func pickOption(opts []wizardOption) wizardOption {
 	for i, o := range opts {
 		fmt.Printf("  %d. %s\n", i+1, o.label)
 	}
 	fmt.Print("\n  Choice [1]: ")
-
-	choice := readLine()
 	idx := 0 // default: the first option
-	if n := parseChoice(choice, len(opts)); n >= 0 {
+	if n := parseChoice(readLine(), len(opts)); n >= 0 {
 		idx = n
 	}
-	if err := opts[idx].action(ctx); err != nil {
+	return opts[idx]
+}
+
+func runFirstRunWizard(ctx context.Context) {
+	fmt.Print("\n  Welcome to memcode.\n  Pick how you'd like to run it — you can change this anytime.\n\n")
+	if err := pickOption(signInOptions(true)).action(ctx); err != nil {
 		fmt.Printf("\n  %v\n  You can finish setup later; opening memcode.\n\n", err)
 	}
 }

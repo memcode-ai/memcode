@@ -32,9 +32,7 @@ func init() {
 
 	// --- aurora (default) — reproduces the current hardcoded colors exactly ---
 	Register(Theme{
-		Name:     "aurora",
-		Display:  "Aurora",
-		Identity: "Dark purple — default",
+		Name: "aurora",
 		Palette: Palette{
 			Brand:        "#A78BFA",
 			Info:         "#60A5FA",
@@ -68,9 +66,7 @@ func init() {
 	// background (see the BackgroundColorMsg handler); also pickable in /theme. Colors are
 	// chosen dark enough to read on a light background. ---
 	Register(Theme{
-		Name:     "dawn",
-		Display:  "Dawn",
-		Identity: "Light — for light terminals",
+		Name: "dawn",
 		Palette: Palette{
 			Brand:        "#7C3AED",
 			Info:         "#2563EB",
@@ -98,9 +94,7 @@ func init() {
 
 	// --- dracula ---
 	Register(Theme{
-		Name:     "dracula",
-		Display:  "Dracula",
-		Identity: "Dark purple — Dracula",
+		Name: "dracula",
 		Palette: Palette{
 			Brand:        "#bd93f9",
 			Info:         "#8be9fd",
@@ -128,9 +122,7 @@ func init() {
 
 	// --- tokyonight ---
 	Register(Theme{
-		Name:     "tokyonight",
-		Display:  "Tokyo Night",
-		Identity: "Blue-purple — Tokyo Night",
+		Name: "tokyonight",
 		Palette: Palette{
 			Brand:        "#bb9af7",
 			Info:         "#7aa2f7",
@@ -158,9 +150,7 @@ func init() {
 
 	// --- nord ---
 	Register(Theme{
-		Name:     "nord",
-		Display:  "Nord",
-		Identity: "Blue-gray — Nord",
+		Name: "nord",
 		Palette: Palette{
 			Brand:        "#b48ead",
 			Info:         "#81a1c1",
@@ -188,9 +178,7 @@ func init() {
 
 	// --- gruvbox ---
 	Register(Theme{
-		Name:     "gruvbox",
-		Display:  "Gruvbox",
-		Identity: "Warm earth — Gruvbox",
+		Name: "gruvbox",
 		Palette: Palette{
 			Brand:        "#b16286",
 			Info:         "#458588",
@@ -218,9 +206,7 @@ func init() {
 
 	// --- solarized ---
 	Register(Theme{
-		Name:     "solarized",
-		Display:  "Solarized",
-		Identity: "Warm-cool — Solarized Dark",
+		Name: "solarized",
 		Palette: Palette{
 			Brand:        "#6c71c4",
 			Info:         "#268bd2",
@@ -248,9 +234,7 @@ func init() {
 
 	// --- catppuccin ---
 	Register(Theme{
-		Name:     "catppuccin",
-		Display:  "Catppuccin",
-		Identity: "Pastel dark — Catppuccin Mocha",
+		Name: "catppuccin",
 		Palette: Palette{
 			Brand:        "#cba6f7",
 			Info:         "#89b4fa",
@@ -278,9 +262,7 @@ func init() {
 
 	// --- onedark ---
 	Register(Theme{
-		Name:     "onedark",
-		Display:  "One Dark",
-		Identity: "Purple-blue — One Dark",
+		Name: "onedark",
 		Palette: Palette{
 			Brand:        "#c678dd",
 			Info:         "#61afef",
@@ -308,9 +290,7 @@ func init() {
 
 	// --- rosepine ---
 	Register(Theme{
-		Name:     "rosepine",
-		Display:  "Rosé Pine",
-		Identity: "Rose gold — Rosé Pine Moon",
+		Name: "rosepine",
 		Palette: Palette{
 			Brand:        "#c4a7e7",
 			Info:         "#9ccfd8",
@@ -338,9 +318,7 @@ func init() {
 
 	// --- highcontrast ---
 	Register(Theme{
-		Name:     "highcontrast",
-		Display:  "High Contrast",
-		Identity: "High contrast — maximum separation",
+		Name: "highcontrast",
 		Palette: Palette{
 			Brand:        "#d4bfff",
 			Info:         "#82c4ff",
@@ -368,9 +346,7 @@ func init() {
 
 	// --- matrix — green phosphor on black (digital rain). Pairs with the matrix intro banner. ---
 	Register(Theme{
-		Name:     "matrix",
-		Display:  "Matrix",
-		Identity: "Green phosphor — digital rain",
+		Name: "matrix",
 		Palette: Palette{
 			Brand:        "#00FF41",
 			Info:         "#22FF66",
@@ -398,9 +374,7 @@ func init() {
 
 	// --- pinkpanther — hot-pink brand on dark; the look Tim liked from the spike prompt ---
 	Register(Theme{
-		Name:     "pinkpanther",
-		Display:  "Pink Panther",
-		Identity: "Hot pink on dark",
+		Name: "pinkpanther",
 		Palette: Palette{
 			Brand:        "#F472B6",
 			Info:         "#7DD3FC",
@@ -433,9 +407,7 @@ func init() {
 	// each launch (see theme.go). The placeholder palette below is never used (Set swaps to a
 	// real theme); it exists only so the entry validates and shows in the /theme picker. ---
 	Register(Theme{
-		Name:     "random",
-		Display:  "Random",
-		Identity: "🎲 a new theme each launch",
+		Name: "random",
 		Palette: Palette{
 			Brand:        "#A78BFA",
 			Info:         "#60A5FA",
@@ -469,9 +441,6 @@ func init() {
 	// resolves to a non-nil style. Panic on invalid registration — this is
 	// a developer error.
 	for name, t := range registry {
-		if t.Display == "" {
-			panic(fmt.Sprintf("theme %q: Display is empty", name))
-		}
 		v := reflect.ValueOf(t.Palette)
 		pt := reflect.TypeOf(t.Palette)
 		for i := 0; i < v.NumField(); i++ {

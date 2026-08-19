@@ -14,7 +14,6 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"time"
 
 	oai "github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
@@ -425,29 +424,15 @@ type callAccum struct {
 // non-streaming path).
 func (o *OpenAI) Stream(ctx context.Context, r wire.Request, h wire.StreamHandler) (wire.Response, error) {
 	if o.apiKey == "" {
-		return wire.Response{}, fmt.Errorf("no OpenAI API key (set %s)", EnvOpenAIKey)
+		return wire.Response{}, fmt.Errorf("no API key (set %s)", o.keyEnv)
 	}
 	params := o.buildParams(r, r.MaxTokens) // 0 = uncapped (field omitted; provider's model max applies)
 
-	// Bounded retry for a transient failure. A stream can't resume mid-flight, so we only
-	// re-attempt when NOTHING was forwarded to h yet (emitted==false) — retrying after
-	// partial output would duplicate it for the caller. 429/5xx before the first token
-	// (the common transient case) is safely retried; a mid-stream cut is returned as-is.
-	for attempt := 1; ; attempt++ {
-		resp, emitted, err := o.streamOnce(ctx, params, r, h)
-		if err == nil {
-			return resp, nil
-		}
-		code, _, isAPI := provcore.APIErrorInfo(err)
-		if emitted || ctx.Err() != nil || !isAPI || !provcore.IsRetryable(code) || attempt >= 5 {
-			return resp, err
-		}
-		select {
-		case <-time.After(provcore.Backoff(attempt)):
-		case <-ctx.Done():
-			return wire.Response{}, ctx.Err()
-		}
-	}
+	// Shared emitted-aware retry: a stream can't resume mid-flight, so it only
+	// re-attempts when NOTHING was forwarded to h yet — see provcore.StreamWithRetry.
+	return provcore.StreamWithRetry(ctx, func() (wire.Response, bool, error) {
+		return o.streamOnce(ctx, params, r, h)
+	})
 }
 
 // streamOnce runs a single streaming attempt. emitted reports whether any output bytes
@@ -461,14 +446,11 @@ func (o *OpenAI) streamOnce(ctx context.Context, params responses.ResponseNewPar
 	// fields directly (there is no AsAny() on ResponseStreamEventUnion).
 	calls := map[int64]*callAccum{}
 	var callOrder []int64
-	var textItems map[string]*strings.Builder // itemID → text accumulator
-	textItems = map[string]*strings.Builder{}
+	textItems := map[string]*strings.Builder{} // itemID → text accumulator
 	var textOrder []string
-	var reasoningItems map[string]*strings.Builder
-	reasoningItems = map[string]*strings.Builder{}
+	reasoningItems := map[string]*strings.Builder{}
 	var reasoningOrder []string
-	var reasoningEncrypted map[string]string
-	reasoningEncrypted = map[string]string{}
+	reasoningEncrypted := map[string]string{}
 	var inTok, outTok, cacheRead int
 	// searchCount: completed web_search_call output items — the native web_search
 	// built-in's per-request fee counter. Counts for grok too (the embedded
@@ -701,13 +683,6 @@ func (o *OpenAI) streamOnce(ctx context.Context, params responses.ResponseNewPar
 	return out, emitted, nil
 }
 
-// openaiWebSearchSystem is the system prompt for the web-search side-channel (same intent
-// as Anthropic's — a research assistant that cites sources). Declared separately because
-// Anthropic's webSearchSystem already exists in this package.
-const openaiWebSearchSystem = `You are a web research assistant for a coding agent. Use web search to answer the
-request accurately and concisely, and cite source URLs inline. If the request is to read a specific URL,
-summarize the content relevant to the agent's task. Prefer authoritative, current sources.`
-
 // WebSearch answers a query using the Responses API's built-in web_search tool, returning
 // the synthesized text (replaces Anthropic's server-side web_search).
 func (o *OpenAI) WebSearch(ctx context.Context, query string) (string, wire.Response, error) {
@@ -716,7 +691,7 @@ func (o *OpenAI) WebSearch(ctx context.Context, query string) (string, wire.Resp
 	}
 	params := responses.ResponseNewParams{
 		Model:           shared.ResponsesModel(o.defaultModel),
-		Instructions:    oai.String(openaiWebSearchSystem),
+		Instructions:    oai.String(provcore.WebSearchSystemPrompt),
 		MaxOutputTokens: oai.Int(3000),
 		Input: responses.ResponseNewParamsInputUnion{
 			OfInputItemList: responses.ResponseInputParam{

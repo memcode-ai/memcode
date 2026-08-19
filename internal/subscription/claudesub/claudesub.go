@@ -23,8 +23,14 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 )
+
+// resolveMu serializes Resolve's read→refresh→write: refresh tokens are single-use and
+// rotate, so two concurrent Resolves could both spend the same refresh token (the second
+// exchange fails) and clobber the rotated one on write-back. One mutex per credential file.
+var resolveMu sync.Mutex
 
 // oauthClientID is the client id the Claude Code OAuth flow uses; required to
 // refresh the token.
@@ -45,6 +51,8 @@ type creds struct {
 // returned token is an OAuth token (cc-*/eyJ…) that turns on the adapter's
 // compatibility mode.
 func Resolve() (string, error) {
+	resolveMu.Lock()
+	defer resolveMu.Unlock()
 	c, err := readCreds()
 	if err != nil {
 		return "", err
@@ -167,12 +175,12 @@ func refresh(c creds) (creds, error) {
 	req.Header.Set("User-Agent", "axios/1.7.9")
 	resp, err := (&http.Client{Timeout: 15 * time.Second}).Do(req)
 	if err != nil {
-		return creds{}, fmt.Errorf("Claude token refresh: %w", err)
+		return creds{}, fmt.Errorf("claude token refresh: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return creds{}, fmt.Errorf("Claude token refresh returned %s — sign in again with Claude Code: %s", resp.Status, strings.TrimSpace(string(body)))
+		return creds{}, fmt.Errorf("claude token refresh returned %s — sign in again with Claude Code: %s", resp.Status, strings.TrimSpace(string(body)))
 	}
 	var out struct {
 		AccessToken  string `json:"access_token"`
@@ -180,10 +188,10 @@ func refresh(c creds) (creds, error) {
 		ExpiresIn    int64  `json:"expires_in"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return creds{}, fmt.Errorf("Claude token refresh decode: %w", err)
+		return creds{}, fmt.Errorf("claude token refresh decode: %w", err)
 	}
 	if out.AccessToken == "" {
-		return creds{}, fmt.Errorf("Claude token refresh returned an empty token")
+		return creds{}, fmt.Errorf("claude token refresh returned an empty token")
 	}
 	nc := creds{AccessToken: out.AccessToken, RefreshToken: out.RefreshToken, Scopes: c.Scopes}
 	if nc.RefreshToken == "" {

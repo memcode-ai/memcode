@@ -32,6 +32,7 @@ import (
 	"mvdan.cc/sh/v3/syntax"
 
 	"github.com/memcode-ai/memcode/internal/config"
+	"github.com/memcode-ai/memcode/internal/textutil"
 )
 
 // Record kinds. Keep these stable — they're the on-disk contract.
@@ -359,7 +360,12 @@ func Search(root, query string, n int) ([]Record, error) {
 	if q == "" {
 		var hits []Record
 		for _, p := range paths {
-			recs, _ := readRecords(p)
+			recs, err := readRecords(p)
+			if err != nil {
+				// One corrupt file must not kill cross-session search, but it
+				// must not vanish either — say which file couldn't be read.
+				fmt.Fprintf(os.Stderr, "sessionlog: reading %s: %v\n", p, err)
+			}
 			id := filepath.Base(filepath.Dir(p))
 			for i := len(recs) - 1; i >= 0; i-- {
 				r := recs[i]
@@ -377,7 +383,10 @@ func Search(root, query string, n int) ([]Record, error) {
 	// where a result came from — the old scan never attributed hits.
 	bySession := map[string][]Record{}
 	for _, p := range paths {
-		recs, _ := readRecords(p)
+		recs, err := readRecords(p)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "sessionlog: reading %s: %v\n", p, err)
+		}
 		if len(recs) == 0 {
 			continue
 		}
@@ -930,10 +939,9 @@ func firstLine(s string, max int) string {
 	if i := strings.IndexByte(s, '\n'); i >= 0 {
 		s = s[:i] + " …"
 	}
-	if len(s) > max {
-		s = s[:max] + "…"
-	}
-	return s
+	// Rune-based clip — a byte-index cut can split a multibyte rune and write
+	// invalid UTF-8 into the transcript.
+	return textutil.ClipRunesEllipsis(s, max)
 }
 
 func short(sha string) string {

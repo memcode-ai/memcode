@@ -22,6 +22,7 @@ import (
 	detachedjobs "github.com/memcode-ai/memcode/internal/jobs"
 	"github.com/memcode-ai/memcode/internal/llm"
 	"github.com/memcode-ai/memcode/internal/provider"
+	"github.com/memcode-ai/memcode/internal/textutil"
 	"github.com/memcode-ai/memcode/internal/wire"
 
 	"sync"
@@ -52,14 +53,6 @@ func errResult(text string) toolResult {
 // imageResult is a vision result: an image block (e.g. a browser screenshot).
 func imageResult(mediaType string, data []byte) toolResult {
 	return toolResult{blocks: []wire.Block{wire.ImageBlock(mediaType, data)}}
-}
-
-// mixedResult carries both text and image blocks (e.g. a screenshot + a caption).
-func mixedResult(text string, mediaType string, data []byte) toolResult {
-	return toolResult{blocks: []wire.Block{
-		wire.TextBlock(text),
-		wire.ImageBlock(mediaType, data),
-	}}
 }
 
 // documentResult carries a caption plus a native document block (a read PDF).
@@ -214,9 +207,12 @@ func (s *Session) dispatch(ctx context.Context, u wire.Block) toolResult {
 	// Read-only gather telemetry (counts only — never blocks; the model decides when it's
 	// read enough, and a re-read of changed state must always run).
 	s.noteGather(u.Name, u.Input)
+	if s.toolNotify != nil {
+		s.toolNotify(toolActivityLabel(u.Name, u.Input))
+	}
 	switch u.Name {
 	case tools.ReadFile:
-		return s.readFile(u.Input)
+		return s.readFile(ctx, u.Input)
 	case tools.ListDir:
 		return s.listDir(u.Input)
 	case tools.Glob:
@@ -939,12 +935,14 @@ func isPDFFile(path string, data []byte) bool {
 // image-only scan) no meaningful text — sends the caller down the native-attach
 // fallback. Local extraction is the cheap default: a deck attached natively
 // bills per-page image tokens; its text layer is a fraction of that.
-func extractPDFText(abs string) (string, bool) {
+func extractPDFText(ctx context.Context, abs string) (string, bool) {
 	bin, err := exec.LookPath("pdftotext")
 	if err != nil {
 		return "", false
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	// Derive from the REQUEST ctx (not Background) so a cancelled turn kills the
+	// extractor too, bounded by its own 15s cap either way.
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	out, err := exec.CommandContext(ctx, bin, "-layout", abs, "-").Output()
 	if err != nil {
@@ -956,7 +954,7 @@ func extractPDFText(abs string) (string, bool) {
 	return string(out), true
 }
 
-func (s *Session) readFile(raw json.RawMessage) toolResult {
+func (s *Session) readFile(ctx context.Context, raw json.RawMessage) toolResult {
 	var in tools.ReadFileInput
 	if err := json.Unmarshal(raw, &in); err != nil {
 		return errResult(err.Error())
@@ -982,7 +980,7 @@ func (s *Session) readFile(raw json.RawMessage) toolResult {
 	// Coercing the raw bytes to a string fed the model 64KB of mojibake.
 	isPDF := isPDFFile(in.Path, data)
 	if isPDF && !in.Attach {
-		if text, ok := extractPDFText(abs); ok {
+		if text, ok := extractPDFText(ctx, abs); ok {
 			data = []byte(fmt.Sprintf("[text extracted locally from %s — call read_file with attach:true if you need the document itself (layout/charts/images)]\n%s",
 				in.Path, text))
 			isPDF = false // continue down the normal text path (range/truncate/redact)
@@ -1027,7 +1025,7 @@ func (s *Session) readFile(raw json.RawMessage) toolResult {
 
 	truncated := len(content) > maxFileRead
 	if truncated {
-		content = content[:maxFileRead] + "\n…(truncated)"
+		content = textutil.ClipBytes(content, maxFileRead) + "\n…(truncated)" // rune-safe byte-budget cut
 	}
 	if secret {
 		// The agent sees the keys/structure, never the values.
@@ -1298,9 +1296,14 @@ func (s *Session) editFile(ctx context.Context, input json.RawMessage) toolResul
 	if err := json.Unmarshal(input, &in); err != nil {
 		return errResult(err.Error())
 	}
-	if _, err := safeJoin(s.root, in.Path); err != nil {
+	// Resolve to a root-relative path ONCE (safeJoin validates + canonicalizes): edit.Apply
+	// joins its path argument under root itself, so passing a raw ABSOLUTE in-root path
+	// through would double-join it into /repo/repo/foo.go.
+	rel, err := s.repoRel(in.Path)
+	if err != nil {
 		return errResult(err.Error())
 	}
+	in.Path = rel
 	// Transport guard: a CREATE (no old_string anchor) with empty new_string is almost always a
 	// DROPPED large payload — the model intended a big file but the content didn't transmit (seen
 	// on large writes, on both glm AND opus). Reject with a chunk-it nudge instead of writing a
@@ -1430,6 +1433,16 @@ func (s *Session) applyPatch(ctx context.Context, input json.RawMessage) toolRes
 		if isTestPath(e.Path) && weakensTest(e.OldString, e.NewString) && !s.testEditIntent && s.turn.healRounds > 0 {
 			risk, catastrophic = permissions.Dangerous, true
 		}
+	}
+	// Resolve every path to root-relative ONCE, up front (see editFile: edit.Apply joins
+	// under root itself, so a raw absolute in-root path would double-join). Snapshot,
+	// rollback, Format, Hash, and editedPaths below all key on the same normalized path.
+	for i, e := range in.Edits {
+		rel, err := s.repoRel(e.Path)
+		if err != nil {
+			return errResult("apply_patch: bad path " + e.Path + ": " + err.Error())
+		}
+		in.Edits[i].Path = rel
 	}
 	paths := make([]string, len(in.Edits))
 	for i, e := range in.Edits {

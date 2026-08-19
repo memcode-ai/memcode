@@ -62,3 +62,24 @@ func TestRedactorFromEnv(t *testing.T) {
 		t.Errorf("non-sensitive value should not be redacted: %q", got)
 	}
 }
+
+// TestRedactSubstringSecret: when one secret is a substring of another, the
+// LONGER one must be replaced first — replacing in registration order left the
+// longer secret's tail in the clear ("***REDACTED***-TAIL9999").
+func TestRedactSubstringSecret(t *testing.T) {
+	r := &Redactor{}
+	r.Add("abc12345")          // the shorter secret, registered FIRST
+	r.Add("abc12345-TAIL9999") // the longer secret containing it
+
+	got := r.Redact("token abc12345-TAIL9999 in a log line")
+	if strings.Contains(got, "TAIL9999") {
+		t.Errorf("longer secret's tail leaked: %q", got)
+	}
+	if strings.Contains(got, "abc12345") {
+		t.Errorf("secret not redacted: %q", got)
+	}
+	// The shorter secret alone still redacts too.
+	if got := r.Redact("short abc12345 here"); strings.Contains(got, "abc12345") {
+		t.Errorf("shorter secret not redacted: %q", got)
+	}
+}

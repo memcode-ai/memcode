@@ -11,7 +11,8 @@ import (
 	"github.com/memcode-ai/memcode/internal/channels"
 )
 
-const simpleMail = "From: Tim <Tim@Example.com>\r\n" +
+const simpleMail = "Authentication-Results: mx.example.com; spf=pass smtp.mailfrom=tim@example.com; dkim=pass header.d=example.com\r\n" +
+	"From: Tim <Tim@Example.com>\r\n" +
 	"To: bot@example.com\r\n" +
 	"Subject: Fix the build\r\n" +
 	"Message-Id: <m1@example.com>\r\n" +
@@ -244,6 +245,73 @@ func TestPollOnceCursorSemantics(t *testing.T) {
 	}
 	if delivered != 0 || store.cur != "8/99" {
 		t.Errorf("after validity reset: delivered %d, cursor %q", delivered, store.cur)
+	}
+}
+
+// The identity gate: only mail whose TOPMOST Authentication-Results (the provider's own,
+// prepended on receipt) shows an SPF/DKIM pass aligned with the From domain may flow. Fail
+// closed on everything else — including a sender-forged Authentication-Results below it.
+func TestSenderAuthenticated(t *testing.T) {
+	parse := func(raw string) parsedMessage {
+		p, ok := parseMessage([]byte(raw))
+		if !ok {
+			t.Fatal("parse failed")
+		}
+		return p
+	}
+	// No Authentication-Results at all → refused.
+	if senderAuthenticated(parse("From: tim@example.com\r\n\r\nx")) {
+		t.Error("mail without Authentication-Results must not authenticate")
+	}
+	// Aligned SPF pass (with an RFC 5322 comment in the way) → allowed.
+	ok := "Authentication-Results: mx.example.com;\r\n" +
+		"\tspf=pass (mx.example.com: domain of tim@example.com designates 1.2.3.4 as permitted sender) smtp.mailfrom=tim@example.com\r\n" +
+		"From: tim@example.com\r\n\r\nx"
+	if !senderAuthenticated(parse(ok)) {
+		t.Error("aligned spf=pass must authenticate")
+	}
+	// Aligned DKIM pass on a subdomain (relaxed alignment) → allowed.
+	dkim := "Authentication-Results: mx.example.com; dkim=pass header.d=example.com\r\n" +
+		"From: tim@mail.example.com\r\n\r\nx"
+	if !senderAuthenticated(parse(dkim)) {
+		t.Error("relaxed-aligned dkim=pass must authenticate")
+	}
+	// Passing verdict for a DIFFERENT domain → refused (spoofed From).
+	misaligned := "Authentication-Results: mx.example.com; spf=pass smtp.mailfrom=attacker.net; dkim=pass header.d=attacker.net\r\n" +
+		"From: tim@example.com\r\n\r\nx"
+	if senderAuthenticated(parse(misaligned)) {
+		t.Error("a pass for another domain must not authenticate the From")
+	}
+	// spf=fail with a sender-forged Authentication-Results BELOW the provider's → refused:
+	// only the topmost header is trusted.
+	forged := "Authentication-Results: mx.example.com; spf=fail smtp.mailfrom=tim@example.com\r\n" +
+		"Authentication-Results: mx.example.com; spf=pass smtp.mailfrom=tim@example.com\r\n" +
+		"From: tim@example.com\r\n\r\nx"
+	if senderAuthenticated(parse(forged)) {
+		t.Error("a forged header below the provider's verdict must not authenticate")
+	}
+}
+
+// pollOnce refuses unauthenticated mail durably: nothing is delivered and the cursor advances
+// past it (never retried, never run).
+func TestPollOnceRefusesUnauthenticatedSender(t *testing.T) {
+	spoofed := "From: Tim <tim@example.com>\r\nSubject: do something\r\n\r\nrm -rf\r\n"
+	store := &fakeCursor{cur: "7/41"}
+	fake := &fakeSession{uidValidity: 7, uidNext: 43, msgs: map[imap.UID][]byte{42: []byte(spoofed)}}
+	c := newTestChannel(store)
+	c.dial = func() (imapSession, error) { return fake, nil }
+	delivered := 0
+	if err := c.pollOnce(context.Background(), sinkFn(func(channels.Inbound) error {
+		delivered++
+		return nil
+	})); err != nil {
+		t.Fatal(err)
+	}
+	if delivered != 0 {
+		t.Fatalf("unauthenticated mail was delivered %d time(s)", delivered)
+	}
+	if store.cur != "7/42" {
+		t.Errorf("refusal must advance the cursor durably, got %q", store.cur)
 	}
 }
 

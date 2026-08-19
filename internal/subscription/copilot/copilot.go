@@ -81,19 +81,23 @@ func Resolve(ctx context.Context) (Backend, error) {
 // rawGitHubToken resolves the raw GitHub token from the env ladder, else `gh
 // auth token`. A classic PAT (ghp_) is rejected — the Copilot API refuses it.
 func rawGitHubToken(ctx context.Context) (string, error) {
-	envSeen := false
+	envSeen := ""
 	for _, v := range copilotEnvVars {
-		if val := strings.TrimSpace(os.Getenv(v)); val != "" {
-			envSeen = true
-			if err := validTokenType(val); err != nil {
+		val, ok := os.LookupEnv(v)
+		if !ok {
+			continue
+		}
+		envSeen = v // a ladder var is SET (even if empty) — honor that explicit intent
+		if trimmed := strings.TrimSpace(val); trimmed != "" {
+			if err := validTokenType(trimmed); err != nil {
 				return "", err
 			}
-			return val, nil
+			return trimmed, nil
 		}
 	}
-	if envSeen {
-		// An env var was set but empty/invalid — do not silently fall back.
-		return "", fmt.Errorf("a GitHub token env var is set but unusable")
+	if envSeen != "" {
+		// An env var was set but empty/blank — do not silently fall back to `gh`.
+		return "", fmt.Errorf("%s is set but empty — unset it or give it a usable GitHub token", envSeen)
 	}
 	tok, err := ghCLIToken(ctx)
 	if err != nil {
@@ -181,12 +185,12 @@ func exchange(ctx context.Context, raw string) (token, baseURL string, err error
 
 	resp, err := (&http.Client{Timeout: 10 * time.Second}).Do(req)
 	if err != nil {
-		return "", "", fmt.Errorf("Copilot token exchange: %w", err)
+		return "", "", fmt.Errorf("copilot token exchange: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return "", "", fmt.Errorf("Copilot token exchange returned %s — is Copilot enabled for this account? %s", resp.Status, strings.TrimSpace(string(body)))
+		return "", "", fmt.Errorf("copilot token exchange returned %s — is Copilot enabled for this account? %s", resp.Status, strings.TrimSpace(string(body)))
 	}
 	var out struct {
 		Token     string `json:"token"`
@@ -196,10 +200,10 @@ func exchange(ctx context.Context, raw string) (token, baseURL string, err error
 		} `json:"endpoints"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return "", "", fmt.Errorf("Copilot token exchange decode: %w", err)
+		return "", "", fmt.Errorf("copilot token exchange decode: %w", err)
 	}
 	if out.Token == "" {
-		return "", "", fmt.Errorf("Copilot token exchange returned an empty token")
+		return "", "", fmt.Errorf("copilot token exchange returned an empty token")
 	}
 	base := strings.TrimRight(out.Endpoints.API, "/")
 	if base == "" {

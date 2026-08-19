@@ -8,7 +8,6 @@ import (
 
 	"github.com/memcode-ai/memcode/internal/llm"
 	"github.com/memcode-ai/memcode/internal/predict"
-	"github.com/memcode-ai/memcode/internal/provider"
 	"github.com/memcode-ai/memcode/internal/wire"
 )
 
@@ -43,13 +42,12 @@ Requires MEMCODE_API_TOKEN (from the environment or a gitignored .env at the rep
 		}
 		fmt.Println()
 
-		provider.LoadDotEnv()
-		prov, err := provider.NewFromEnv()
+		_, runner, err := newModelRunner()
 		if err != nil {
 			return err
 		}
 		user := predict.UserPrompt(ev)
-		resp, err := llm.NewRunner(prov).Complete(ctx, llm.Predict, wire.Request{
+		resp, err := runner.Complete(ctx, llm.Predict, wire.Request{
 			Mode:      "next",
 			Messages:  []wire.Message{{Role: "user", Blocks: []wire.Block{{Type: "text", Text: user}}}},
 			MaxTokens: 1024, // the gateway resolves the model from purpose=predict

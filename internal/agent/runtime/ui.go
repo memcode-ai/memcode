@@ -97,13 +97,6 @@ func (s *Session) Spend() (in, out, cacheRead, cacheWrite int, usd float64) {
 	return ledger.Spend(s.runner.Ledger())
 }
 
-// Notef prints one muted activity-marker line (the "● …" lane) into the session
-// transcript — the seam the hybrid router uses to announce backend switches.
-// Safe from any goroutine: printf is mutex-guarded.
-func (s *Session) Notef(format string, args ...any) {
-	s.printf("● "+format+"\n", args...)
-}
-
 // SpendByBackend returns per-backend usage, busiest first. One entry ("anthropic")
 // in a classic session; two once the hybrid router is live.
 func (s *Session) SpendByBackend() []ledger.BackendSpend {
@@ -337,9 +330,6 @@ func (s *Session) Planning() bool { return s.planCtl.Planning() }
 // the pair the intake gate stamps on a submission so an async relevance verdict
 // can be staleness-checked when it lands.
 func (s *Session) PlanPhaseEpoch() (plan.Phase, int) { return s.planCtl.PhaseEpoch() }
-
-// PlanRevision returns how many times the current plan has been revised.
-func (s *Session) PlanRevision() int { return s.planCtl.Revision() }
 
 // PlanPresentable reports whether the most recent plan turn actually rendered a plan to
 // approve. The TUI gates the "Plan ready" approval selector on this so an interrupted plan

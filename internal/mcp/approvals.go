@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -14,8 +15,12 @@ import (
 // like Claude Code, memcode requires explicit approval before connecting a project server, and
 // remembers the choice keyed to the server's CONFIG: if the .mcp.json entry later changes, the
 // recorded hash no longer matches and approval is required again. Local/user servers are added
-// by you and need no approval. Choices persist in <root>/.memcode/mcp-approvals.json and are
-// cleared with `memcode mcp reset-project-choices`.
+// by you and need no approval. Choices persist OUTSIDE the repo, in the user-level store
+// (~/.memcode/mcp-approvals/<hash-of-root>.json, keyed by the project root) and are cleared
+// with `memcode mcp reset-project-choices`. They must never live inside the repo: a cloned
+// malicious repository could otherwise ship a pre-approved server with a calls_all grant and
+// walk straight through the gate. A repo-resident .memcode/mcp-approvals.json (the pre-move
+// location) is therefore IGNORED as a trust source — never read, only cleaned up on reset.
 //
 // The same record also carries INVOCATION grants ("Execute and remember" / "Don't ask again
 // for <server>" on the call card). Connect trust and call permission are different decisions:
@@ -42,15 +47,38 @@ type approvalRecord struct {
 // Approvals is the persisted set of project-server choices for one project.
 type Approvals map[string]approvalRecord
 
-// ApprovalsPath is where a project's MCP approval choices live.
+// ApprovalsPath is where a project's MCP approval choices live: user-level state under the
+// home directory (like UserStoreFile), keyed by a hash of the canonical project root so each
+// project gets its own file. NEVER inside the repo — see the package header. Returns "" when
+// no home directory can be determined.
 func ApprovalsPath(root string) string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return ""
+	}
+	abs, err := filepath.Abs(root)
+	if err != nil {
+		abs = root
+	}
+	sum := sha256.Sum256([]byte(abs))
+	return filepath.Join(home, ".memcode", "mcp-approvals", hex.EncodeToString(sum[:8])+".json")
+}
+
+// legacyApprovalsPath is the pre-move, repo-resident location. It is never read as a trust
+// source (repo content could pre-approve a malicious server); ResetApprovals removes it.
+func legacyApprovalsPath(root string) string {
 	return filepath.Join(root, ".memcode", "mcp-approvals.json")
 }
 
-// LoadApprovals reads the remembered choices (absent file → empty, not an error).
+// LoadApprovals reads the remembered choices (absent file → empty, not an error). Only the
+// user-level store is consulted — a repo-committed approvals file grants nothing.
 func LoadApprovals(root string) Approvals {
 	a := Approvals{}
-	b, err := os.ReadFile(ApprovalsPath(root))
+	path := ApprovalsPath(root)
+	if path == "" {
+		return a
+	}
+	b, err := os.ReadFile(path)
 	if err != nil {
 		return a
 	}
@@ -82,7 +110,7 @@ func SaveApproval(root, name string, cfg ServerConfig, d Decision) error {
 		rec.CallsAll, rec.CallTools = old.CallsAll, old.CallTools
 	}
 	a[name] = rec
-	return writeJSON(ApprovalsPath(root), a)
+	return writeApprovals(root, a)
 }
 
 // CallAllowed reports whether invoking rawTool on the named server was remembered. False the
@@ -112,21 +140,39 @@ func RememberCalls(root, name string, cfg ServerConfig, rawTool string) error {
 		rec.CallTools = append(rec.CallTools, rawTool)
 	}
 	a[name] = rec
-	return writeJSON(ApprovalsPath(root), a)
+	return writeApprovals(root, a)
+}
+
+// writeApprovals persists the set to the user-level store.
+func writeApprovals(root string, a Approvals) error {
+	path := ApprovalsPath(root)
+	if path == "" {
+		return fmt.Errorf("cannot determine home directory for the MCP approvals store")
+	}
+	return writeJSON(path, a)
 }
 
 // ResetApprovals clears all project-server choices (Claude Code's reset-project-choices).
+// It also removes any legacy repo-resident file (ignored as a trust source, but stale).
 func ResetApprovals(root string) error {
-	err := os.Remove(ApprovalsPath(root))
+	if err := os.Remove(legacyApprovalsPath(root)); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	path := ApprovalsPath(root)
+	if path == "" {
+		return nil
+	}
+	err := os.Remove(path)
 	if os.IsNotExist(err) {
 		return nil
 	}
 	return err
 }
 
-// ConfigHash is a stable digest of a server's RAW config, so any edit to its .mcp.json entry
-// invalidates a prior approval (re-prompting), while environment changes (which don't alter the
-// committed config) do not.
+// ConfigHash is a stable digest of a server's RAW config (as read from its store, before ${VAR}
+// expansion — see Resolve), so any edit to its .mcp.json entry invalidates a prior approval
+// (re-prompting), while environment changes (which don't alter the committed config) do not —
+// and resolved secrets never feed the hash.
 func ConfigHash(cfg ServerConfig) string {
 	b, _ := json.Marshal(cfg)
 	sum := sha256.Sum256(b)

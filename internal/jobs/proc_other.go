@@ -22,3 +22,7 @@ func processAlive(pid int) bool {
 	}
 	return p.Signal(syscall.Signal(0)) == nil
 }
+
+// processStartSig has no ps-based start-time source on Windows; ok=false means the identity
+// check is skipped and liveness alone decides (the pre-signature behavior).
+func processStartSig(int) (string, bool) { return "", false }

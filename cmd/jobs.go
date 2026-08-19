@@ -31,10 +31,11 @@ var jobsLogsCmd = &cobra.Command{
 	Short: "Print a job's output log",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		_, cfg, err := openProject(cmd.Context())
+		st, cfg, err := openProject(cmd.Context())
 		if err != nil {
 			return err
 		}
+		defer st.Close()
 		f, err := os.Open(jobs.LogPath(cfg.Root, args[0]))
 		if err != nil {
 			return fmt.Errorf("no log for job %s", args[0])
@@ -50,10 +51,11 @@ var jobsStopCmd = &cobra.Command{
 	Short: "Stop a running background agent job",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		_, cfg, err := openProject(cmd.Context())
+		st, cfg, err := openProject(cmd.Context())
 		if err != nil {
 			return err
 		}
+		defer st.Close()
 		if err := jobs.Stop(cfg.Root, args[0]); err != nil {
 			return err
 		}
@@ -63,10 +65,11 @@ var jobsStopCmd = &cobra.Command{
 }
 
 func runJobsList(cmd *cobra.Command) error {
-	_, cfg, err := openProject(cmd.Context())
+	st, cfg, err := openProject(cmd.Context())
 	if err != nil {
 		return err
 	}
+	defer st.Close()
 	list, err := jobs.List(cfg.Root)
 	if err != nil {
 		return err

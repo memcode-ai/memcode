@@ -1,6 +1,7 @@
 package ansi
 
 import (
+	"bufio"
 	"bytes"
 	"fmt"
 	"io"
@@ -597,8 +598,16 @@ func TestAnywhere(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			r := bytes.NewBuffer(nil)
-			parse := NewParser(r)
+			// Construct directly instead of NewParser: this test drives anywhere()
+			// by hand, and NewParser's run goroutine would race the parse.exit
+			// write below (and close the sequences channel the manual calls emit
+			// into). No goroutine → no race, channel stays open.
+			parse := &Parser{
+				r:         bufio.NewReader(bytes.NewBuffer(nil)),
+				sequences: make(chan Sequence, 2),
+				state:     ground,
+				mode:      ParserModeInput,
+			}
 			called := false
 			parse.exit = func() {
 				called = true

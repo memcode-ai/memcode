@@ -130,23 +130,6 @@ func TestProductAdapterRankedSearch(t *testing.T) {
 	}
 }
 
-func TestLegacyAdapterStaysBroken(t *testing.T) {
-	ds := fixtureDataset()
-	work := t.TempDir()
-
-	res, err := Run(ds, LegacyAdapter{}, work, 0, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// The old substring scan cannot match paraphrased questions; that is the
-	// documented "before" picture and must stay reproducible.
-	for _, qr := range res.PerQ {
-		if qr.RecallAtK[10] != 0 {
-			t.Fatalf("legacy adapter unexpectedly retrieves: %+v", qr)
-		}
-	}
-}
-
 func TestExtractWindow(t *testing.T) {
 	qd := time.Date(2023, 8, 1, 0, 0, 0, 0, time.UTC)
 	w := extractWindow("What did I say in May 2023 about the trip?", qd)

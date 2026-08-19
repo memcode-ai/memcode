@@ -2,7 +2,7 @@
 
 > **North star (2026-08-08, the all-policy-client-side migration):** the **CLI owns model
 > policy** — the semantic ladder, physical model selection, BYOK steering, escalation,
-> fallback, and mid-call recovery all run client-side (`cli/internal/llm`). Every backend —
+> fallback, and mid-call recovery all run client-side (`internal/llm`). Every backend —
 > the memcode gateway, Ollama, LM Studio, any OpenAI-compatible endpoint — is a **dumb
 > serving surface**: it serves exactly the concrete model the agent asked for, or returns a
 > **typed error**. This is the standard client-owns-policy shape (client-side model config + fallback
@@ -14,14 +14,14 @@
 > failure.* What changed is WHERE it runs.
 >
 > Design/decision record; the **code is the source of truth**
-> (`cli/internal/llm/{lane.go,resolve.go,recover.go}` + the shared catalog
-> `models.json` (repo root, synced) + the serving gateway `api/internal/provider/`).
->
-> Architecture → [ARCH.md](./ARCH.md) · Ops → [RUNBOOK.md](./RUNBOOK.md)
+> (`internal/llm/{lane.go,resolve.go,recover.go}` + the shared catalog
+> `models.json` (repo root, synced) + the serving gateway, which is deployed
+> separately from this repo).
 
-> **History:** the ladder lived server-side (`api/internal/provider/resolve.go` +
-> `steer.go`) from 2026-06 to 2026-08-08 — the port was proven against parity goldens
-> generated from that code before its deletion (`cli/internal/llm/testdata/*.json`, 6,608
+> **History:** the ladder lived server-side (the pre-fold monorepo's
+> `api/internal/provider/{resolve,steer}.go`) from 2026-06 to 2026-08-08 — the port was
+> proven against parity goldens
+> generated from that code before its deletion (`internal/llm/testdata/*.json`, 6,608
 > rows reproduced exactly). Before that, an even earlier era self-hosted vLLM on GPUs;
 > deleted at the 2026-06-12 Fireworks cutover. If you find "lanes", "decideLane",
 > "ResolveModel", "SteerResolvedModel", or "MEMCODE_WIRE" anywhere, it is stale — `git log`
@@ -29,7 +29,7 @@
 
 ## The division of responsibility
 
-**CLI (`cli/internal/llm` — the agent, the single routing authority):**
+**CLI (`internal/llm` — the agent, the single routing authority):**
 
 - **Semantic ladder** (`lane.go`): intent → lane. Inputs are all CLI-produced — purpose,
   mode, the turn_intent judge's difficulty verdict, the room/risk signals, thinking effort.
@@ -51,7 +51,7 @@
   fragment is appended post-selection (routing-owned prose lives with the routing
   decision).
 
-**Gateway (`api/` — a metered serving endpoint):**
+**Gateway (deployed separately from this repo — a metered serving endpoint):**
 
 - Auth door, entitlement enforcement (subscription/lock/credits as **typed 402s** that
   decline, never redirect), BYOK vault + key injection, metering/debit, rate limits.
@@ -138,7 +138,7 @@ chains apply only to cataloged labels, so an uncataloged local model fails hones
 instead of being silently swapped. No memcode extensions leave the machine.
 
 **Wire selection** (ONE implementation per provider protocol, shared by gateway and
-direct mode — `packages/sdk/go/providers/{provcore,openai,anthropic,gemini,compat,
+direct mode — `internal/providers/{provcore,openai,anthropic,gemini,compat,
 memcode}`): a provider's OWN API gets its full-fidelity native dialect —
 `api.openai.com`/`api.x.ai` speak the **Responses API**, `api.anthropic.com` the
 **Messages API**, `generativelanguage.googleapis.com` the **Gemini API** — via the exact
@@ -148,19 +148,20 @@ gateway's Fireworks lane client: salvage net + lane error contract as configurat
 with a probe-and-degrade retry (`reasoning_effort:"none"`) for compat endpoints that
 refuse tools while reasoning is active. The memcode dialect itself is a provider
 (`providers/memcode`): the compat engine + the memcode extensions + the /v1/models
-control-plane client. The gateway keeps NO wire code: `api/internal/provider` is
+control-plane client. The gateway keeps NO wire code: its provider layer is
 construction + serving policy (key injection, capability gates, money) only. **Keys**: explicit `MEMCODE_ENDPOINT_KEY` > config `key_env` > the
 ecosystem-standard env var for well-known hosts (`OPENAI_API_KEY`, `XAI_API_KEY`,
 `GROQ_API_KEY`, …); local hosts stay keyless.
 
 ## Verification
 
-- `cli/internal/llm/parity_test.go` — 5,992 ladder rows + 616 steering rows reproduced
+- `internal/llm/parity_test.go` — 5,992 ladder rows + 616 steering rows reproduced
   from the pre-deletion gateway goldens.
-- `cli/internal/llm/policy_test.go` — capability absorbs, $0 rule, chain walk, emitted
+- `internal/llm/policy_test.go` — capability absorbs, $0 rule, chain walk, emitted
   guard, delegate append, endpoint bypass, control-plane outage degradation.
-- `cli/internal/provider/uniformity_test.go` — one scripted session against a
+- `internal/provider/uniformity_test.go` — one scripted session against a
   gateway-shaped server AND a bare endpoint: identical wire shape (zero memcode headers),
   identical policy, different model sets only.
-- `api/internal/server/compat_test.go` + `internal/compat/conformance` — the serving
-  contract: strict label gate, typed errors, money canary, self-conformance.
+- `internal/providers/compat` (the shared compat engine + its tests) plus the gateway
+  deployment's own serving-contract suite — strict label gate, typed errors, money
+  canary, self-conformance.

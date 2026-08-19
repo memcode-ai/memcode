@@ -14,9 +14,11 @@ package provcore
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -64,6 +66,51 @@ func WithRetry[T any](ctx context.Context, fn func() (T, error)) (T, error) {
 	}
 }
 
+// StreamWithRetry is WithRetry's streaming twin — the ONE emitted-aware
+// stream retry policy, shared by every native adapter (each previously ran
+// its own copy of this loop with diverging attempt counts and no Retry-After).
+// once runs a single streaming attempt and reports whether any content was
+// forwarded to the caller's handler; a stream can't resume mid-flight, so a
+// retry happens ONLY when nothing was emitted yet — retrying after partial
+// output would duplicate it for the caller. Transient API failures (429/529/
+// 5xx via the registered extractors) retry up to 5 attempts with Backoff,
+// honoring Retry-After when the vendor's error carries a header. The failing
+// attempt's response is returned alongside the error so partial usage still
+// reaches the meter.
+func StreamWithRetry(ctx context.Context, once func() (wire.Response, bool, error)) (wire.Response, error) {
+	const maxAttempts = 5
+	for attempt := 1; ; attempt++ {
+		resp, emitted, err := once()
+		if err == nil {
+			return resp, nil
+		}
+		code, hdr, isAPI := APIErrorInfo(err)
+		if emitted || ctx.Err() != nil || !isAPI || !IsRetryable(code) || attempt >= maxAttempts {
+			return resp, err
+		}
+		delay := Backoff(attempt)
+		if hdr != nil {
+			if ra := RetryAfter(hdr); ra > 0 {
+				delay = ra
+			}
+		}
+		if serr := retrySleep(ctx, delay); serr != nil {
+			return resp, serr
+		}
+	}
+}
+
+// retrySleep waits out one backoff, returning ctx.Err() on cancel. A package
+// var so tests can observe the schedule without real sleeps.
+var retrySleep = func(ctx context.Context, d time.Duration) error {
+	select {
+	case <-time.After(d):
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 // ErrorInfoExtractor recognizes ONE vendor SDK's API error shape, returning
 // its HTTP status + response header. Each adapter registers its own at init —
 // this kernel imports NO vendor SDKs (registering here instead of type-
@@ -104,10 +151,21 @@ func IsRetryable(code int) bool {
 	return code == http.StatusTooManyRequests || code == 529 || (code >= 500 && code <= 599)
 }
 
-// RetryAfter parses a Retry-After header (seconds form), 0 when absent.
+// RetryAfter parses a Retry-After header — the seconds form or the HTTP-date
+// form (RFC 9110 allows both) — returning 0 when absent, unparseable, or
+// already in the past.
 func RetryAfter(h http.Header) time.Duration {
-	if secs, err := strconv.Atoi(strings.TrimSpace(h.Get("retry-after"))); err == nil && secs > 0 {
+	v := strings.TrimSpace(h.Get("retry-after"))
+	if v == "" {
+		return 0
+	}
+	if secs, err := strconv.Atoi(v); err == nil && secs > 0 {
 		return time.Duration(secs) * time.Second
+	}
+	if at, err := http.ParseTime(v); err == nil {
+		if d := time.Until(at); d > 0 {
+			return d
+		}
 	}
 	return 0
 }
@@ -120,6 +178,22 @@ func Backoff(attempt int) time.Duration {
 		d = 8 * time.Second
 	}
 	return d
+}
+
+// LogToolInputMalformed reports a replayed tool_use block whose Input is not
+// valid JSON — telemetry, never fatal. The event is marshaled (never string-
+// interpolated, which produced invalid JSON whenever the error text carried a
+// quote) and written to stderr, never stdout, so it can't corrupt the TUI.
+func LogToolInputMalformed(provider string, err error) {
+	line, merr := json.Marshal(map[string]string{
+		"event":    "tool_input_malformed",
+		"provider": provider,
+		"error":    err.Error(),
+	})
+	if merr != nil {
+		return
+	}
+	fmt.Fprintln(os.Stderr, string(line))
 }
 
 // NewTurnHTTPClient returns the HTTP client used for provider turn calls.
@@ -154,6 +228,13 @@ func NewTurnHTTPClient() *http.Client {
 // WebSearchToolName is the CLI's web_search FUNCTION tool — adapters with a
 // native in-request search swap it for the vendor built-in.
 const WebSearchToolName = "web_search"
+
+// WebSearchSystemPrompt is the system prompt for every adapter's web-search
+// side channel (a research assistant that cites sources) — hoisted here so
+// the three vendors' prompts can never drift apart.
+const WebSearchSystemPrompt = `You are a web research assistant for a coding agent. Use web search to answer the
+request accurately and concisely, and cite source URLs inline. If the request is to read a specific URL,
+summarize the content relevant to the agent's task. Prefer authoritative, current sources.`
 
 // SplitWebSearchTool returns tools without the web_search function def, plus
 // whether it was present. Copies on removal — the caller's shared slice is

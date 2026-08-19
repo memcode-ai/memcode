@@ -39,7 +39,6 @@ func entityPPRSessions(bySession map[string][]Record, qToks []string) []string {
 	entIdx := map[string]int{}
 	var nodes int
 	var sessIDs []string
-	var entNames []string
 	refs := map[int]map[int]float64{}
 	edge := func(a, b int, w float64) {
 		if refs[a] == nil {
@@ -72,7 +71,6 @@ func entityPPRSessions(bySession map[string][]Record, qToks []string) []string {
 				if !ok {
 					eNode = nodes
 					entIdx[key] = eNode
-					entNames = append(entNames, key)
 					nodes++
 				}
 				edge(sNode, eNode, pprSessionEdge)

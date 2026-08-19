@@ -60,8 +60,6 @@ func (s repoSnapshot) matches(o Overview) bool {
 const (
 	stateScope = "repo"
 	stateLayer = "overview"
-	// The overview is ~8-15 terminal lines; no need for the 4096 default.
-	synthMaxTokens = 1500
 )
 
 // Load returns the cached overview and whether it's still fresh — fresh meaning it

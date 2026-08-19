@@ -19,6 +19,7 @@ package focus
 
 import (
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -83,9 +84,19 @@ const (
 // chronological stream. The single source of truth for orientation
 // (runtime.focusNow) and the memcode{session} tool — one window, one reducer.
 func FromLog(root, excludeSessionID string, objs []objectives.Objective) State {
-	recs, _ := sessionlog.RecentBurstExcluding(root, excludeSessionID, BurstSessions, BurstGap, BurstPerSession)
+	// Best-effort but never SILENT: a read failure here quietly produced an empty
+	// orientation ("no prior work") which looked like data loss. Log it (stderr —
+	// the diagnostic lane) and proceed with whatever loaded.
+	recs, err := sessionlog.RecentBurstExcluding(root, excludeSessionID, BurstSessions, BurstGap, BurstPerSession)
+	if err != nil {
+		log.Printf("focus: session log burst read failed: %v", err)
+	}
 	if excludeSessionID != "" {
-		if cur, _ := sessionlog.Recent(root, excludeSessionID, 0); len(cur) > 0 {
+		cur, err := sessionlog.Recent(root, excludeSessionID, 0)
+		if err != nil {
+			log.Printf("focus: session log read failed for %s: %v", excludeSessionID, err)
+		}
+		if len(cur) > 0 {
 			recs = append(recs, cur...)
 		}
 	}

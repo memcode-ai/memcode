@@ -192,11 +192,40 @@ func Open(ctx context.Context, path string) (Store, error) {
 			return nil, fmt.Errorf("%s: %w", pragma, err)
 		}
 	}
-	if _, err := db.ExecContext(ctx, schema); err != nil {
+	if err := migrate(ctx, db); err != nil {
 		_ = db.Close()
-		return nil, fmt.Errorf("applying schema: %w", err)
+		return nil, err
 	}
 	return &sqliteStore{db: db}, nil
+}
+
+// migrations is the ordered schema history: migrations[i] brings a database to
+// version i+1. Version 1 is the current base schema (all CREATE ... IF NOT
+// EXISTS, so pre-versioning databases — user_version 0 with the tables already
+// present — replay it harmlessly and get stamped). Append future changes here;
+// never edit or reorder shipped entries.
+var migrations = []string{schema}
+
+// migrate applies every migration past the database's PRAGMA user_version and
+// stamps the new version after each step, so a partial failure resumes cleanly.
+func migrate(ctx context.Context, db *sql.DB) error {
+	var v int
+	if err := db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&v); err != nil {
+		return fmt.Errorf("reading schema version: %w", err)
+	}
+	if v > len(migrations) {
+		return fmt.Errorf("database schema version %d is newer than this binary supports (%d) — upgrade memcode", v, len(migrations))
+	}
+	for i := v; i < len(migrations); i++ {
+		if _, err := db.ExecContext(ctx, migrations[i]); err != nil {
+			return fmt.Errorf("applying schema migration to version %d: %w", i+1, err)
+		}
+		// PRAGMA doesn't take placeholders; i is a trusted loop index.
+		if _, err := db.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version = %d", i+1)); err != nil {
+			return fmt.Errorf("stamping schema version %d: %w", i+1, err)
+		}
+	}
+	return nil
 }
 
 func (s *sqliteStore) Close() error { return s.db.Close() }
@@ -590,12 +619,17 @@ func (s *sqliteStore) ClearPreferenceCandidates(ctx context.Context) error {
 }
 
 func (s *sqliteStore) UpdatePreferenceCandidateStatus(ctx context.Context, id, status, confirmedPath string, weight float64) error {
-	_, err := s.db.ExecContext(ctx,
+	res, err := s.db.ExecContext(ctx,
 		`UPDATE preference_candidates SET status=?, confirmed_path=?, weight=? WHERE id=?`,
 		status, nullStr(confirmedPath), weight, id,
 	)
 	if err != nil {
 		return fmt.Errorf("update preference candidate %s: %w", id, err)
+	}
+	// Same contract as UpdateObjective: a WHERE id=? that matches nothing must not
+	// report success on a write that didn't land.
+	if n, err := res.RowsAffected(); err == nil && n == 0 {
+		return fmt.Errorf("update preference candidate %s: no such candidate", id)
 	}
 	return nil
 }

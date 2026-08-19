@@ -11,7 +11,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"math/rand/v2"
 	"mime/multipart"
 	"net/http"
 	"net/url"
@@ -130,7 +129,7 @@ func (c *Channel) Start(ctx context.Context, sink channels.Sink) error {
 			offset = v
 		}
 	}
-	backoff := time.Second
+	backoff := channels.NewBackoff(time.Second, maxPollBackoff)
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -143,15 +142,12 @@ func (c *Channel) Start(ctx context.Context, sink channels.Sink) error {
 			// Exponential backoff with jitter, capped. The jitter matters: a fixed
 			// backoff can resonate with Telegram's ~30s server-side session TTL and
 			// keep 409-conflicting with a stale poll forever.
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-time.After(jitter(backoff)):
+			if err := backoff.Sleep(ctx); err != nil {
+				return err
 			}
-			backoff = min(backoff*2, maxPollBackoff)
 			continue
 		}
-		backoff = time.Second // recovered — reset the ladder
+		backoff.Reset() // recovered — reset the ladder
 		for _, u := range ups {
 			if inb, refs, ok := toInbound(u, botID, botUsername); ok {
 				inb.Attachments = c.download(ctx, refs)
@@ -172,13 +168,6 @@ func (c *Channel) Start(ctx context.Context, sink channels.Sink) error {
 			}
 		}
 	}
-}
-
-// jitter returns d scaled by a random factor in [0.75, 1.25) so concurrent
-// pollers don't retry in lockstep and no fixed period resonates with a server
-// session TTL.
-func jitter(d time.Duration) time.Duration {
-	return time.Duration(float64(d) * (0.75 + rand.Float64()*0.5))
 }
 
 // fileRef names one downloadable piece of media on a message.

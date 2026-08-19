@@ -987,11 +987,15 @@ func copyFile(src, dst string, mode os.FileMode) error {
 	if err != nil {
 		return err
 	}
-	defer out.Close()
 	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
 		return err
 	}
-	return nil
+	if err := out.Sync(); err != nil { // surface a full disk here, not as silent success
+		out.Close()
+		return err
+	}
+	return out.Close()
 }
 
 func init() {

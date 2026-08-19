@@ -16,7 +16,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"math/rand/v2"
 	"net/http"
 	"net/url"
 	"os"
@@ -145,7 +144,7 @@ func (c *Channel) Start(ctx context.Context, sink channels.Sink) error {
 			since = v
 		}
 	}
-	backoff := time.Second
+	backoff := channels.NewBackoff(time.Second, maxSyncBackoff)
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -157,15 +156,12 @@ func (c *Channel) Start(ctx context.Context, sink channels.Sink) error {
 			}
 			// Exponential backoff with jitter, capped, so a homeserver outage
 			// doesn't turn into a synchronized hammer when it comes back.
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-time.After(jitter(backoff)):
+			if err := backoff.Sleep(ctx); err != nil {
+				return err
 			}
-			backoff = min(backoff*2, maxSyncBackoff)
 			continue
 		}
-		backoff = time.Second // recovered — reset the ladder
+		backoff.Reset() // recovered — reset the ladder
 
 		// First-ever sync (no since-token): deliver nothing. The filtered
 		// request limited each timeline to one event, and even that one is
@@ -185,12 +181,9 @@ func (c *Channel) Start(ctx context.Context, sink channels.Sink) error {
 			// Not durably recorded — do NOT advance since. The next sync from
 			// the old token replays the batch; the router's dedup discards the
 			// events that did land.
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-time.After(jitter(backoff)):
+			if err := backoff.Sleep(ctx); err != nil {
+				return err
 			}
-			backoff = min(backoff*2, maxSyncBackoff)
 			continue
 		}
 		// Every delivery in the batch was durably recorded — only now may the
@@ -221,12 +214,6 @@ func (c *Channel) deliverBatch(ctx context.Context, sink channels.Sink, resp *sy
 		}
 	}
 	return nil
-}
-
-// jitter returns d scaled by a random factor in [0.75, 1.25) so concurrent
-// pollers don't retry in lockstep against a recovering homeserver.
-func jitter(d time.Duration) time.Duration {
-	return time.Duration(float64(d) * (0.75 + rand.Float64()*0.5))
 }
 
 // toInbound converts one timeline event to a normalized Inbound, or ok=false

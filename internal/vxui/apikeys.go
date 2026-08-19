@@ -131,7 +131,7 @@ func (s *appState) handleApikeysKey(key vaxis.Key) ui.EventResult {
 				s.zeroApikeysInput()
 			})
 			return ui.EventHandled
-		case "Backspace":
+		case "Backspace", "BackSpace": // vaxis names it with a capital S; accept both
 			s.SetState(func() {
 				if n := len(s.apikeysInput); n > 0 {
 					s.apikeysInput = s.apikeysInput[:n-1]

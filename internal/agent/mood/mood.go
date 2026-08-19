@@ -431,31 +431,6 @@ func deriveState(frustration, valence, intensity, confusion, urgency, curiosity,
 	}
 }
 
-// Behavior is the recommended agent strategy for a state — the whole point of
-// reading friction: change approach before the user has to escalate further.
-func Behavior(s State) string {
-	switch s {
-	case Angry:
-		return "stop broad changes; show the current diff/status; acknowledge the correction and confirm before continuing"
-	case Frustrated:
-		return "slow down; pause speculative edits; summarize what happened and ask before the next step"
-	case Discouraged:
-		return "reduce scope; show concrete progress; propose one small next step"
-	case Confused:
-		return "explain briefly; show the plan or map before acting"
-	case Curious:
-		return "explore openly; reason through the options"
-	case Urgent:
-		return "minimize narration; act and verify quickly"
-	default:
-		return "proceed normally"
-	}
-}
-
-// Friction returns the gauge level for r's state, and Behavior the strategy.
-func (r Reading) FrictionLevel() string { return Friction(r.State) }
-func (r Reading) Behavior() string      { return Behavior(r.State) }
-
 // Tracker keeps a smoothed running friction across a session so the gauge
 // reflects the general interaction rather than one stray message, and detects
 // repeated corrections (the same complaint twice = the agent really isn't

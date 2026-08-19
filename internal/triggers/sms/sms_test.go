@@ -137,3 +137,21 @@ func TestSendChunksWithBasicAuth(t *testing.T) {
 		t.Errorf("auth = %q", auth)
 	}
 }
+
+// Twilio credentials are attached only to Twilio's own API host — never to whatever host a
+// MediaUrl happens to name.
+func TestTwilioMediaHost(t *testing.T) {
+	for raw, want := range map[string]bool{
+		"https://api.twilio.com/2010-04-01/Accounts/AC1/Messages/MM1/Media/ME1": true,
+		"https://twilio.com/x":           true,
+		"https://evil-twilio.com/x":      false,
+		"https://twilio.com.evil.net/x":  false,
+		"http://api.twilio.com/x":        false, // creds never over plaintext
+		"https://attacker.example/steal": false,
+		"::not a url":                    false,
+	} {
+		if got := twilioMediaHost(raw); got != want {
+			t.Errorf("twilioMediaHost(%q) = %v, want %v", raw, got, want)
+		}
+	}
+}

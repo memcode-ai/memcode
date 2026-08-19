@@ -2,8 +2,8 @@
 // layering invariants of the folded monorepo: the wire package is stdlib-only,
 // the side-channel client stays thin, vendor SDKs appear only inside their own
 // provider adapters, the shared kernel stays vendor-free, and the memcode
-// dialect has exactly one constructor. (The gateway's own walls live in
-// gateway/internal/guard.)
+// dialect has exactly one constructor. (The serving gateway's own walls live
+// with the gateway deployment, not in this repo.)
 package guard
 
 import (

@@ -21,6 +21,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -89,9 +90,16 @@ func Available() bool {
 	return err == nil
 }
 
+// resolveMu serializes Resolve's read→refresh→write: xAI refresh tokens are single-use and
+// rotate, so two concurrent Resolves could both spend the same refresh token and clobber the
+// rotated replacement on write. One mutex per token file (memcode owns it).
+var resolveMu sync.Mutex
+
 // Resolve returns a live access token, refreshing it first when it is close to
 // expiry. An error explains the fix (run `memcode auth use grok`).
 func Resolve() (string, error) {
+	resolveMu.Lock()
+	defer resolveMu.Unlock()
 	c, err := read()
 	if err != nil {
 		return "", err
@@ -137,7 +145,9 @@ func Login(ctx context.Context, prompt func(verificationURL, userCode string)) e
 	if c.AccessToken == "" || c.RefreshToken == "" {
 		return fmt.Errorf("the xAI login response was missing tokens — try again")
 	}
+	resolveMu.Lock()
 	write(c)
+	resolveMu.Unlock()
 	return nil
 }
 

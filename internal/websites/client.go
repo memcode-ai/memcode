@@ -23,6 +23,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/memcode-ai/memcode/internal/atomicfile"
 	"github.com/memcode-ai/memcode/internal/provider"
 )
 
@@ -243,7 +244,7 @@ func writeMeta(dir string, m Meta) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(dir, metaRelPath), append(raw, '\n'), 0o644)
+	return atomicfile.WriteFile(filepath.Join(dir, metaRelPath), append(raw, '\n'), 0o644)
 }
 
 // download streams a (signed, pre-authenticated) URL to w — no bearer header,

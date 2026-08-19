@@ -99,3 +99,35 @@ func TestCostShowsUSD(t *testing.T) {
 		t.Error("no model resolved yet must hide $ in endpoint mode")
 	}
 }
+
+// TestModelPickerRowsNonASCIIAlignment: column widths and pads must both be
+// rune-based — a byte-measured width for a non-ASCII name ("ministral-3b-instruct"
+// is fine, "übermodel-α" is not) over-padded and sheared every column to its
+// right. Lock that the description/window columns start at the same rune offset
+// on ASCII and non-ASCII rows alike.
+func TestModelPickerRowsNonASCIIAlignment(t *testing.T) {
+	entries := []modelEntry{
+		{}, // row 0: Automatic
+		{label: "plain", name: "plain-model-xxxxxxxxxxxxxx", desc: "ascii row", window: 1_000_000},
+		{label: "uni", name: "übermodel-αβγ-xxxxxxxxxxxxx", desc: "unicode row", window: 500_000},
+	}
+	rows := modelPickerRows(entries, "")
+	// Skip row 0 (Automatic); compare the two model rows.
+	descCol := func(row, desc string) int {
+		i := strings.Index(row, desc)
+		if i < 0 {
+			t.Fatalf("row %q missing desc %q", row, desc)
+		}
+		return len([]rune(row[:i]))
+	}
+	a := descCol(rows[1], "ascii row")
+	b := descCol(rows[2], "unicode row")
+	if a != b {
+		t.Fatalf("description column sheared: ascii row at rune col %d, unicode row at %d\nrows:\n%s\n%s", a, b, rows[1], rows[2])
+	}
+	winA := descCol(rows[1], "1M")
+	winB := descCol(rows[2], "500K")
+	if winA != winB {
+		t.Fatalf("window column sheared: %d vs %d\nrows:\n%s\n%s", winA, winB, rows[1], rows[2])
+	}
+}

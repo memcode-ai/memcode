@@ -119,10 +119,7 @@ func (s *appState) setPersonalityArg(arg string) {
 // applyPersonality sets + persists the chosen voice (best-effort save).
 func (s *appState) applyPersonality(key, display string) {
 	s.w.sess.SetPersonality(key)
-	if cfg, err := config.Load(s.w.sess.Root()); err == nil {
-		cfg.Personality = key
-		_ = cfg.Save()
-	}
+	s.updateConfig(func(cfg *config.Config) { cfg.Personality = key })
 	if key == "" {
 		s.sysln("personality → default (neutral voice)")
 	} else {

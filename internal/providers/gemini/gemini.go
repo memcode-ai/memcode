@@ -13,7 +13,6 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"time"
 
 	"cloud.google.com/go/auth/credentials"
 	"github.com/memcode-ai/memcode/catalog"
@@ -46,6 +45,19 @@ const EnvGeminiKey = "GEMINI_API_KEY"
 // EnvGCPSAKey names the GCP service-account JSON env var referenced in
 // credential guidance (resolution itself stays with the caller).
 const EnvGCPSAKey = "GCP_SERVICE_ACCOUNT_KEY"
+
+func init() {
+	// Teach the shared retry kernel this vendor's API error shape. genai's
+	// APIError carries the HTTP status in Code but exposes no response header,
+	// so Retry-After can't be honored here — backoff applies.
+	provcore.RegisterErrorInfo(func(err error) (int, http.Header, bool) {
+		var apiErr *genai.APIError
+		if errors.As(err, &apiErr) {
+			return apiErr.Code, nil, true
+		}
+		return 0, nil, false
+	})
+}
 
 type Gemini struct {
 	apiKey             string
@@ -244,7 +256,7 @@ func (g *Gemini) blockToPart(b wire.Block, callName map[string]string) *genai.Pa
 		var args map[string]any
 		if len(b.Input) > 0 {
 			if err := json.Unmarshal(b.Input, &args); err != nil {
-				fmt.Printf(`{"event":"tool_input_malformed","provider":"gemini","error":"%s"}`+"\n", err.Error())
+				provcore.LogToolInputMalformed("gemini", err)
 			}
 		}
 		return &genai.Part{FunctionCall: &genai.FunctionCall{
@@ -425,26 +437,12 @@ func (g *Gemini) Stream(ctx context.Context, r wire.Request, h wire.StreamHandle
 		return wire.Response{}, fmt.Errorf("gemini client: %w", err)
 	}
 
-	// Bounded retry for a transient failure BEFORE anything was forwarded to h —
-	// retrying after partial output would duplicate it for the caller (the same
-	// emitted-aware policy as the Anthropic/OpenAI stream paths; Gemini was the
-	// last serving path without one). genai errors don't match the shared
-	// withRetry's apiErrorInfo, hence the local loop.
-	for attempt := 1; ; attempt++ {
-		resp, emitted, err := g.streamOnce(ctx, cl, model, contents, cfg, r, h)
-		if err == nil || emitted {
-			return resp, err
-		}
-		var apiErr *genai.APIError
-		if !errors.As(err, &apiErr) || !provcore.IsRetryable(apiErr.Code) || attempt >= 3 {
-			return resp, err
-		}
-		select {
-		case <-ctx.Done():
-			return resp, ctx.Err()
-		case <-time.After(provcore.Backoff(attempt)):
-		}
-	}
+	// Shared emitted-aware retry (a stream can't resume mid-flight, so it only
+	// re-attempts when nothing was forwarded to h yet). genai's *APIError is
+	// recognized via the extractor registered at init.
+	return provcore.StreamWithRetry(ctx, func() (wire.Response, bool, error) {
+		return g.streamOnce(ctx, cl, model, contents, cfg, r, h)
+	})
 }
 
 // streamOnce runs a single streaming attempt. emitted reports whether any content
@@ -571,22 +569,13 @@ func geminiStopReason(s string) string {
 }
 
 // isGeminiOverflow reports whether a Gemini API error is a context-window
-// overflow (RESOURCE_EXHAUSTED or a context-length message).
+// overflow — the shared token/context phrases only. RESOURCE_EXHAUSTED is
+// deliberately NOT matched: that is Gemini's 429 rate-limit status, and
+// classifying it as overflow sent rate-limited turns into compaction instead
+// of the retry path (it now retries as a 429 via the registered extractor).
 func isGeminiOverflow(err error) bool {
-	if err == nil {
-		return false
-	}
-	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, "resource_exhausted") ||
-		strings.Contains(msg, "maximum context length") ||
-		strings.Contains(msg, "prompt is too long") ||
-		strings.Contains(msg, "exceeds the maximum") ||
-		strings.Contains(msg, "context_length_exceeded")
+	return err != nil && provcore.IsOverflowMessage(err.Error())
 }
-
-const geminiWebSearchSystem = `You are a web research assistant for a coding agent. Use Google Search to
-answer the request accurately and concisely, and cite source URLs inline. If the request is to read a
-specific URL, summarize the content relevant to the agent's task. Prefer authoritative, current sources.`
 
 // WebSearch answers a query using Gemini's GoogleSearch tool, returning the
 // synthesized text. The model runs the searches within the single turn; we
@@ -600,11 +589,11 @@ func (g *Gemini) WebSearch(ctx context.Context, query string) (string, wire.Resp
 		return "", wire.Response{}, fmt.Errorf("gemini client: %w", err)
 	}
 	cfg := &genai.GenerateContentConfig{
-		SystemInstruction: &genai.Content{Role: "user", Parts: []*genai.Part{{Text: geminiWebSearchSystem}}},
+		SystemInstruction: &genai.Content{Role: "user", Parts: []*genai.Part{{Text: provcore.WebSearchSystemPrompt}}},
 		MaxOutputTokens:   3000,
 		Tools:             []*genai.Tool{{GoogleSearch: &genai.GoogleSearch{}}},
 	}
-	resp, err := withGeminiRetry(ctx, func() (*genai.GenerateContentResponse, error) {
+	resp, err := provcore.WithRetry(ctx, func() (*genai.GenerateContentResponse, error) {
 		return cl.Models.GenerateContent(ctx, catalog.ModelGeminiFlash,
 			[]*genai.Content{{Role: "user", Parts: []*genai.Part{{Text: query}}}}, cfg)
 	})
@@ -645,7 +634,7 @@ func (g *Gemini) WebFetch(ctx context.Context, url string) (string, wire.Respons
 		Tools:           []*genai.Tool{{GoogleSearch: &genai.GoogleSearch{}}},
 	}
 	prompt := "Fetch this URL and return its full readable content verbatim as markdown, no commentary: " + url
-	resp, err := withGeminiRetry(ctx, func() (*genai.GenerateContentResponse, error) {
+	resp, err := provcore.WithRetry(ctx, func() (*genai.GenerateContentResponse, error) {
 		return cl.Models.GenerateContent(ctx, catalog.ModelGeminiFlash,
 			[]*genai.Content{{Role: "user", Parts: []*genai.Part{{Text: prompt}}}}, cfg)
 	})
@@ -653,30 +642,4 @@ func (g *Gemini) WebFetch(ctx context.Context, url string) (string, wire.Respons
 		return "", wire.Response{Model: catalog.ModelGeminiFlash, Backend: "gemini"}, err
 	}
 	return strings.TrimSpace(resp.Text()), geminiSideUsage(resp), nil
-}
-
-// withGeminiRetry is the Gemini twin of withRetry: the shared helper's
-// apiErrorInfo only recognizes Anthropic/OpenAI error types, so genai's
-// *APIError never retried — a transient 429/5xx on a Gemini call failed the
-// turn outright (the last unprotected serving path in the 07-12 audit).
-func withGeminiRetry[T any](ctx context.Context, fn func() (T, error)) (T, error) {
-	const maxAttempts = 5
-	for attempt := 1; ; attempt++ {
-		val, err := fn()
-		if err == nil {
-			return val, nil
-		}
-		var apiErr *genai.APIError
-		if !errors.As(err, &apiErr) {
-			return val, err // transport / non-API error — don't retry
-		}
-		if !provcore.IsRetryable(apiErr.Code) || attempt >= maxAttempts {
-			return val, err
-		}
-		select {
-		case <-ctx.Done():
-			return val, ctx.Err()
-		case <-time.After(provcore.Backoff(attempt)):
-		}
-	}
 }

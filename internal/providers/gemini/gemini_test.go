@@ -1,11 +1,33 @@
 package gemini
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/memcode-ai/memcode/catalog"
+	"github.com/memcode-ai/memcode/internal/providers/provcore"
 	"github.com/memcode-ai/memcode/internal/wire"
+	"google.golang.org/genai"
 )
+
+// A RESOURCE_EXHAUSTED genai error (Gemini's 429) must be recognized by the
+// shared retry kernel — via the extractor this package registers at init —
+// so rate limiting retries instead of failing the turn (or, worse, being
+// misclassified as context overflow).
+func TestGeminiResourceExhaustedRetriesAs429(t *testing.T) {
+	err := fmt.Errorf("gemini stream: %w",
+		&genai.APIError{Code: 429, Status: "RESOURCE_EXHAUSTED", Message: "quota exceeded"})
+	code, _, ok := provcore.APIErrorInfo(err)
+	if !ok || code != 429 {
+		t.Fatalf("APIErrorInfo = (%d, %v), want (429, true)", code, ok)
+	}
+	if !provcore.IsRetryable(code) {
+		t.Fatal("429 must be retryable")
+	}
+	if isGeminiOverflow(err) {
+		t.Fatal("RESOURCE_EXHAUSTED must not classify as context overflow")
+	}
+}
 
 // TestGeminiModelReturnsFlash locks that Model() returns the balanced-tier id.
 func TestGeminiModelReturnsFlash(t *testing.T) {
@@ -179,14 +201,18 @@ func TestGeminiBuildToolsNilWhenEmpty(t *testing.T) {
 }
 
 // TestGeminiOverflowClassification locks the context-overflow classifier.
+// RESOURCE_EXHAUSTED is Gemini's 429 rate-limit status, NOT overflow — the
+// old classifier sent rate-limited turns into compaction instead of retry.
 func TestGeminiOverflowClassification(t *testing.T) {
 	cases := []struct {
 		err  string
 		want bool
 	}{
-		{"resource_exhausted: too many tokens", true},
+		{"googleapi: Error 429: RESOURCE_EXHAUSTED: quota exceeded", false},
+		{"resource_exhausted: rate limit", false},
 		{"prompt is too long: 2000000 tokens > 1000000 maximum", true},
 		{"maximum context length exceeded", true},
+		{"input token count exceeds the maximum allowed", true},
 		{"some other error", false},
 		{"", false},
 	}

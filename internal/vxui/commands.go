@@ -60,6 +60,8 @@ func (s *appState) runSlash(line string) (quit bool) {
 		s.apikeysSlash()
 	case "/websites":
 		s.websitesSlash()
+	case "/artifacts":
+		s.artifactsSlash()
 	case "/theme":
 		if args != "" {
 			if theme.Set(args) {

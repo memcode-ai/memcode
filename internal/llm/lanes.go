@@ -1,6 +1,8 @@
 package llm
 
 import (
+	"strings"
+
 	"github.com/memcode-ai/memcode/catalog"
 	"github.com/memcode-ai/memcode/internal/provider"
 	"github.com/memcode-ai/memcode/internal/wire"
@@ -110,15 +112,30 @@ func fundedVendor(v string, keyed map[string]bool, info provider.ModelsInfo) boo
 	return keyed[v] || info.SubVendors[v]
 }
 
-// scrubForeignThinking drops thinking/redacted_thinking blocks when the
-// serving label is NOT an Anthropic model: thinking input is an
-// Anthropic-only wire concept, and per-turn family switching (a lane turn
-// after a gateway Claude turn, a mid-call fallback hop) can otherwise replay
-// an Anthropic thinking block into an OpenAI/Fireworks/xAI request — a hard
-// 400. Copy-on-write: shared history slices are never mutated.
+// scrubForeignThinking drops thinking/redacted_thinking blocks FOREIGN to the
+// serving vendor: per-turn family switching (a lane turn after a gateway
+// Claude turn, a mid-call fallback hop) can otherwise replay one vendor's
+// reasoning into another vendor's request — a hard 400. Per-block and
+// ID-aware, matching the adapters' own wire hygiene: OpenAI reasoning items
+// carry "rs_" ids and survive an openai serve; Anthropic thinking blocks
+// (no "rs_" prefix) survive an anthropic serve; every other vendor has no
+// reasoning round-trip, so all thinking is dropped there. Copy-on-write:
+// shared history slices are never mutated.
 func scrubForeignThinking(req *wire.Request, servingLabel string) {
-	if catalog.ModelVendor(servingLabel) == "anthropic" {
-		return
+	vendor := catalog.ModelVendor(servingLabel)
+	drop := func(b wire.Block) bool {
+		if b.Type != "thinking" && b.Type != "redacted_thinking" {
+			return false
+		}
+		openaiNative := strings.HasPrefix(b.ID, "rs_")
+		switch vendor {
+		case "anthropic":
+			return openaiNative
+		case "openai":
+			return !openaiNative
+		default:
+			return true
+		}
 	}
 	for i := range req.Messages {
 		m := &req.Messages[i]
@@ -127,7 +144,7 @@ func scrubForeignThinking(req *wire.Request, servingLabel string) {
 		}
 		dirty := false
 		for _, b := range m.Blocks {
-			if b.Type == "thinking" || b.Type == "redacted_thinking" {
+			if drop(b) {
 				dirty = true
 				break
 			}
@@ -137,7 +154,7 @@ func scrubForeignThinking(req *wire.Request, servingLabel string) {
 		}
 		kept := make([]wire.Block, 0, len(m.Blocks))
 		for _, b := range m.Blocks {
-			if b.Type == "thinking" || b.Type == "redacted_thinking" {
+			if drop(b) {
 				continue
 			}
 			kept = append(kept, b)

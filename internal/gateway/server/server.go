@@ -124,6 +124,22 @@ func Run(ctx context.Context, root string, mainStore store.Store, settings gwcon
 	}
 	pruneSpool(mediaDir, time.Now().Add(-30*24*time.Hour)) // same retention as the inbox
 
+	// A long-lived gateway must keep pruning, not just at startup: re-run the same retention
+	// sweep daily until ctx is cancelled.
+	go func() {
+		tick := time.NewTicker(24 * time.Hour)
+		defer tick.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-tick.C:
+				_ = gw.PruneDone(ctx, time.Now().Add(-30*24*time.Hour))
+				pruneSpool(mediaDir, time.Now().Add(-30*24*time.Hour))
+			}
+		}
+	}()
+
 	rt := &runtime{
 		root:      root,
 		gw:        gw,
@@ -138,9 +154,19 @@ func Run(ctx context.Context, root string, mainStore store.Store, settings gwcon
 		notify:    make(chan struct{}, 1),
 	}
 
+	// Register EVERY sender in byName before any goroutine that reads it exists: the channel
+	// goroutines (and webhook handlers) call Deliver, which reads byName unlocked — so the map
+	// must be fully built (channels here, webhook surfaces inside startWebhooks) before the
+	// first channel goroutine starts.
 	chs := channelsFrom(settings, gw, mediaDir, out)
 	for _, ch := range chs {
 		rt.byName[ch.Name()] = ch
+	}
+	webhooks := startWebhooks(ctx, settings, rt, out)
+	if len(chs) == 0 && !webhooks {
+		return fmt.Errorf("no channels configured — run `memcode gateway setup` to add one")
+	}
+	for _, ch := range chs {
 		ch := ch
 		go func() {
 			if err := ch.Start(ctx, rt); err != nil && ctx.Err() == nil {
@@ -148,11 +174,6 @@ func Run(ctx context.Context, root string, mainStore store.Store, settings gwcon
 			}
 		}()
 		fmt.Fprintf(out, "gateway: %s listening\n", ch.Name())
-	}
-
-	webhooks := startWebhooks(ctx, settings, rt, out)
-	if len(chs) == 0 && !webhooks {
-		return fmt.Errorf("no channels configured — run `memcode gateway setup` to add one")
 	}
 
 	rt.applySchedules(ctx) // time-triggered tasks feed the same inbox
@@ -844,7 +865,7 @@ func startWebhooks(ctx context.Context, settings gwconfig.Settings, rt *runtime,
 func parseRoute(replyTo string) (channel, conversation string, ok bool) {
 	channel, conversation, ok = strings.Cut(strings.TrimSpace(replyTo), ":")
 	channel, conversation = strings.TrimSpace(channel), strings.TrimSpace(conversation)
-	if channel == "" || conversation == "" {
+	if !ok || channel == "" || conversation == "" {
 		return "", "", false
 	}
 	return channel, conversation, true

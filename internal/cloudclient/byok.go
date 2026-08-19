@@ -2,8 +2,9 @@ package cloudclient
 
 // BYOK key management — the /v1/byok surface. Plain JSON calls (not
 // turn-shaped): list is read-only metadata, put/delete/validate are explicit
-// user actions from /apikeys, so there is no retry machinery here — an error
-// surfaces immediately and the user re-runs the action.
+// user actions from /apikeys. Every call rides requestWithRetry like the other
+// side-channels (a Cloud Run cold-start 5xx/429 retries transparently); any
+// remaining error surfaces immediately and the user re-runs the action.
 //
 // Hygiene: ByokPut is the ONLY method that carries key material, request-side
 // only over TLS; no response ever returns a key.

@@ -59,6 +59,7 @@ import (
 	"github.com/memcode-ai/memcode/internal/agent/tools"
 	"github.com/memcode-ai/memcode/internal/atomicfile"
 	"github.com/memcode-ai/memcode/internal/sandbox"
+	"github.com/memcode-ai/memcode/internal/textutil"
 )
 
 const (
@@ -325,8 +326,16 @@ func (s *Session) serveBridge(ctx context.Context, req *os.File, resp *os.File, 
 			Args json.RawMessage `json:"args"`
 		}
 		if err := json.Unmarshal(sc.Bytes(), &r); err != nil {
-			reply(0, "", "bad bridge request: "+err.Error())
-			continue
+			// A malformed request line carries no id the Python side could match a
+			// reply to — an id-0 reply just parked the error in _replies while the
+			// script waited forever on its own id (until the 15m total limit).
+			// Close the response pipe instead: the prelude's readline sees EOF and
+			// raises "memcode bridge closed", failing the run loudly and promptly.
+			s.printf("⚠ mcp_code_exec bridge: malformed request (%v) — closing the bridge\n", err)
+			mu.Lock()
+			resp.Close()
+			mu.Unlock()
+			break
 		}
 		mu.Lock()
 		res.calls++
@@ -398,8 +407,8 @@ func (s *Session) bridgeMCPCall(ctx context.Context, id int, name string, args j
 	}
 	tr := s.invokeMCP(ctx, mcpOriginBridge, name, args, grants)
 	text := tr.text()
-	if len(text) > maxBridgeReply {
-		text = text[:maxBridgeReply] + fmt.Sprintf("\n…(truncated, %d bytes total)", len(text))
+	if n := len(text); n > maxBridgeReply {
+		text = textutil.ClipBytes(text, maxBridgeReply) + fmt.Sprintf("\n…(truncated, %d bytes total)", n)
 	}
 	outcome := "ok"
 	if tr.isError {

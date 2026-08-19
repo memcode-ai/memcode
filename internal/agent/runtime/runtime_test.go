@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"io"
@@ -38,7 +39,7 @@ func TestReadFileReachesOutsideRepo(t *testing.T) {
 	}
 	s := &Session{root: repo, out: io.Discard}
 	in, _ := json.Marshal(map[string]string{"path": external})
-	tr := s.readFile(in)
+	tr := s.readFile(context.Background(), in)
 	if tr.isError {
 		t.Fatalf("read_file should read an out-of-repo absolute path, got error: %s", tr.blocks[0].Text)
 	}
@@ -62,7 +63,7 @@ func TestReadFileRange(t *testing.T) {
 	s := &Session{root: repo, out: io.Discard}
 
 	in, _ := json.Marshal(map[string]any{"path": "f.txt", "start_line": 2, "end_line": 4})
-	tr := s.readFile(in)
+	tr := s.readFile(context.Background(), in)
 	if tr.isError {
 		t.Fatalf("range read errored: %+v", tr.blocks)
 	}
@@ -74,7 +75,7 @@ func TestReadFileRange(t *testing.T) {
 	// guard sees the same content identity either way.
 	s2 := &Session{root: repo, out: io.Discard}
 	inFull, _ := json.Marshal(map[string]string{"path": "f.txt"})
-	s2.readFile(inFull)
+	s2.readFile(context.Background(), inFull)
 	full, ok1 := s2.readHash("f.txt")
 	rangeHash, ok2 := s.readHash("f.txt")
 	if !ok1 || !ok2 || full != rangeHash {
@@ -83,11 +84,11 @@ func TestReadFileRange(t *testing.T) {
 
 	// Open-ended range clamps to EOF; a range past EOF errors.
 	in2, _ := json.Marshal(map[string]any{"path": "f.txt", "start_line": 4})
-	if got := s.readFile(in2).blocks[0].Text; got != "[lines 4-5 of 5 — f.txt]\nl4\nl5\n" {
+	if got := s.readFile(context.Background(), in2).blocks[0].Text; got != "[lines 4-5 of 5 — f.txt]\nl4\nl5\n" {
 		t.Fatalf("open-ended range = %q", got)
 	}
 	in3, _ := json.Marshal(map[string]any{"path": "f.txt", "start_line": 99})
-	if tr := s.readFile(in3); !tr.isError {
+	if tr := s.readFile(context.Background(), in3); !tr.isError {
 		t.Fatal("start_line past EOF should error")
 	}
 }
@@ -138,7 +139,7 @@ func TestReadFilePDFBecomesDocumentBlock(t *testing.T) {
 	}
 	s := &Session{root: repo, out: io.Discard}
 	in, _ := json.Marshal(map[string]string{"path": "deck.pdf"})
-	tr := s.readFile(in)
+	tr := s.readFile(context.Background(), in)
 	if tr.isError {
 		t.Fatalf("pdf read errored: %+v", tr.blocks)
 	}

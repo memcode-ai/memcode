@@ -40,6 +40,7 @@ var slashCommands = []slashCmd{
 	{"/model", "pick a model: Automatic, or pin one for everything", false},
 	{"/apikeys", "bring your own provider API keys", false},
 	{"/websites", "your AI-built websites (pull with `memcode websites`)", false},
+	{"/artifacts", "your published artifact pages", false},
 	{"/cost", "session spend", true},
 	{"/costp", "spend by purpose", true},
 	{"/costby", "spend by purpose", true},

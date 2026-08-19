@@ -2,6 +2,7 @@ package mood
 
 import (
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -21,6 +22,7 @@ type Cadence struct {
 
 // CadenceTracker derives per-turn timing features from message arrival times.
 type CadenceTracker struct {
+	mu   sync.Mutex // the engine goroutine and the TUI both touch the tracker (same posture as Tracker)
 	last time.Time
 	now  func() time.Time
 }
@@ -39,6 +41,8 @@ const (
 // the turn is a correction/negation (from routing or friction), so a quick
 // follow-up is flagged as a rapid correction (a strong "we're off track" cue).
 func (c *CadenceTracker) Observe(text string, corrective bool) Cadence {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	t := c.now()
 	cad := Cadence{Chars: len(text), Words: len(strings.Fields(text))}
 	if !c.last.IsZero() {

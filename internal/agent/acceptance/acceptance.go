@@ -19,6 +19,7 @@ import (
 	"strings"
 
 	"github.com/memcode-ai/memcode/internal/agent/edit"
+	"github.com/memcode-ai/memcode/internal/agent/gitporcelain"
 	"github.com/memcode-ai/memcode/internal/events"
 	"github.com/memcode-ai/memcode/internal/store"
 )
@@ -198,7 +199,8 @@ func dirtySet(ctx context.Context, root string) map[string]bool {
 		if i := strings.Index(p, " -> "); i >= 0 {
 			p = p[i+4:]
 		}
-		set[p] = true
+		// core.quotePath=true C-quotes non-ASCII paths ("caf\303\251.txt").
+		set[gitporcelain.Unquote(p)] = true
 	}
 	return set
 }

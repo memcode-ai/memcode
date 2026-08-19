@@ -15,13 +15,12 @@ import "time"
 type TxState string
 
 const (
-	TxQueued           TxState = "queued"            // accepted while another was active; inert (no ChatState yet)
-	TxRunning          TxState = "running"           // the active transaction; the only writer of ChatState
-	TxAwaitingApproval TxState = "awaiting_approval" // paused on an approval/ask card mid-run
-	TxCancelling       TxState = "cancelling"        // Esc/Ctrl-C requested; unwinding
-	TxCompleted        TxState = "completed"         // finished normally (terminal)
-	TxFailed           TxState = "failed"            // errored (terminal)
-	TxCancelled        TxState = "cancelled"         // aborted before completion (terminal)
+	TxQueued     TxState = "queued"     // accepted while another was active; inert (no ChatState yet)
+	TxRunning    TxState = "running"    // the active transaction; the only writer of ChatState
+	TxCancelling TxState = "cancelling" // Esc/Ctrl-C requested; unwinding
+	TxCompleted  TxState = "completed"  // finished normally (terminal)
+	TxFailed     TxState = "failed"     // errored (terminal)
+	TxCancelled  TxState = "cancelled"  // aborted before completion (terminal)
 )
 
 // terminal reports whether a state is post-execution (no further work).

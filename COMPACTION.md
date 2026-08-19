@@ -8,17 +8,18 @@ summarized by Anthropic into a warm block and only the last ~8 turns stay raw.
 
 ## Where it lives (built)
 
-- `cli/internal/agent/compaction/` — PURE core: `EstimateTokens`, `Plan`
+- `internal/agent/compaction/` — PURE core: `EstimateTokens`, `Plan`
   (safe-boundary split — never divides a tool_use/tool_result pair), `Render`
   (transcript with aggressive tool-output clipping), `CountTurns`. Fully tested
   (`compaction_test.go`): facts-survive, adjacency-never-broken, boundary-only.
-- `cli/internal/agent/runtime/compact.go` — orchestration: `compactBudget`,
+- `internal/agent/runtime/compact.go` — orchestration: `compactBudget`,
   `compactIfNeeded` (auto, fired from `Submit` before the turn is assembled),
   `Compact` (manual /compact), the Anthropic-forced summarizer call, the
   synthetic summary turn, telemetry + episodic-log write.
-- Gateway: `compact` mode + `compactDoctrine` in `api/internal/server/prompts.go`
-  (the compactor prompt is server-owned, like every other mode).
-- TUI: `/compact` slash command (+ `compactSentinel` in `tui.go`).
+- `compact` mode + `compactDoctrine` in `internal/doctrine/prompts.go` (the
+  compactor prompt is composed client-side by the doctrine composer, like every
+  other mode).
+- TUI: `/compact` slash command (`internal/vxui`).
 - `events.KindContextCompacted`, `sessionlog.KindCompaction`.
 
 ## Cold-layer recall (the post-compaction "where did that go?" question)

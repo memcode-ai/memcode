@@ -100,7 +100,9 @@ func TestConversationSessionStable(t *testing.T) {
 	if a == conversationSession("telegram", "42", "coder") {
 		t.Error("an agent must get its own session, not the default agent's transcript")
 	}
-	if conversationSession("telegram", "42", "coder") != conversationSession("telegram", "42", "coder") {
+	first := conversationSession("telegram", "42", "coder")
+	second := conversationSession("telegram", "42", "coder")
+	if first != second {
 		t.Error("an agent's session id must be deterministic")
 	}
 	if len(a) < 6 || a[:5] != "sess_" {

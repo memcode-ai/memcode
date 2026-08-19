@@ -40,7 +40,8 @@ func New(token, mediaDir string) (*Channel, error) {
 		return nil, err
 	}
 	s.Identify.Intents = discordgo.IntentsGuildMessages | discordgo.IntentsDirectMessages | discordgo.IntentMessageContent
-	return &Channel{session: s, mediaDir: mediaDir, dl: &http.Client{Timeout: 30 * time.Second}}, nil
+	// Attachment URLs come from inbound messages — download through the shared SSRF guard.
+	return &Channel{session: s, mediaDir: mediaDir, dl: channels.SafeHTTPClient(30 * time.Second)}, nil
 }
 
 // Name returns the adapter identifier.

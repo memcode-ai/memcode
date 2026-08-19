@@ -10,6 +10,7 @@ import (
 
 	"github.com/memcode-ai/memcode/internal/sessionlog"
 	"github.com/memcode-ai/memcode/internal/store"
+	"github.com/memcode-ai/memcode/internal/textutil"
 )
 
 var sessionCmd = &cobra.Command{
@@ -224,29 +225,11 @@ func shortSHA(sha string) string {
 }
 
 func indent(s, pad string) string {
-	out := ""
-	for i, line := range splitLines(s) {
-		if i > 0 {
-			out += "\n"
-		}
-		out += pad + line
+	lines := strings.Split(s, "\n")
+	for i, line := range lines {
+		lines[i] = pad + line
 	}
-	return out
-}
-
-func splitLines(s string) []string {
-	var lines []string
-	cur := ""
-	for _, r := range s {
-		if r == '\n' {
-			lines = append(lines, cur)
-			cur = ""
-			continue
-		}
-		cur += string(r)
-	}
-	lines = append(lines, cur)
-	return lines
+	return strings.Join(lines, "\n")
 }
 
 // --- episodic log (.memcode/sessions/<id>/) subcommands ---
@@ -380,10 +363,7 @@ func clipCLI(s string, max int) string {
 	if i := strings.IndexByte(s, '\n'); i >= 0 {
 		s = s[:i] + " …"
 	}
-	if len(s) > max {
-		s = s[:max] + "…"
-	}
-	return s
+	return textutil.ClipRunesEllipsis(s, max) // rune-safe: never splits UTF-8
 }
 
 func init() {

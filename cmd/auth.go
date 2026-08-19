@@ -153,37 +153,5 @@ func sourceAvailable(src string) bool {
 // first-run framing) and runs the selected action.
 func runAuthPicker(ctx context.Context) error {
 	fmt.Print("\n  How should memcode sign in?\n\n")
-
-	var opts []wizardOption
-	add := func(label string, action func(context.Context) error) {
-		opts = append(opts, wizardOption{label, action})
-	}
-	if claudesub.Available() {
-		add("Use your Claude (Pro/Max) subscription", func(context.Context) error { return selectSource("claude") })
-	}
-	if codex.Available() {
-		add("Use your ChatGPT (Codex) subscription", func(context.Context) error { return selectSource("codex") })
-	}
-	if copilot.Available() {
-		add("Use your GitHub Copilot subscription", func(context.Context) error { return selectSource("copilot") })
-	}
-	if grok.Available() {
-		add("Use your SuperGrok / X Premium+ subscription (Grok)", func(context.Context) error { return selectSource("grok") })
-	} else {
-		add("Sign in with a SuperGrok / X Premium+ subscription (Grok)", useGrok)
-	}
-	add("Sign in to memcode (hosted, metered)", func(context.Context) error { return runLogin() })
-	add("Use your own API key (Anthropic or OpenAI)", func(context.Context) error { return promptOwnKey() })
-	add("Point at a custom endpoint (Ollama, vLLM, a provider URL)", func(context.Context) error { return promptEndpoint() })
-
-	for i, o := range opts {
-		fmt.Printf("  %d. %s\n", i+1, o.label)
-	}
-	fmt.Print("\n  Choice [1]: ")
-
-	idx := 0
-	if n := parseChoice(readLine(), len(opts)); n >= 0 {
-		idx = n
-	}
-	return opts[idx].action(ctx)
+	return pickOption(signInOptions(false)).action(ctx)
 }

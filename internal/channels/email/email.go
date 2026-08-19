@@ -15,12 +15,12 @@
 // robust against malformed or duplicated Message-IDs (which serve threading,
 // not dedup).
 //
-// IDENTITY CAVEAT: the principal is the RFC From address — weaker than the
-// other channels' platform-authenticated ids, since From can be spoofed by
-// mail that evades the provider's SPF/DKIM/DMARC filtering. The mailbox
-// provider's authentication is the real gate (a mainstream provider rejects or
-// junks spoofed mail before we poll it). Enforcing
-// Authentication-Results=pass explicitly is a tracked follow-up.
+// IDENTITY: the principal is the RFC From address, which on its own is spoofable — so before
+// a sender can match the allow-list, the mailbox provider's own verdict must vouch for it:
+// the TOPMOST Authentication-Results header (the one the provider prepends on receipt, RFC
+// 8601) must carry an SPF or DKIM pass aligned with the From domain (see authres.go). The
+// gate FAILS CLOSED: mail without that verdict is logged and skipped durably, never run. A
+// provider that adds no Authentication-Results header cannot authorize anyone on this channel.
 package email
 
 import (
@@ -28,6 +28,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"sync"
 	"time"
@@ -193,6 +194,15 @@ func (c *Channel) pollOnce(ctx context.Context, sink channels.Sink) error {
 		if !ok || shouldIgnore(msg, c.address) {
 			// Not actionable mail (bounce, auto-reply, self, unparseable) —
 			// advance past it and move on.
+			if err := c.saveCursor(ctx, uidValidity, uid); err != nil {
+				return err
+			}
+			continue
+		}
+		if !senderAuthenticated(msg) {
+			// FAIL CLOSED: without the provider's SPF/DKIM verdict the From address
+			// could be anyone — refuse the message durably (see authres.go).
+			log.Printf("email: refusing message from %q (uid %d): the provider's Authentication-Results does not show an SPF/DKIM pass aligned with the From domain", msg.from, uid)
 			if err := c.saveCursor(ctx, uidValidity, uid); err != nil {
 				return err
 			}

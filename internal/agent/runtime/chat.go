@@ -63,7 +63,9 @@ func (s *Session) StartChat(ctx context.Context) *ChatState {
 	// finishing after teardown would still write into the workspace.
 	s.bgCtx, s.bgCancel = context.WithCancel(ctx)
 	s.approvals = s.loadApprovals(ctx)
+	s.todosMu.Lock()
 	s.todos = nil // fresh session → fresh scratchpad
+	s.todosMu.Unlock()
 	head := gitHead(ctx, s.root)
 	s.headSHA = head // provenance stamp for every signal this session emits
 	s.emit(ctx, events.KindAgentSessionStarted, map[string]any{
@@ -381,11 +383,15 @@ func (s *Session) runTurn(ctx context.Context, st *ChatState, b input.Bundle) {
 	// linger (the live panel clears via the observer). A list with ANY pending item is left
 	// intact (the task is still in flight). New-chapter commands (/plan, /yolo, /clear) clear
 	// it up front separately (EnterPlan / clearSession).
+	s.todosMu.Lock()
 	if len(s.todos) > 0 && pendingTodos(s.todos) == 0 {
 		s.todos = nil
+		s.todosMu.Unlock()
 		if s.observer != nil {
 			s.observer.Todos(nil)
 		}
+	} else {
+		s.todosMu.Unlock()
 	}
 	// Review any project-scoped MCP servers held back at connect time: prompt to approve, then
 	// connect the approved ones for the rest of the session. Runs at most once (clears pending).

@@ -16,7 +16,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"math/rand/v2"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -120,27 +120,31 @@ type envelope struct {
 // like Discord's websocket: the daemon has no per-message replay, so a failed
 // durable record can't be re-driven from the provider side.
 func (c *Channel) Start(ctx context.Context, sink channels.Sink) error {
-	backoff := time.Second
+	backoff := channels.NewBackoff(time.Second, maxBackoff)
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		err := c.stream(ctx, sink)
+		err := c.stream(ctx, sink, backoff)
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		_ = err
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(jitter(backoff)):
+		if err != nil {
+			// Never swallow the stream failure: a misconfigured or down daemon must be
+			// visible in the gateway log, not an invisible forever-retry.
+			log.Printf("signal: event stream error: %v (reconnecting)", err)
 		}
-		backoff = min(backoff*2, maxBackoff)
+		if err := backoff.Sleep(ctx); err != nil {
+			return err
+		}
 	}
 }
 
-// stream opens one SSE connection and processes events until it breaks.
-func (c *Channel) stream(ctx context.Context, sink channels.Sink) error {
+// stream opens one SSE connection and processes events until it breaks. backoff is reset once
+// the stream proves healthy (an event actually arrives) — never on a mere successful dial — so
+// a long-lived healthy stream that later drops reconnects promptly instead of inheriting a
+// maxed-out ladder from its first bad night.
+func (c *Channel) stream(ctx context.Context, sink channels.Sink, backoff *channels.Backoff) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/api/v1/events", nil)
 	if err != nil {
 		return err
@@ -163,6 +167,7 @@ func (c *Channel) stream(ctx context.Context, sink channels.Sink) error {
 		case strings.HasPrefix(line, "data:"):
 			data.WriteString(strings.TrimPrefix(strings.TrimPrefix(line, "data:"), " "))
 		case line == "" && data.Len() > 0:
+			backoff.Reset() // the stream is live — reset the reconnect ladder
 			c.handleEvent(ctx, sink, data.Bytes())
 			data.Reset()
 		}
@@ -349,9 +354,4 @@ func (c *Channel) rpc(ctx context.Context, method string, params map[string]any)
 		return fmt.Errorf("signal %s: %s", method, out.Error.Message)
 	}
 	return nil
-}
-
-// jitter scales d by [0.75, 1.25) so reconnects don't resonate.
-func jitter(d time.Duration) time.Duration {
-	return time.Duration(float64(d) * (0.75 + rand.Float64()*0.5))
 }

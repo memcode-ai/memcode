@@ -62,8 +62,42 @@ func TestResolveAndExpand(t *testing.T) {
 	if sb.Config.URL != "https://mcp.supabase.com/mcp" {
 		t.Errorf("url = %q", sb.Config.URL)
 	}
-	if sb.Config.Headers["Authorization"] != "Bearer tok123" {
-		t.Errorf("header not expanded: %q", sb.Config.Headers["Authorization"])
+	// Resolve returns the RAW entry — secrets stay ${VAR} references until connect time,
+	// so approvals hash the committed config, never a resolved secret.
+	if sb.Config.Headers["Authorization"] != "Bearer ${MCP_TEST_TOK}" {
+		t.Errorf("Resolve must stay raw: %q", sb.Config.Headers["Authorization"])
+	}
+	if got := ExpandServer(sb.Config).Headers["Authorization"]; got != "Bearer tok123" {
+		t.Errorf("header not expanded at connect time: %q", got)
+	}
+}
+
+// TestConfigHashIgnoresEnv pins the ConfigHash contract: approvals key to the RAW config, so
+// an environment change never invalidates them, while a raw-config edit always does.
+func TestConfigHashIgnoresEnv(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("MCP_TEST_TOK", "a")
+	root := t.TempDir()
+	cfg := `{"mcpServers":{"x":{"type":"http","url":"https://x/mcp","headers":{"Authorization":"Bearer ${MCP_TEST_TOK}"}}}}`
+	if err := os.WriteFile(filepath.Join(root, ".mcp.json"), []byte(cfg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sc := Resolve(root)[0].Config
+	if err := SaveApproval(root, "x", sc, Approved); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("MCP_TEST_TOK", "b") // env change must not touch the approval
+	sc2 := Resolve(root)[0].Config
+	if LoadApprovals(root).Status("x", sc2) != Approved {
+		t.Error("env change must not invalidate an approval")
+	}
+	// A raw-config edit does invalidate.
+	edited := `{"mcpServers":{"x":{"type":"http","url":"https://x/mcp/v2","headers":{"Authorization":"Bearer ${MCP_TEST_TOK}"}}}}`
+	if err := os.WriteFile(filepath.Join(root, ".mcp.json"), []byte(edited), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if LoadApprovals(root).Status("x", Resolve(root)[0].Config) != "" {
+		t.Error("raw config edit must reset the approval to pending")
 	}
 }
 
@@ -104,6 +138,7 @@ func TestAddRemoveAndPrecedence(t *testing.T) {
 }
 
 func TestApprovals(t *testing.T) {
+	t.Setenv("HOME", t.TempDir()) // approvals live in the user-level store
 	root := t.TempDir()
 	sc := ServerConfig{Type: "http", URL: "https://x/mcp"}
 	a := LoadApprovals(root)
@@ -131,6 +166,7 @@ func TestApprovals(t *testing.T) {
 }
 
 func TestCallGrants(t *testing.T) {
+	t.Setenv("HOME", t.TempDir()) // approvals live in the user-level store
 	root := t.TempDir()
 	sc := ServerConfig{Type: "http", URL: "https://x/mcp"}
 	if LoadApprovals(root).CallAllowed("x", sc, "get_issue") {

@@ -11,7 +11,7 @@ import (
 // replies — so there is no shared mutable state to race (the design constraint).
 //
 // Drivers:
-//   - intake (TUI Update goroutine): Accept / Cancel / Snapshot / ClearQueue — fast,
+//   - intake (TUI Update goroutine): Accept / Cancel / Snapshot — fast,
 //     synchronous round-trips; they never block on execution.
 //   - executor (TUI engine goroutine): on a "run" kick, TakeActive() → RunTransaction →
 //     Finish; DrainSteers mid-run at the runLoop safe boundary. TakeActive is
@@ -43,7 +43,6 @@ const (
 	cmdFinish
 	cmdDrain
 	cmdSnapshot
-	cmdClear
 	cmdPending
 	cmdFold
 	cmdNoteSeparate
@@ -55,7 +54,6 @@ type schedCmd struct {
 	line        string
 	gate        GateInput
 	ids         []string
-	texts       []string
 	sep         []separateAsk
 	activeTitle string
 	result      TransactionResult
@@ -69,7 +67,6 @@ type schedReply struct {
 	ok          bool
 	steers      []string
 	snap        []string
-	n           int
 	activeID    string
 	active      string
 	activeTitle string
@@ -165,9 +162,6 @@ func (s *Scheduler) run(parent context.Context) {
 				c.reply <- schedReply{active: st.activeText(), activeTitle: title, separate: items}
 			case cmdSnapshot:
 				c.reply <- schedReply{snap: st.snapshot()}
-			case cmdClear:
-				c.reply <- schedReply{n: st.clear()}
-				notify()
 			}
 		}
 	}
@@ -265,7 +259,3 @@ func (s *Scheduler) DrainSeparate() (activeText, activeTitle string, items []sep
 
 // Snapshot returns the queued transactions' texts (for a quiet UI indicator).
 func (s *Scheduler) Snapshot() []string { return s.send(schedCmd{kind: cmdSnapshot}).snap }
-
-// ClearQueue drops all queued transactions (runtime-managed; reserved for an internal
-// affordance, not a Phase-1 user command). Returns the count dropped.
-func (s *Scheduler) ClearQueue() int { return s.send(schedCmd{kind: cmdClear}).n }

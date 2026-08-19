@@ -58,6 +58,25 @@ func TestExchangeAndCache(t *testing.T) {
 	}
 }
 
+// The env ladder honors explicit intent: a ladder var that is SET but empty/blank must stop
+// resolution (no silent fallback to `gh auth token`), and a later ladder var can still win
+// when an earlier one is merely unset.
+func TestEnvLadderSetButEmptyStops(t *testing.T) {
+	for _, v := range copilotEnvVars {
+		t.Setenv(v, "")
+	}
+	t.Setenv("GH_TOKEN", "   ") // set but blank
+	if _, err := rawGitHubToken(context.Background()); err == nil {
+		t.Fatal("a set-but-empty ladder var must not fall back to gh")
+	}
+	// A usable token later in the ladder still wins over an earlier empty one.
+	t.Setenv("GITHUB_TOKEN", "gho_valid")
+	tok, err := rawGitHubToken(context.Background())
+	if err != nil || tok != "gho_valid" {
+		t.Fatalf("ladder should find the usable var: %q, %v", tok, err)
+	}
+}
+
 // Resolve wires discovery → exchange → the identity headers the Copilot API
 // requires; the integration id is the load-bearing one.
 func TestResolveHeaders(t *testing.T) {

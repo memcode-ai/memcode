@@ -50,35 +50,9 @@ func (ProductAdapter) Rank(root string, q Question, _ []SessionDoc, k int) ([]st
 	return out, nil
 }
 
-// LegacyAdapter reimplements the pre-2026-07-25 sessionlog.Search verbatim
-// (case-insensitive contiguous substring, newest first, no ranking) so the
-// audit's "before" number stays reproducible after the product moved on.
-type LegacyAdapter struct{}
-
-func (LegacyAdapter) Name() string { return "legacy" }
-
-func (LegacyAdapter) Rank(root string, q Question, docs []SessionDoc, k int) ([]string, error) {
-	needle := strings.ToLower(strings.TrimSpace(q.Text))
-	var out []string
-	// Newest session first, mirroring the old scan's file ordering.
-	for i := len(docs) - 1; i >= 0; i-- {
-		recs, err := sessionlog.Recent(root, docs[i].ID, 0)
-		if err != nil {
-			continue
-		}
-		for j := len(recs) - 1; j >= 0; j-- {
-			r := recs[j]
-			hay := strings.ToLower(r.Text + "\x00" + r.Content + "\x00" + r.Input + "\x00" + r.Tool)
-			if strings.Contains(hay, needle) && r.Slug != "" {
-				out = append(out, r.Slug)
-				if k > 0 && len(out) >= k {
-					return out, nil
-				}
-			}
-		}
-	}
-	return out, nil
-}
+// LegacyAdapter (the pre-2026-07-25 substring scan) lives in legacy.go behind
+// the `membench` build tag — bench-only history that must not compile into a
+// release binary; legacy_stub.go keeps the type present without the tag.
 
 // ─── bm25: lexical ranking over the ingested turns ──────────────────────────
 

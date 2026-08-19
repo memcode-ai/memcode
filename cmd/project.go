@@ -1,8 +1,6 @@
 package cmd
 
 import (
-	"fmt"
-	"path/filepath"
 	"sort"
 
 	"github.com/spf13/cobra"
@@ -24,24 +22,13 @@ var projectAddCmd = &cobra.Command{
 	Short: "Register a project directory the gateway may execute against",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		root, err := gwconfig.CanonicalRoot(args[0])
-		if err != nil {
-			return err
-		}
 		settings, err := gwconfig.Load()
 		if err != nil {
 			return err
 		}
-		if settings.Projects == nil {
-			settings.Projects = map[string]gwconfig.Project{}
-		}
-		id := filepath.Base(root)
-		if existing, ok := settings.Projects[id]; ok && existing.Path != root {
-			return fmt.Errorf("a different project is already registered as %q (%s); rename the directory or edit gateway.yaml", id, existing.Path)
-		}
-		settings.Projects[id] = gwconfig.Project{Path: root, Enabled: true}
-		if settings.DefaultProject == "" {
-			settings.DefaultProject = id // first registered project becomes the gateway default
+		id, root, err := settings.RegisterProject("", args[0])
+		if err != nil {
+			return err
 		}
 		if err := gwconfig.Save(settings); err != nil {
 			return err

@@ -23,8 +23,14 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
+
+// resolveMu serializes Resolve's read→refresh→write-back: Codex refresh tokens are single-use
+// and rotate, so two concurrent Resolves could both spend the same refresh token and clobber
+// the rotated replacement on write-back. One mutex per credential file.
+var resolveMu sync.Mutex
 
 // Backend is the resolved Codex endpoint: the ChatGPT backend base, the access
 // token (Bearer), and the identity headers every turn must carry.
@@ -60,6 +66,8 @@ type codexCreds struct {
 // expiring, and shapes it into a backend. An error explains the fix
 // (install/sign in with the Codex CLI).
 func Resolve() (Backend, error) {
+	resolveMu.Lock()
+	defer resolveMu.Unlock()
 	c, err := readCreds()
 	if err != nil {
 		return Backend{}, err
@@ -131,10 +139,10 @@ func readCreds() (codexCreds, error) {
 	b = trimBOM(b)
 	var a codexAuth
 	if err := json.Unmarshal(b, &a); err != nil {
-		return codexCreds{}, fmt.Errorf("Codex auth.json is unreadable: %w", err)
+		return codexCreds{}, fmt.Errorf("codex auth.json is unreadable: %w", err)
 	}
 	if a.Tokens.AccessToken == "" {
-		return codexCreds{}, fmt.Errorf("Codex auth.json has no access token — run `codex login`")
+		return codexCreds{}, fmt.Errorf("codex auth.json has no access token — run `codex login`")
 	}
 	return codexCreds{Access: a.Tokens.AccessToken, Refresh: a.Tokens.RefreshToken, IDToken: a.Tokens.IDToken}, nil
 }
@@ -193,7 +201,7 @@ func refresh(refreshToken string) (codexCreds, error) {
 	req.Header.Set("Accept", "application/json")
 	resp, err := (&http.Client{Timeout: 20 * time.Second}).Do(req)
 	if err != nil {
-		return codexCreds{}, fmt.Errorf("Codex token refresh: %w", err)
+		return codexCreds{}, fmt.Errorf("codex token refresh: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusTooManyRequests {
@@ -201,7 +209,7 @@ func refresh(refreshToken string) (codexCreds, error) {
 	}
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return codexCreds{}, fmt.Errorf("Codex token refresh returned %s — sign in again with `codex login`: %s", resp.Status, strings.TrimSpace(string(body)))
+		return codexCreds{}, fmt.Errorf("codex token refresh returned %s — sign in again with `codex login`: %s", resp.Status, strings.TrimSpace(string(body)))
 	}
 	var out struct {
 		AccessToken  string `json:"access_token"`
@@ -209,10 +217,10 @@ func refresh(refreshToken string) (codexCreds, error) {
 		IDToken      string `json:"id_token"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return codexCreds{}, fmt.Errorf("Codex token refresh decode: %w", err)
+		return codexCreds{}, fmt.Errorf("codex token refresh decode: %w", err)
 	}
 	if out.AccessToken == "" {
-		return codexCreds{}, fmt.Errorf("Codex token refresh returned an empty token")
+		return codexCreds{}, fmt.Errorf("codex token refresh returned an empty token")
 	}
 	nc := codexCreds{Access: out.AccessToken, Refresh: out.RefreshToken, IDToken: out.IDToken}
 	// Refresh tokens rotate and are single-use; keep the old one only if the

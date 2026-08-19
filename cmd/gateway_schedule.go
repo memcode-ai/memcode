@@ -5,7 +5,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/robfig/cron/v3"
 	"github.com/spf13/cobra"
 
 	gwconfig "github.com/memcode-ai/memcode/internal/gateway/config"
@@ -45,62 +44,11 @@ var (
 	scheduleAgent string
 )
 
-// parseAt accepts the ways people naturally write a one-shot time — a duration
-// from now ("30m", "2h"), a local date-time ("2026-03-01T09:00"), or full
-// RFC3339 — and returns the absolute RFC3339 timestamp that gets stored.
-func parseAt(s string) (string, error) {
-	s = strings.TrimSpace(s)
-	if d, err := time.ParseDuration(s); err == nil {
-		if d <= 0 {
-			return "", fmt.Errorf("--at duration must be in the future")
-		}
-		return time.Now().Add(d).Format(time.RFC3339), nil
-	}
-	for _, layout := range []string{time.RFC3339, "2006-01-02T15:04:05", "2006-01-02T15:04", "2006-01-02 15:04"} {
-		if t, err := time.ParseInLocation(layout, s, time.Local); err == nil {
-			if !t.After(time.Now()) {
-				return "", fmt.Errorf("--at %q is in the past", s)
-			}
-			return t.Format(time.RFC3339), nil
-		}
-	}
-	return "", fmt.Errorf("bad --at %q: use a duration from now (30m, 2h) or a date-time (2026-03-01T09:00)", s)
-}
-
-// validateSpec checks that exactly one schedule form is set and that it parses.
-// Returns the resolved at timestamp ("" unless --at was used).
+// validateSpec checks that exactly one schedule form is set and that it parses
+// — the SAME gwconfig validation the admin tools run, so the two surfaces
+// cannot drift. Returns the resolved at timestamp ("" unless --at was used).
 func validateSpec() (at string, err error) {
-	set := 0
-	for _, v := range []string{scheduleCron, scheduleEvery, scheduleAt} {
-		if v != "" {
-			set++
-		}
-	}
-	switch {
-	case set == 0:
-		return "", fmt.Errorf("set --cron (e.g. \"0 9 * * 1-5\"), --every (e.g. 24h), or --at (e.g. 30m or 2026-03-01T09:00)")
-	case set > 1:
-		return "", fmt.Errorf("set exactly one of --cron, --every, --at")
-	case scheduleCron != "":
-		if _, err := cron.ParseStandard(scheduleCron); err != nil {
-			return "", fmt.Errorf("bad --cron %q: %w (5 fields: minute hour day-of-month month day-of-week)", scheduleCron, err)
-		}
-		return "", nil
-	case scheduleEvery != "":
-		if _, err := time.ParseDuration(scheduleEvery); err != nil {
-			return "", fmt.Errorf("bad --every %q: %w (a Go duration like 30m or 24h)", scheduleEvery, err)
-		}
-		return "", nil
-	default:
-		return parseAt(scheduleAt)
-	}
-}
-
-func validateTo(to string) error {
-	if ch, convo, ok := strings.Cut(to, ":"); !ok || ch == "" || convo == "" {
-		return fmt.Errorf("--to must be \"channel:conversation\", e.g. telegram:123456")
-	}
-	return nil
+	return gwconfig.ValidateScheduleSpec(scheduleCron, scheduleEvery, scheduleAt, time.Now())
 }
 
 var gatewayScheduleAddCmd = &cobra.Command{
@@ -116,39 +64,25 @@ Examples:
   memcode gateway schedule add remind --at 3h --to telegram:123456 "Remind me to review the release notes"`,
 	Args: cobra.MinimumNArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		name := strings.TrimSpace(args[0])
-		task := strings.TrimSpace(strings.Join(args[1:], " "))
-		if name == "" || task == "" {
-			return fmt.Errorf("a schedule needs a name and a task")
-		}
-		at, err := validateSpec()
+		sc, err := gwconfig.BuildSchedule(args[0], scheduleCron, scheduleEvery, scheduleAt,
+			scheduleTZ, strings.Join(args[1:], " "), scheduleTo, scheduleAgent, time.Now())
 		if err != nil {
-			return err
-		}
-		to := strings.TrimSpace(scheduleTo)
-		if err := validateTo(to); err != nil {
 			return err
 		}
 		settings, err := gwconfig.Load()
 		if err != nil {
 			return err
 		}
-		for _, sc := range settings.Schedules {
-			if sc.Name == name {
-				return fmt.Errorf("schedule %q already exists — edit it, or remove it first to replace it", name)
-			}
+		if err := settings.AddSchedule(sc); err != nil {
+			return err
 		}
-		settings.Schedules = append(settings.Schedules, gwconfig.Schedule{
-			Name: name, Cron: scheduleCron, Every: scheduleEvery, At: at, TZ: scheduleTZ,
-			Task: task, DeliverTo: to, Agent: strings.TrimSpace(scheduleAgent),
-		})
 		if err := gwconfig.Save(settings); err != nil {
 			return err
 		}
-		if at != "" {
-			cmd.Printf("Scheduled one-shot %s at %s → %s. A running gateway picks this up within a few seconds.\n", name, at, to)
+		if sc.At != "" {
+			cmd.Printf("Scheduled one-shot %s at %s → %s. A running gateway picks this up within a few seconds.\n", sc.Name, sc.At, sc.DeliverTo)
 		} else {
-			cmd.Printf("Scheduled %s → %s. A running gateway picks this up within a few seconds.\n", name, to)
+			cmd.Printf("Scheduled %s → %s. A running gateway picks this up within a few seconds.\n", sc.Name, sc.DeliverTo)
 		}
 		return nil
 	},
@@ -210,15 +144,17 @@ var gatewayScheduleEditCmd = &cobra.Command{
 				sc.Cron, sc.Every, sc.At = scheduleCron, scheduleEvery, at
 			}
 			if scheduleTo != "" {
-				if err := validateTo(scheduleTo); err != nil {
+				if err := gwconfig.ValidateDeliverTo(scheduleTo); err != nil {
 					return err
 				}
 				sc.DeliverTo = scheduleTo
 			}
-			if scheduleTZ != "" {
-				sc.TZ = scheduleTZ
+			// --tz/--agent: an untouched flag leaves the field unchanged; passing
+			// the flag — including an explicit "" — sets (or clears) it.
+			if cmd.Flags().Changed("tz") {
+				sc.TZ = strings.TrimSpace(scheduleTZ)
 			}
-			if scheduleAgent != "" {
+			if cmd.Flags().Changed("agent") {
 				sc.Agent = strings.TrimSpace(scheduleAgent)
 			}
 			if len(args) > 1 {
@@ -419,8 +355,8 @@ func scheduleSpecFlags(c *cobra.Command) {
 	c.Flags().StringVar(&scheduleEvery, "every", "", "interval as a Go duration, e.g. 30m or 24h")
 	c.Flags().StringVar(&scheduleAt, "at", "", "one-shot: a duration from now (30m) or a date-time (2026-03-01T09:00)")
 	c.Flags().StringVar(&scheduleTo, "to", "", "where the result is delivered: \"channel:conversation\"")
-	c.Flags().StringVar(&scheduleTZ, "tz", "", "evaluate --cron in this zone, e.g. America/Los_Angeles (default: local)")
-	c.Flags().StringVar(&scheduleAgent, "agent", "", "run as this agent (its pinned model and instructions apply)")
+	c.Flags().StringVar(&scheduleTZ, "tz", "", "evaluate --cron in this zone, e.g. America/Los_Angeles (default: local; on edit, --tz \"\" clears it)")
+	c.Flags().StringVar(&scheduleAgent, "agent", "", "run as this agent (its pinned model and instructions apply; on edit, --agent \"\" clears it)")
 }
 
 func init() {

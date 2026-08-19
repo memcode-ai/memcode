@@ -15,7 +15,7 @@ func TestPinkPantherRegistered(t *testing.T) {
 	if !has("pinkpanther") {
 		t.Error("pinkpanther theme not registered")
 	}
-	if got := Get("pinkpanther").Palette.Brand; got != "#F472B6" {
+	if got := registry["pinkpanther"].Palette.Brand; got != "#F472B6" {
 		t.Errorf("pinkpanther brand = %q, want #F472B6", got)
 	}
 }

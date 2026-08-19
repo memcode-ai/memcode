@@ -66,6 +66,85 @@ func TestListReconcilesDeadProcess(t *testing.T) {
 	}
 }
 
+// A recycled pid (alive, but with a DIFFERENT start-time signature than the one recorded at
+// spawn) must be treated as gone: reported stopped, and — the load-bearing part — never
+// signaled by Stop.
+func TestPIDRecyclingIdentityCheck(t *testing.T) {
+	if _, ok := processStartSig(os.Getpid()); !ok {
+		t.Skip("no process start signature on this platform")
+	}
+	root := t.TempDir()
+	job := Job{ID: "job_recycled", Task: "x", PID: os.Getpid(), // alive, but…
+		StartSig: "Mon Jan  1 00:00:00 1990", // …recorded for a different incarnation
+		Status:   StatusRunning, StartedAt: time.Now().UTC()}
+	if err := os.MkdirAll(jobDir(root, job.ID), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeMeta(root, job); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Get(root, job.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != StatusStopped {
+		t.Fatalf("recycled-pid job status = %q, want stopped", got.Status)
+	}
+	// Stop must reconcile without signaling the unrelated (here: our own) process.
+	if err := Stop(root, job.ID); err != nil {
+		t.Fatal(err)
+	}
+	after, err := load(root, job.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Status != StatusStopped {
+		t.Fatalf("after Stop: status = %q, want stopped", after.Status)
+	}
+	// And a MATCHING signature keeps the job running.
+	sig, _ := processStartSig(os.Getpid())
+	job2 := Job{ID: "job_live", Task: "x", PID: os.Getpid(), StartSig: sig,
+		Status: StatusRunning, StartedAt: time.Now().UTC()}
+	if err := os.MkdirAll(jobDir(root, job2.ID), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeMeta(root, job2); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := Get(root, job2.ID); err != nil || got.Status != StatusRunning {
+		t.Fatalf("matching-signature job: %+v, %v", got, err)
+	}
+}
+
+// Stop must not clobber a terminal record the child already wrote (the Finish/Stop
+// lost-update race): after the process is gone, a Finish that landed first wins.
+func TestStopKeepsChildRecordedFinish(t *testing.T) {
+	root := t.TempDir()
+	job := Job{ID: "job_finished", Task: "x", PID: 2147483646, // not a live pid
+		Status: StatusRunning, StartedAt: time.Now().UTC()}
+	if err := os.MkdirAll(jobDir(root, job.ID), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeMeta(root, job); err != nil {
+		t.Fatal(err)
+	}
+	if err := Finish(root, job.ID, 0, "final result"); err != nil {
+		t.Fatal(err)
+	}
+	// Status is done now, so Stop refuses politely — the guard we're testing is
+	// markStopped's re-load; drive it directly the way the post-signal path does.
+	if err := markStopped(root, job.ID); err != nil {
+		t.Fatal(err)
+	}
+	got, err := load(root, job.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != StatusDone || got.Result != "final result" {
+		t.Fatalf("child's Finish record was clobbered: %+v", got)
+	}
+}
+
 func TestWriterLockSerializes(t *testing.T) {
 	root := t.TempDir()
 	ctx := context.Background()

@@ -177,7 +177,11 @@ func resolveCopilot() (Endpoint, bool) {
 		BaseURL: b.BaseURL,
 		Key:     b.Token,
 		Headers: b.Headers,
-		Model:   sourceModel("gpt-4o"), // widely served by Copilot; /model to change
+		// Off-catalog Copilot roster id (laneWireModel passes it through
+		// verbatim; the catalog's openai ids are api.openai.com ids, not
+		// Copilot's). Stale-looking but still on every Copilot plan; revisit
+		// when the roster is queried live. /model to change per session.
+		Model: sourceModel("gpt-4o"),
 	}, true
 }
 
@@ -197,10 +201,6 @@ func resolveCodex() (Endpoint, bool) {
 	}, true
 }
 
-// resolveClaudeSub reuses the Claude Code login and shapes it as an endpoint on
-// api.anthropic.com. The token is a subscription OAuth token, so the native
-// Anthropic adapter switches itself into Claude Code compatibility mode purely
-// from the token shape (never from the host).
 // resolveGrok serves the memcode-owned SuperGrok / X Premium+ login (memcode
 // runs that OAuth flow itself — see the grok package) as a bearer on api.x.ai,
 // riding the shared Grok Responses adapter unchanged.
@@ -217,6 +217,10 @@ func resolveGrok() (Endpoint, bool) {
 	}, true
 }
 
+// resolveClaudeSub reuses the Claude Code login and shapes it as an endpoint on
+// api.anthropic.com. The token is a subscription OAuth token, so the native
+// Anthropic adapter switches itself into Claude Code compatibility mode purely
+// from the token shape (never from the host).
 func resolveClaudeSub() (Endpoint, bool) {
 	tok, err := claudesub.Resolve()
 	if err != nil {

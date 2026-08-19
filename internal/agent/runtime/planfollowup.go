@@ -114,6 +114,10 @@ func (s *Session) DeferWhilePlanning(text, title string) {
 		displayTitle = followupFallbackTitle
 	}
 	item := todos.Item{Title: displayTitle, Status: todos.StatusPending, Owner: "main"}
+	// This fires on the TUI intake thread while the plan turn's runLoop reads
+	// s.todos on the engine goroutine — mutate under todosMu and hand the
+	// snapshot to emit/observer without the lock.
+	s.todosMu.Lock()
 	if len(s.todos) == 0 {
 		// No active task placeholder to preserve here (planning has its own lifecycle, not a
 		// running task) — the deferred item can seed the list directly.
@@ -121,17 +125,19 @@ func (s *Session) DeferWhilePlanning(text, title string) {
 	} else {
 		s.todos = todos.Append(s.todos, todos.List{item})
 	}
+	cur := append(todos.List(nil), s.todos...)
+	s.todosMu.Unlock()
 
 	// Same provenance snapshot todoTool emits (this path fires outside any turn, so
 	// there's no turn ctx to thread through) — without it the mutation is invisible
 	// in events.jsonl.
-	s.emit(context.Background(), events.KindTodosUpdated, map[string]any{"action": "add", "source": "plan_intake", "items": s.todos})
+	s.emit(context.Background(), events.KindTodosUpdated, map[string]any{"action": "add", "source": "plan_intake", "items": cur})
 
 	if s.observer != nil {
-		s.observer.Todos(s.todos)
+		s.observer.Todos(cur)
 	}
 	// Same one-line marker noteSeparateRequests prints, for scrollback consistency.
-	s.toolLine(true, "Task", "add", s.todos.Summary(), false)
+	s.toolLine(true, "Task", "add", cur.Summary(), false)
 }
 
 // DrainPlanDeferred pops and clears every message parked by DeferWhilePlanning, FIFO —

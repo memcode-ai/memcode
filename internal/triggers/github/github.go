@@ -109,7 +109,7 @@ func verifySignature(secret []byte, header string, body []byte) bool {
 func parseReplyTo(s string) (channel, conversation string, ok bool) {
 	channel, conversation, ok = strings.Cut(s, ":")
 	channel, conversation = strings.TrimSpace(channel), strings.TrimSpace(conversation)
-	if channel == "" || conversation == "" {
+	if !ok || channel == "" || conversation == "" {
 		return "", "", false
 	}
 	return channel, conversation, true

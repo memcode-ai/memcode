@@ -2,6 +2,7 @@ package permissions
 
 import (
 	"errors"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -55,37 +56,44 @@ func Load(root string) ([]Approval, error) {
 }
 
 // Append adds a rule (idempotent — a duplicate pattern is a no-op), creating the
-// file with its header if needed.
+// file with its header if needed. One O_APPEND|O_CREATE open + a single write:
+// the old stat-then-create-then-reopen sequence raced concurrent writers (two
+// processes could each "create" and one header/rule got clobbered). The dedupe
+// check reads through the same open handle, so check-and-append can no longer
+// interleave with another process's create.
 func Append(root, pattern string, trusted bool) error {
 	pattern = strings.TrimSpace(pattern)
 	if pattern == "" {
 		return nil
 	}
-	existing, _ := Load(root)
-	for _, a := range existing {
-		if a.Pattern == pattern {
-			return nil
-		}
-	}
 	path := FilePath(root)
-	if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			return err
-		}
-		if err := os.WriteFile(path, []byte(fileHeader), 0o644); err != nil {
-			return err
-		}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
 	}
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o644)
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_RDWR, 0o644)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
-	line := pattern
-	if trusted {
-		line += "\ttrusted"
+	data, err := io.ReadAll(f) // reads from offset 0 (O_APPEND moves only writes)
+	if err != nil {
+		return err
 	}
-	_, err = f.WriteString(line + "\n")
+	for _, line := range strings.Split(string(data), "\n") {
+		if a, ok := parseLine(line); ok && a.Pattern == pattern {
+			return nil // already present
+		}
+	}
+	var b strings.Builder
+	if len(data) == 0 {
+		b.WriteString(fileHeader) // brand-new file: header + rule land in ONE write
+	}
+	b.WriteString(pattern)
+	if trusted {
+		b.WriteString("\ttrusted")
+	}
+	b.WriteString("\n")
+	_, err = f.WriteString(b.String()) // O_APPEND: a single atomic append
 	return err
 }
 

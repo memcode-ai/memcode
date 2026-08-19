@@ -31,10 +31,6 @@ import (
 	"github.com/memcode-ai/memcode/internal/wire"
 )
 
-// classifyTimeout is the package default for classifier calls; pipelines override only
-// where justified (turn_intent blocks the first model call and documents its own value).
-const classifyTimeout = 20 * time.Second
-
 // errNoVerdict — the model answered but no usable verdict could be decoded (wrong/missing
 // tool_use block AND no parseable prose JSON). Counted as a failure, distinct from timeout.
 var errNoVerdict = errors.New("classifier returned no usable verdict")

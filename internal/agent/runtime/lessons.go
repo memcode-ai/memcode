@@ -43,6 +43,10 @@ func (s *Session) distillLesson(finalText string) {
 		edited = append(edited, p)
 	}
 	failure := s.turn.firstBreak
+	// Snapshot everything the goroutine needs NOW: s.turn is replaced at the start
+	// of every turn (runLoop), so reading it inside the goroutine races with — and
+	// can read the WRONG turn's — state.
+	sessionID, headSHA := s.sessionID, s.headSHA
 	bg := s.bgCtx
 	if bg == nil {
 		bg = context.Background()
@@ -61,7 +65,7 @@ func (s *Session) distillLesson(finalText string) {
 		if !ok {
 			return
 		}
-		s.emitLessonSignalFor(ctx, trigger, strategy, s.sessionID, s.headSHA, editedList(s.turn.editedPaths))
+		s.emitLessonSignalFor(ctx, trigger, strategy, sessionID, headSHA, edited)
 	}()
 }
 
@@ -125,14 +129,6 @@ func (s *Session) emitLessonSignalFor(ctx context.Context, trigger, strategy, se
 		rec.TargetSession = sessionID
 	}
 	s.slog.Append(rec)
-}
-
-func editedList(m map[string]bool) []string {
-	out := make([]string, 0, len(m))
-	for p := range m {
-		out = append(out, p)
-	}
-	return out
 }
 
 // applyLessonPromotions mirrors applyPreferencePromotions: silent, deterministic,
@@ -204,13 +200,8 @@ func (s *Session) backfillLessonSignals(ctx context.Context) {
 	}
 }
 
-// inlineLessons is the surfacing layer: top promoted lessons as a compact
-// context block (data framing, redacted).
-func (s *Session) inlineLessons() string {
-	return s.redactor.Redact(lessons.Inline(s.root))
-}
-
-// inlineLessonsTop is inlineLessons plus the surfaced lessons' stable ids —
+// inlineLessonsTop is the surfacing layer: top promoted lessons as a compact
+// context block (data framing, redacted), plus the surfaced lessons' stable ids —
 // recorded as context_inlined for the adherence judge.
 func (s *Session) inlineLessonsTop() (string, []string) {
 	block, ids := lessons.InlineTop(s.root)

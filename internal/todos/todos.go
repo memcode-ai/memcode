@@ -316,16 +316,21 @@ func (l List) RenderWindow(indent string, max int) string {
 // Current reads the most recent todo-list snapshot from the event log. An empty
 // list (no error) means no todos have been recorded yet.
 func Current(ctx context.Context, st store.Store) (List, error) {
-	evs, err := st.ListEvents(ctx, store.EventFilter{Kinds: []string{EventKind}})
+	// Each event is a FULL snapshot, so only the newest one matters — Limit: 1
+	// fetches exactly it instead of scanning every snapshot ever written.
+	evs, err := st.ListEvents(ctx, store.EventFilter{Kinds: []string{EventKind}, Limit: 1})
 	if err != nil {
 		return nil, err
 	}
 	if len(evs) == 0 {
 		return nil, nil
 	}
+	ev := evs[len(evs)-1]
 	var snap snapshot
-	if err := json.Unmarshal(evs[len(evs)-1].Payload, &snap); err != nil {
-		return nil, nil // tolerate a malformed snapshot rather than fail
+	if err := json.Unmarshal(ev.Payload, &snap); err != nil {
+		// Surface corruption instead of silently reporting "no todos" — the
+		// caller can't tell an empty list from a broken one otherwise.
+		return nil, fmt.Errorf("todos: malformed snapshot (event %d): %w", ev.ID, err)
 	}
 	return snap.Items, nil
 }

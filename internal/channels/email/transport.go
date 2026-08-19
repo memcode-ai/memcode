@@ -66,7 +66,8 @@ func (s *liveSession) UIDsAfter(last imap.UID) ([]imap.UID, error) {
 
 func (s *liveSession) FetchRaw(uid imap.UID) ([]byte, error) {
 	// BODY.PEEK[] — the empty section is the whole message; Peek so fetching
-	// alone never sets \Seen (only a durable Deliver does, via MarkSeen).
+	// never sets \Seen (the channel acks by advancing its cursor, never by
+	// touching the mailbox's read state).
 	section := &imap.FetchItemBodySection{Peek: true}
 	msgs, err := s.cl.Fetch(imap.UIDSetNum(uid), &imap.FetchOptions{
 		UID:         true,

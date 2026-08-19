@@ -288,23 +288,14 @@ func TestNoCoalesceAcrossCancel(t *testing.T) {
 	}
 }
 
-// /queue view + /queue clear.
-func TestSnapshotAndClear(t *testing.T) {
+// /queue view.
+func TestSnapshot(t *testing.T) {
 	var s schedState
 	s.accept("active", GateInput{}, at(0))
 	s.accept("q1", GateInput{}, at(1000))
 	s.accept("q2", GateInput{}, at(2000))
 	if snap := s.snapshot(); len(snap) != 2 || snap[0] != "q1" || snap[1] != "q2" {
 		t.Fatalf("snapshot wrong: %#v", snap)
-	}
-	if n := s.clear(); n != 2 {
-		t.Fatalf("clear should drop 2, got %d", n)
-	}
-	if len(s.queue) != 0 || len(s.snapshot()) != 0 {
-		t.Fatal("queue should be empty after clear")
-	}
-	if s.active == nil {
-		t.Fatal("clear must not touch the active transaction")
 	}
 }
 

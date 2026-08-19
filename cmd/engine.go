@@ -13,6 +13,8 @@ import (
 
 	"github.com/memcode-ai/memcode/internal/config"
 	"github.com/memcode-ai/memcode/internal/events"
+	"github.com/memcode-ai/memcode/internal/llm"
+	"github.com/memcode-ai/memcode/internal/provider"
 	"github.com/memcode-ai/memcode/internal/sources"
 	"github.com/memcode-ai/memcode/internal/store"
 	"github.com/memcode-ai/memcode/internal/structure"
@@ -52,6 +54,35 @@ func openProject(ctx context.Context) (store.Store, *config.Config, error) {
 	config.EnsureGitignore(cfg.Root)
 	freshenIndex(ctx, st, cfg.Root) // re-scan if HEAD moved since last time — no manual `index`
 	return st, cfg, nil
+}
+
+// newModelRunner builds the active model backend the way every model-backed
+// command does: load the gitignored .env into the environment, construct the
+// provider from it, and wrap it in a runner.
+func newModelRunner() (provider.ModelProvider, *llm.Runner, error) {
+	provider.LoadDotEnv()
+	prov, err := provider.NewFromEnv()
+	if err != nil {
+		return nil, nil, err
+	}
+	return prov, llm.NewRunner(prov), nil
+}
+
+// openModelProject is openProject plus the model backend — the setup shared by
+// every one-shot command that both reads project state and calls the model.
+// Callers must Close the returned store; the model for a given purpose stays a
+// call-site decision (provider.EffectiveModel(cfg.Models.<X>)).
+func openModelProject(ctx context.Context) (store.Store, *config.Config, provider.ModelProvider, *llm.Runner, error) {
+	st, cfg, err := openProject(ctx)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	prov, runner, err := newModelRunner()
+	if err != nil {
+		st.Close()
+		return nil, nil, nil, nil, err
+	}
+	return st, cfg, prov, runner, nil
 }
 
 // ensureInitialized runs the deterministic init/index path (topology + source

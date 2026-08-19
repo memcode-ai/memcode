@@ -5,7 +5,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/memcode-ai/memcode/internal/llm"
 	"github.com/memcode-ai/memcode/internal/overview"
 	"github.com/memcode-ai/memcode/internal/provider"
 	memsync "github.com/memcode-ai/memcode/internal/sync"
@@ -55,8 +54,7 @@ Requires MEMCODE_API_TOKEN (from the environment or a gitignored .env at the rep
 			return nil
 		}
 
-		provider.LoadDotEnv()
-		prov, err := provider.NewFromEnv()
+		_, runner, err := newModelRunner()
 		if err != nil {
 			if auto {
 				return nil // no backend in a hook context — skip silently, don't break the commit
@@ -65,7 +63,7 @@ Requires MEMCODE_API_TOKEN (from the environment or a gitignored .env at the rep
 		}
 		model := provider.EffectiveModel(cfg.Models.Coder)
 
-		o, err := overview.Get(ctx, st, llm.NewRunner(prov), cfg.Root, model)
+		o, err := overview.Get(ctx, st, runner, cfg.Root, model)
 		if err != nil {
 			if auto {
 				return nil

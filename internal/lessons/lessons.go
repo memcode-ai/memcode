@@ -29,6 +29,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/memcode-ai/memcode/internal/atomicfile"
 	"github.com/memcode-ai/memcode/internal/events"
 	"github.com/memcode-ai/memcode/internal/store"
 )
@@ -288,7 +289,7 @@ func Demote(root string, c Candidate) error {
 	for _, m := range matches {
 		_ = os.Remove(m)
 	}
-	return os.WriteFile(markerPath(root, c.ID),
+	return atomicfile.WriteFile(markerPath(root, c.ID),
 		[]byte(time.Now().UTC().Format(time.RFC3339)+"\n"), 0o644)
 }
 
@@ -335,7 +336,7 @@ func WriteLesson(root string, c Candidate) (string, error) {
 			ev.SessionID, shaSuffix(ev.HeadSHA), ev.Trigger, ev.Strategy, ev.Strength, ev.TS.Format("2006-01-02"))
 	}
 	fmt.Fprintf(&b, "\n<!-- Distilled from repeated learning episodes. Delete this file to revoke. -->\n")
-	if err := os.WriteFile(path, []byte(b.String()), 0o644); err != nil {
+	if err := atomicfile.WriteFile(path, []byte(b.String()), 0o644); err != nil {
 		return "", err
 	}
 	_ = os.Remove(markerPath(root, c.ID))

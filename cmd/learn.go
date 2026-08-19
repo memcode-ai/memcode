@@ -7,8 +7,6 @@ import (
 
 	"github.com/memcode-ai/memcode/internal/agent/acceptance"
 	"github.com/memcode-ai/memcode/internal/learn"
-	"github.com/memcode-ai/memcode/internal/llm"
-	"github.com/memcode-ai/memcode/internal/provider"
 )
 
 var learnCmd = &cobra.Command{
@@ -34,13 +32,12 @@ Requires MEMCODE_API_TOKEN (from the environment or a gitignored .env at the rep
 			fmt.Printf("reconciled %d agent session(s) against git.\n", len(out))
 		}
 
-		provider.LoadDotEnv()
-		prov, err := provider.NewFromEnv()
+		_, runner, err := newModelRunner()
 		if err != nil {
 			return err
 		}
 		fmt.Println("reconciling sources + evidence into claims…")
-		sum, err := learn.Run(ctx, st, llm.NewRunner(prov), cfg.Root)
+		sum, err := learn.Run(ctx, st, runner, cfg.Root)
 		if err != nil {
 			return err
 		}

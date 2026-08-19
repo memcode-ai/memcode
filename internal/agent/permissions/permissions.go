@@ -1359,7 +1359,7 @@ func writeParts(b *strings.Builder, parts []syntax.WordPart) {
 // (2>&1), here-docs, and the /dev/null|stdout|stderr sinks write nothing real.
 func isFileWriteRedir(r *syntax.Redirect) bool {
 	switch r.Op {
-	case syntax.RdrOut, syntax.AppOut, syntax.RdrAll, syntax.AppAll, syntax.ClbOut, syntax.RdrInOut:
+	case syntax.RdrOut, syntax.AppOut, syntax.RdrAll, syntax.AppAll, syntax.RdrClob, syntax.RdrInOut:
 		if r.Word == nil {
 			return false
 		}

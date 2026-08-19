@@ -59,6 +59,32 @@ func TestModeExplicit(t *testing.T) {
 	}
 }
 
+// TestModeExplicitAsk verifies that an EXPLICITLY passed --ask counts as a
+// forced mode (overriding the remembered config mode), while --ask=false and
+// the untouched default do not.
+func TestModeExplicitAsk(t *testing.T) {
+	// Untouched default: not explicit (covered above, restated for contrast).
+	if modeExplicit(buildAgentCmdForTest(t, nil)) {
+		t.Error("default (no flags) must not be explicit")
+	}
+	// Explicit --ask forces prompt-mode for this run.
+	cmd := buildAgentCmdForTest(t, map[string]bool{"ask": true})
+	if !modeExplicit(cmd) {
+		t.Error("an explicit --ask must count as a forced mode")
+	}
+	if got := resolveMode(cmd); got != permissions.ModeAsk {
+		t.Errorf("resolveMode with explicit --ask = %v, want ask", got)
+	}
+	// --ask=false is a documented no-op: default behavior, not explicit.
+	cmd = buildAgentCmdForTest(t, map[string]bool{"ask": false})
+	if modeExplicit(cmd) {
+		t.Error("--ask=false must not count as a forced mode")
+	}
+	if got := resolveMode(cmd); got != permissions.ModeAsk {
+		t.Errorf("resolveMode with --ask=false = %v, want ask", got)
+	}
+}
+
 // TestParseMode verifies the stored-mode-string → permissions.Mode round-trip and
 // the unrecognized fallback (ok=false). This protects the remembered-mode restore
 // path: a corrupted config value must NOT silently become allow-all.

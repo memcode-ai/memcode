@@ -92,10 +92,7 @@ func (s *appState) extraMilePickerView() ui.Widget {
 // applyExtraMile sets + persists the mode (best-effort save), with a muted token-cost notice.
 func (s *appState) applyExtraMile(on bool) {
 	s.w.sess.SetExtraMile(on)
-	if cfg, err := config.Load(s.w.sess.Root()); err == nil {
-		cfg.ExtraMile = on
-		_ = cfg.Save()
-	}
+	s.updateConfig(func(cfg *config.Config) { cfg.ExtraMile = on })
 	if on {
 		s.sysln("extra mile → on   (above-and-beyond on every plan + execution · consumes extra tokens)")
 	} else {

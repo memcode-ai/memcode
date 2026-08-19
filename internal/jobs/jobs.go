@@ -35,17 +35,46 @@ const (
 
 // Job is one background agent session.
 type Job struct {
-	ID         string    `json:"id"`
-	Task       string    `json:"task"`
-	Mode       string    `json:"mode"`
-	Tier       string    `json:"tier,omitempty"`        // "strong" → the detached child runs on the frontier tier (agent_frontier)
-	ReportBack bool      `json:"report_back,omitempty"` // true → on finish, feed Result back to the calling LLM (agent{background}), not just the user
-	Result     string    `json:"result,omitempty"`      // the agent's final text (set by Finish) — what gets reported back
-	PID        int       `json:"pid"`
+	ID         string `json:"id"`
+	Task       string `json:"task"`
+	Mode       string `json:"mode"`
+	Tier       string `json:"tier,omitempty"`        // "strong" → the detached child runs on the frontier tier (agent_frontier)
+	ReportBack bool   `json:"report_back,omitempty"` // true → on finish, feed Result back to the calling LLM (agent{background}), not just the user
+	Result     string `json:"result,omitempty"`      // the agent's final text (set by Finish) — what gets reported back
+	PID        int    `json:"pid"`
+	// StartSig is the child process's start-time signature captured at spawn (ps lstart on
+	// unix; "" where unavailable). PIDs recycle, so before reporting a job as running — and
+	// especially before SIGNALING its pid — the live process's signature must match: a
+	// mismatch means the pid now belongs to an unrelated process. Additive field; old metas
+	// without it keep the plain liveness check.
+	StartSig   string    `json:"start_sig,omitempty"`
 	Status     string    `json:"status"`
 	ExitCode   int       `json:"exit_code"`
 	StartedAt  time.Time `json:"started_at"`
 	FinishedAt time.Time `json:"finished_at,omitempty"`
+	// Live readout, heartbeated by the running child (~1s) so frontends can show
+	// what a detached agent is doing right now. Additive; absent in old metas.
+	Activity    string    `json:"activity,omitempty"`   // latest tool label, e.g. "bash(go test ./...)"
+	TokensIn    int64     `json:"tokens_in,omitempty"`  // child session input tokens so far
+	TokensOut   int64     `json:"tokens_out,omitempty"` // child session output tokens so far
+	HeartbeatAt time.Time `json:"heartbeat_at,omitempty"`
+}
+
+// processMatches reports whether the job's recorded pid is alive AND still the same process
+// it was at spawn (start-time signature match). Falls back to plain liveness when either side
+// has no signature (old meta, or a platform without one).
+func processMatches(job Job) bool {
+	if !processAlive(job.PID) {
+		return false
+	}
+	if job.StartSig == "" {
+		return true
+	}
+	sig, ok := processStartSig(job.PID)
+	if !ok {
+		return true // can't verify — behave as before rather than orphaning a live job
+	}
+	return sig == job.StartSig
 }
 
 // dir returns the jobs directory for a project root.
@@ -109,6 +138,9 @@ func Spawn(root, task, mode, tier string, chrome, reportBack bool, session strin
 		return Job{}, fmt.Errorf("starting job: %w", err)
 	}
 	pid := cmd.Process.Pid // capture before Release (which zeroes it to -1)
+	// Identity, not just a pid: record the child's start-time signature so a later Stop/Get
+	// can tell this process apart from an unrelated one that recycled the pid.
+	sig, _ := processStartSig(pid)
 	// Detach: release the child so it keeps running after we return.
 	_ = cmd.Process.Release()
 
@@ -119,6 +151,7 @@ func Spawn(root, task, mode, tier string, chrome, reportBack bool, session strin
 		Tier:       tier,
 		ReportBack: reportBack,
 		PID:        pid,
+		StartSig:   sig,
 		Status:     StatusRunning,
 		StartedAt:  time.Now().UTC(),
 	}
@@ -153,6 +186,27 @@ func Finish(root, id string, exitCode int, result string) error {
 	return writeMeta(root, job)
 }
 
+// Heartbeat updates a RUNNING job's live activity/token readout. It re-reads
+// the meta immediately before writing and refuses to touch a job that is no
+// longer running, so it can never resurrect (or clobber) a terminal record —
+// if Finish or Stop landed first, their status/result win and the heartbeat
+// is dropped. The child stops heartbeating before it calls Finish, so within
+// the child process the two never interleave.
+func Heartbeat(root, id, activity string, tokensIn, tokensOut int64) error {
+	job, err := load(root, id)
+	if err != nil {
+		return err
+	}
+	if job.Status != StatusRunning {
+		return nil
+	}
+	job.Activity = activity
+	job.TokensIn = tokensIn
+	job.TokensOut = tokensOut
+	job.HeartbeatAt = time.Now().UTC()
+	return writeMeta(root, job)
+}
+
 // Stop terminates a running job: signals its process (SIGTERM, then SIGKILL if it
 // doesn't exit), and records the job as stopped. Returns an error if the job isn't
 // found or isn't running. This is the safety valve for a runaway detached agent —
@@ -165,13 +219,12 @@ func Stop(root, id string) error {
 	if job.Status != StatusRunning {
 		return fmt.Errorf("job %s is not running (status: %s)", id, job.Status)
 	}
-	if !processAlive(job.PID) {
-		// Already gone — reconcile the meta to stopped so List doesn't keep
+	if !processMatches(job) {
+		// Already gone — or the pid was recycled by an UNRELATED process, which must
+		// never be signaled. Reconcile the meta to stopped so List doesn't keep
 		// reporting it as running (the dead-process reconciliation in List would
 		// fix it too, but be honest now).
-		job.Status = StatusStopped
-		job.FinishedAt = time.Now().UTC()
-		return writeMeta(root, job)
+		return markStopped(root, id)
 	}
 	p, err := os.FindProcess(job.PID)
 	if err != nil {
@@ -183,6 +236,21 @@ func Stop(root, id string) error {
 	if !waitForExit(job.PID, 3*time.Second) {
 		_ = p.Signal(syscall.SIGKILL)
 		_ = waitForExit(job.PID, 2*time.Second)
+	}
+	return markStopped(root, id)
+}
+
+// markStopped records the stopped status, RE-LOADING the meta first: the child's own Finish
+// may have landed while Stop was signaling/waiting, and that terminal record (status, exit
+// code, Result) must win — overwriting it with a bare "stopped" would lose the result
+// (the Finish/Stop lost-update race).
+func markStopped(root, id string) error {
+	job, err := load(root, id)
+	if err != nil {
+		return err
+	}
+	if job.Status != StatusRunning {
+		return nil // the child already recorded its own outcome — keep it
 	}
 	job.Status = StatusStopped
 	job.FinishedAt = time.Now().UTC()
@@ -222,7 +290,7 @@ func List(root string) ([]Job, error) {
 		if err != nil {
 			continue // skip malformed
 		}
-		if job.Status == StatusRunning && !processAlive(job.PID) {
+		if job.Status == StatusRunning && !processMatches(job) {
 			job.Status = StatusStopped
 		}
 		out = append(out, job)
@@ -237,7 +305,7 @@ func Get(root, id string) (Job, error) {
 	if err != nil {
 		return Job{}, err
 	}
-	if job.Status == StatusRunning && !processAlive(job.PID) {
+	if job.Status == StatusRunning && !processMatches(job) {
 		job.Status = StatusStopped
 	}
 	return job, nil

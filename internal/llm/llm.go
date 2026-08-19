@@ -304,6 +304,23 @@ func (r *Runner) prepare(ctx context.Context, p Purpose, req *wire.Request) (res
 // the result back). Moved from the gateway with the rest of routing.
 const delegateDoctrine = `Match the work to the model. You are the fast coding lane: strong at code, weaker at prose, writing, and open-ended non-code reasoning. When a task is not really about code, such as drafting docs or copy, writing, or general research and reasoning, hand it to a stronger model with the agent tool, agent{task:"…", tier:"strong"}, and use what it returns instead of doing it yourself. Keep the code and repo work for yourself.`
 
+// meter records one call's usage. Success always meters; a FAILED call still
+// meters when the response carries usage — all three native adapters return
+// the partial usage the vendor already billed alongside the error (a cancelled
+// or mid-stream-cut turn still costs those tokens), and dropping it hid the
+// expensive-failure case from /cost and the bill.
+func (r *Runner) meter(reqModel string, p Purpose, resp wire.Response, err error, start time.Time) {
+	if err == nil || hasUsage(resp) {
+		r.ledger.record(reqModel, p, resp, time.Since(start))
+	}
+}
+
+// hasUsage reports whether a response carries any billed tokens.
+func hasUsage(resp wire.Response) bool {
+	return resp.InputTokens > 0 || resp.OutputTokens > 0 ||
+		resp.CacheReadTokens > 0 || resp.CacheWriteTokens > 0
+}
+
 // Complete runs a non-streamed call — selection, the recovery walk, and
 // metering (usage, cost, latency, backend).
 func (r *Runner) Complete(ctx context.Context, p Purpose, req wire.Request) (wire.Response, error) {
@@ -314,17 +331,13 @@ func (r *Runner) Complete(ctx context.Context, p Purpose, req wire.Request) (wir
 	start := time.Now()
 	if !active {
 		resp, err := r.prov.Complete(ctx, req)
-		if err == nil {
-			r.ledger.record(req.Model, p, resp, time.Since(start))
-		}
+		r.meter(req.Model, p, resp, err, start)
 		return resp, err
 	}
 	resp, err := r.runWithRecovery(ctx, req, res, info,
 		func() bool { return false }, // Complete is atomic: a failed call emitted nothing
 		func(rq wire.Request) (wire.Response, error) { return r.prov.Complete(ctx, rq) })
-	if err == nil {
-		r.ledger.record(req.Model, p, resp, time.Since(start))
-	}
+	r.meter(req.Model, p, resp, err, start)
 	return resp, err
 }
 
@@ -343,9 +356,7 @@ func (r *Runner) Stream(ctx context.Context, p Purpose, req wire.Request, h wire
 	start := time.Now()
 	if !active {
 		resp, err := s.Stream(ctx, req, h)
-		if err == nil {
-			r.ledger.record(req.Model, p, resp, time.Since(start))
-		}
+		r.meter(req.Model, p, resp, err, start)
 		return resp, err
 	}
 	var emitted bool
@@ -357,8 +368,6 @@ func (r *Runner) Stream(ctx context.Context, p Purpose, req wire.Request, h wire
 	resp, err := r.runWithRecovery(ctx, req, res, info,
 		func() bool { return emitted },
 		func(rq wire.Request) (wire.Response, error) { return s.Stream(ctx, rq, wrapped) })
-	if err == nil {
-		r.ledger.record(req.Model, p, resp, time.Since(start))
-	}
+	r.meter(req.Model, p, resp, err, start)
 	return resp, err
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/memcode-ai/memcode/internal/forks/vaxis"
 	"github.com/memcode-ai/memcode/internal/forks/vaxis/ui"
@@ -228,12 +229,10 @@ func fmtWindow(w int) string {
 }
 
 // persistModel applies a mutation to the on-disk config so /model choices survive
-// across sessions.
+// across sessions. Serialized through updateConfig — resolveEndpointModel calls
+// this off the UI thread.
 func (s *appState) persistModel(mut func(*config.Config)) {
-	if cfg, err := config.Load(s.w.sess.Root()); err == nil {
-		mut(cfg)
-		_ = cfg.Save()
-	}
+	s.updateConfig(mut)
 }
 
 // handleModelKey handles the model picker's keyboard: ↑↓ move, Enter apply +
@@ -262,7 +261,7 @@ func (s *appState) handleModelKey(key vaxis.Key) ui.EventResult {
 				s.modelInput = nil
 			})
 			return ui.EventHandled
-		case "Backspace":
+		case "Backspace", "BackSpace": // vaxis names it with a capital S; accept both
 			s.SetState(func() {
 				if n := len(s.modelInput); n > 0 {
 					s.modelInput = s.modelInput[:n-1]
@@ -361,15 +360,18 @@ func (s *appState) modelPickerView() ui.Widget {
 func modelPickerRows(entries []modelEntry, orig string) []string {
 	const autoName, autoDesc = "Automatic (recommended)", "memcode picks the right model per turn"
 	const freeTextName, freeTextDesc = "Type a model id…", "anything this endpoint serves"
-	nameW, descW, winW := len(autoName), len(autoDesc), 0
+	// All width math is in RUNES (columns), never bytes — a non-ASCII model name
+	// measured in bytes would over-pad and shear every column to its right.
+	rlen := utf8.RuneCountInString
+	nameW, descW, winW := rlen(autoName), rlen(autoDesc), 0
 	for _, e := range entries {
-		if n := len(e.name); n > nameW {
+		if n := rlen(e.name); n > nameW {
 			nameW = n
 		}
-		if n := len(e.desc); n > descW {
+		if n := rlen(e.desc); n > descW {
 			descW = n
 		}
-		if n := len(fmtWindow(e.window)); n > winW {
+		if n := rlen(fmtWindow(e.window)); n > winW {
 			winW = n
 		}
 	}
@@ -388,16 +390,16 @@ func modelPickerRows(entries []modelEntry, orig string) []string {
 		}
 		// Pad by rune count, not bytes — "✔" is 3 bytes but 1 column, and a byte pad
 		// would shear the description column on the current row.
-		if pad := nameW - len([]rune(name)); pad > 0 {
+		if pad := nameW - rlen(name); pad > 0 {
 			name += strings.Repeat(" ", pad)
 		}
 		row := name + "  " + desc
 		w := fmtWindow(e.window)
 		if w != "" || e.byok {
-			row += strings.Repeat(" ", descW-len(desc)) + "  " + w
+			row += strings.Repeat(" ", descW-rlen(desc)) + "  " + w
 		}
 		if e.byok {
-			row += strings.Repeat(" ", winW-len(w)) + "  byok"
+			row += strings.Repeat(" ", winW-rlen(w)) + "  byok"
 		}
 		out = append(out, strings.TrimRight(row, " "))
 	}

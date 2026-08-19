@@ -66,13 +66,6 @@ func rawJSON(s sql.NullString) json.RawMessage {
 	return json.RawMessage(s.String)
 }
 
-func boolToInt(b bool) int {
-	if b {
-		return 1
-	}
-	return 0
-}
-
 func placeholders(n int) string {
 	if n <= 0 {
 		return ""

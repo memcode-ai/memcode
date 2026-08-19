@@ -13,7 +13,6 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"time"
 
 	anthropicsdk "github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
@@ -444,7 +443,7 @@ func blockToParam(b wire.Block) anthropicsdk.ContentBlockParamUnion {
 		var input any
 		if len(b.Input) > 0 {
 			if err := json.Unmarshal(b.Input, &input); err != nil {
-				fmt.Printf(`{"event":"tool_input_malformed","provider":"anthropic","error":"%s"}`+"\n", err.Error())
+				provcore.LogToolInputMalformed("anthropic", err)
 			}
 		}
 		tp := anthropicsdk.ToolUseBlockParam{ID: b.ID, Name: b.Name, Input: input}
@@ -549,10 +548,6 @@ func (a *Anthropic) Complete(ctx context.Context, r wire.Request) (wire.Response
 	return a.Stream(ctx, r, wire.StreamHandler{})
 }
 
-const webSearchSystem = `You are a web research assistant for a coding agent. Use web search to answer the
-request accurately and concisely, and cite source URLs inline. If the request is to read a specific URL,
-summarize the content relevant to the agent's task. Prefer authoritative, current sources.`
-
 // WebSearch answers a query (or "read this URL: …" request) using Anthropic's
 // server-side web_search tool, returning the synthesized text. The API runs the
 // searches within the single turn; we just return the assistant's text blocks.
@@ -564,7 +559,7 @@ func (a *Anthropic) WebSearch(ctx context.Context, query string) (string, wire.R
 		Model:     anthropicsdk.Model(catalog.ModelSonnet),
 		MaxTokens: 3000,
 		System: []anthropicsdk.TextBlockParam{
-			{Text: webSearchSystem},
+			{Text: provcore.WebSearchSystemPrompt},
 		},
 		Messages: []anthropicsdk.MessageParam{
 			{
@@ -669,6 +664,14 @@ func (a *Anthropic) WebFetch(ctx context.Context, url string) (string, wire.Resp
 			if v.Text != "" {
 				text.WriteString(v.Text)
 			}
+		case anthropicsdk.WebFetchToolResultBlock:
+			// The typed fetch result: a successful fetch carries the document
+			// (a text source holds the readable content verbatim; a base64/PDF
+			// source has no inline text to prefer). Error results carry no
+			// document — the model's text fallback below explains the failure.
+			if fetched := v.Content.AsResponseWebFetchResultBlock(); fetched.Content.Source.Type == "text" {
+				doc.WriteString(fetched.Content.Source.Data)
+			}
 		}
 	}
 	if strings.TrimSpace(doc.String()) != "" {
@@ -703,22 +706,13 @@ func (a *Anthropic) Stream(ctx context.Context, r wire.Request, h wire.StreamHan
 	if a.oauth {
 		r, oauthRev = oauthEncodeRequest(r)
 	}
-	for attempt := 1; ; attempt++ {
-		resp, emitted, err := a.streamOnce(ctx, r, h)
-		if err == nil {
-			oauthDecodeResponse(&resp, oauthRev)
-			return resp, nil
-		}
-		code, _, isAPI := provcore.APIErrorInfo(err)
-		if emitted || ctx.Err() != nil || !isAPI || !provcore.IsRetryable(code) || attempt >= 5 {
-			return resp, err
-		}
-		select {
-		case <-time.After(provcore.Backoff(attempt)):
-		case <-ctx.Done():
-			return wire.Response{}, ctx.Err()
-		}
+	resp, err := provcore.StreamWithRetry(ctx, func() (wire.Response, bool, error) {
+		return a.streamOnce(ctx, r, h)
+	})
+	if err == nil {
+		oauthDecodeResponse(&resp, oauthRev)
 	}
+	return resp, err
 }
 
 // streamOnce runs a single streaming attempt. emitted reports whether any content bytes were

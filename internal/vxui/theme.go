@@ -34,16 +34,13 @@ func uiTheme(p theme.Palette) ui.Theme {
 // persistTheme remembers the chosen theme in the project config so it survives across sessions.
 // "random" is persisted literally and re-resolves to a fresh theme each launch.
 func (s *appState) persistTheme() {
-	cfg, err := config.Load(s.w.sess.Root())
-	if err != nil {
-		return
-	}
-	if name := theme.Chosen(); name == "aurora" {
-		cfg.Theme = "" // omitempty default
-	} else {
-		cfg.Theme = name
-	}
-	_ = cfg.Save()
+	s.updateConfig(func(cfg *config.Config) {
+		if name := theme.Chosen(); name == "aurora" {
+			cfg.Theme = "" // omitempty default
+		} else {
+			cfg.Theme = name
+		}
+	})
 }
 
 // handleThemeKey drives the theme picker while it's open: ↑↓ live-preview, Enter applies +

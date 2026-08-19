@@ -4,6 +4,9 @@ package jobs
 
 import (
 	"os"
+	"os/exec"
+	"strconv"
+	"strings"
 	"syscall"
 )
 
@@ -29,4 +32,21 @@ func processAlive(pid int) bool {
 		return false
 	}
 	return p.Signal(syscall.Signal(0)) == nil
+}
+
+// processStartSig returns an identity signature for a live process: its start time as `ps -o
+// lstart=` reports it (a full timestamp, portable across darwin and linux). Two different
+// processes that ever shared a pid virtually never share a start second too, so comparing the
+// spawn-time signature against the live one detects pid recycling before a signal is sent.
+// ok=false when ps fails (process gone, or an exotic environment without ps).
+func processStartSig(pid int) (string, bool) {
+	if pid <= 0 {
+		return "", false
+	}
+	out, err := exec.Command("ps", "-o", "lstart=", "-p", strconv.Itoa(pid)).Output()
+	if err != nil {
+		return "", false
+	}
+	sig := strings.TrimSpace(string(out))
+	return sig, sig != ""
 }

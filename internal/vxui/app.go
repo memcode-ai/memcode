@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/charmbracelet/x/term"
@@ -27,6 +28,7 @@ import (
 	"github.com/memcode-ai/memcode/internal/banner"
 	"github.com/memcode-ai/memcode/internal/checkpoint"
 	"github.com/memcode-ai/memcode/internal/config"
+	"github.com/memcode-ai/memcode/internal/jobs"
 	"github.com/memcode-ai/memcode/internal/provider"
 	memsync "github.com/memcode-ai/memcode/internal/sync"
 	"github.com/memcode-ai/memcode/internal/theme"
@@ -90,10 +92,9 @@ type appState struct {
 	ui.StateBase
 	w *appWidget
 
-	rt    ui.Runtime      // marshals background work onto the UI thread
-	ectx  ui.EventContext // captured for scrollback appends from dispatched closures
-	sty   uiStyles        // theme-derived styles (rebuilt on /theme)
-	wired bool
+	rt   ui.Runtime      // marshals background work onto the UI thread
+	ectx ui.EventContext // captured for scrollback appends from dispatched closures
+	sty  uiStyles        // theme-derived styles (rebuilt on /theme)
 
 	sched        *runtime.Scheduler
 	classifyKick chan struct{} // nudges the background follow-up classifier on a mid-turn queue submit
@@ -220,6 +221,9 @@ type appState struct {
 	askChoice int
 
 	todos todos.List // the agent's live work-tracker, rendered as a panel below the status bar
+
+	agentJobs  []jobs.Job      // running detached agents (live panel rows), refreshed by the 1s agent ticker
+	agentKnown map[string]bool // job ids already announced in the transcript (launch-tree dedupe); nil = unseeded
 
 	appendBuf   strings.Builder // line-buffers engine output (scrollback wants whole lines)
 	inCodeFence bool            // stream state: inside a ``` block
@@ -350,6 +354,9 @@ func (s *appState) InitState() {
 				}
 			}
 		}()
+		// Background-agent visibility: 1s poll announcing new detached agents in
+		// the transcript and feeding the live panel (activity/elapsed/tokens).
+		s.startAgentTicker()
 		// Shell spinner: animates the footer's "N shell" segment while background
 		// shells run, even when the app is otherwise idle. The running check happens
 		// OFF the UI thread (registry mutex, no subprocess) and the tick only reaches
@@ -1270,6 +1277,12 @@ func (s *appState) HandleEvent(ctx ui.EventContext, ev ui.Event) ui.EventResult 
 		// switch was Esc's only remaining path, and it had no case for it: Esc was a dead key
 		// mid-turn and only Ctrl+C actually stopped anything. Idle, Escape has no other meaning
 		// here, so just swallow it (fall through to EventIgnored) rather than cancel nothing.
+		// Same ladder as Ctrl+C: an async op (OwnerAsync) is cancelled via asyncCancel —
+		// sched.Cancel() is a no-op for it, which made Esc dead during /compact //models.
+		if s.asyncCancel != nil {
+			s.asyncCancel()
+			return ui.EventHandled
+		}
 		if s.busy() {
 			s.sched.Cancel()
 			return ui.EventHandled
@@ -1404,6 +1417,11 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 			rows = append(rows, panel...)
 			rows = append(rows, ui.SizedBox{Height: 1})
 		}
+		// Running background agents, live (activity · elapsed · tokens).
+		if panel := s.agentPanel(); len(panel) > 0 {
+			rows = append(rows, panel...)
+			rows = append(rows, ui.SizedBox{Height: 1})
+		}
 	}
 
 	switch {
@@ -1490,30 +1508,57 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 func (s *appState) resolveServingDefault() {
 	fctx, cancel := context.WithTimeout(s.w.ctx, 2*time.Second)
 	defer cancel()
+	vendor := ""
 	if info, err := provider.FetchModels(fctx); err == nil {
-		s.defaultVendor = info.DefaultVendor()
+		vendor = info.DefaultVendor()
 		// Mirror the ladder's everyday lane (llm/lane.go, main_loop → {roles:
 		// ["standard"], tier: "balanced"}): the configured standard role, else
 		// the session vendor's balanced tier — a deployment that omits the
 		// role still banners what will actually serve.
 		std := info.Role("standard")
 		if std == "" {
-			vendor := s.w.sess.Vendor()
-			if vendor == "" {
-				vendor = info.DefaultVendor()
+			v := s.w.sess.Vendor()
+			if v == "" {
+				v = info.DefaultVendor()
 			}
-			std = catalog.VendorTier(vendor, "balanced")
+			std = catalog.VendorTier(v, "balanced")
 		}
 		if std != "" {
 			s.w.sess.SetServingDefault(std)
-			if cfg, err := config.Load(s.w.sess.Root()); err == nil {
+			s.updateConfig(func(cfg *config.Config) {
 				cfg.ServingDefault = std // persist so NEXT launch's banner shows it immediately
-				_ = cfg.Save()
-			}
+			})
 		}
 	}
-	s.rt.Dispatch(func() { s.SetState(func() {}) })
+	// defaultVendor is UI-thread state (read by /status) — never write it from
+	// this goroutine; marshal the write like every other async result.
+	s.rt.Dispatch(func() {
+		s.SetState(func() {
+			if vendor != "" {
+				s.defaultVendor = vendor
+			}
+		})
+	})
 }
+
+// updateConfig is the ONE way the TUI mutates the on-disk config: it serializes
+// every load-mutate-save behind a mutex so two writers (a picker on the UI
+// thread, resolveServingDefault on its goroutine) can't interleave their
+// load/save and silently drop each other's field (last-writer-wins clobbering).
+// Best-effort like every persist here — a load/save failure never blocks the UI.
+func (s *appState) updateConfig(mut func(cfg *config.Config)) {
+	configMu.Lock()
+	defer configMu.Unlock()
+	cfg, err := config.Load(s.w.sess.Root())
+	if err != nil {
+		return
+	}
+	mut(cfg)
+	_ = cfg.Save()
+}
+
+// configMu serializes updateConfig's load-mutate-save cycles (see updateConfig).
+var configMu sync.Mutex
 
 // startSpinner ticks the live region ~8fps while busy so the spinner + elapsed clock animate.
 func (s *appState) startSpinner() {

@@ -198,6 +198,16 @@ func (a *streamAccum) apply(c ChatChunk, h wire.StreamHandler) {
 	}
 }
 
+// partialUsage returns a usage-only response for a stream that FAILED
+// mid-flight: whatever the backend already reported billed before the cut
+// (mirrors the native adapters' error-path partials, so the Runner can meter
+// an expensive failure instead of losing it).
+func (a *streamAccum) partialUsage() wire.Response {
+	resp := wire.Response{Model: a.model, Backend: backendFor(a.memcode)}
+	applyUsage(&resp, a.usage)
+	return resp
+}
+
 // response returns the assembled result once [DONE] arrives.
 func (a *streamAccum) response() wire.Response {
 	sort.Ints(a.order)

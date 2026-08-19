@@ -14,7 +14,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"math/rand/v2"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -82,33 +82,40 @@ type post struct {
 
 // Start connects to the websocket event stream and forwards each user post as
 // an Inbound until ctx is cancelled. A dropped socket reconnects with jittered
-// exponential backoff rather than returning, so a flaky server never takes the
-// gateway down.
+// exponential backoff rather than returning (each failure logged, never
+// swallowed), so a flaky server never takes the gateway down. A permanently bad
+// MATTERMOST_URL (unparseable, or not http/https) IS fatal: retrying can never
+// fix config, so the error is returned and the gateway reports the channel as
+// stopped instead of silently spinning forever.
 func (c *Channel) Start(ctx context.Context, sink channels.Sink) error {
+	wsURL, err := deriveWSURL(c.base)
+	if err != nil {
+		return err // config error — fatal, never retried
+	}
+
 	// Learn our own id and username so we can skip our own posts and detect being
 	// addressed in a channel. If it fails the bot still serves DMs (recognized by
 	// channel type); channel messages just won't match as mentions — the safe
 	// default.
 	selfID, selfUsername := c.getMe(ctx)
 
-	backoff := time.Second
+	backoff := channels.NewBackoff(time.Second, maxReconnectBackoff)
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		c.runConn(ctx, sink, selfID, selfUsername, &backoff)
+		if err := c.runConn(ctx, sink, wsURL, selfID, selfUsername, backoff); err != nil && ctx.Err() == nil {
+			log.Printf("mattermost: connection error: %v (reconnecting)", err)
+		}
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
 		// Exponential backoff with jitter, capped, so many gateways don't hammer a
 		// recovering server in lockstep. Reset happens inside runConn once the
 		// socket proves healthy (a frame actually arrives).
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(jitter(backoff)):
+		if err := backoff.Sleep(ctx); err != nil {
+			return err
 		}
-		backoff = min(backoff*2, maxReconnectBackoff)
 	}
 }
 
@@ -116,11 +123,7 @@ func (c *Channel) Start(ctx context.Context, sink channels.Sink) error {
 // until the socket errors or ctx is cancelled. backoff is reset to the floor
 // only after a frame arrives, so a server that accepts dials and instantly
 // drops them still walks the backoff ladder.
-func (c *Channel) runConn(ctx context.Context, sink channels.Sink, selfID, selfUsername string, backoff *time.Duration) {
-	wsURL, err := deriveWSURL(c.base)
-	if err != nil {
-		return
-	}
+func (c *Channel) runConn(ctx context.Context, sink channels.Sink, wsURL, selfID, selfUsername string, backoff *channels.Backoff) error {
 	dialer := websocket.Dialer{HandshakeTimeout: 15 * time.Second}
 	hdr := http.Header{"Authorization": {"Bearer " + c.token}}
 	conn, resp, err := dialer.DialContext(ctx, wsURL, hdr)
@@ -128,7 +131,7 @@ func (c *Channel) runConn(ctx context.Context, sink channels.Sink, selfID, selfU
 		resp.Body.Close()
 	}
 	if err != nil {
-		return
+		return fmt.Errorf("dial %s: %w", wsURL, err)
 	}
 	defer conn.Close()
 
@@ -152,15 +155,15 @@ func (c *Channel) runConn(ctx context.Context, sink channels.Sink, selfID, selfU
 		"data":   map[string]any{"token": c.token},
 	}
 	if err := conn.WriteJSON(challenge); err != nil {
-		return
+		return fmt.Errorf("authentication challenge: %w", err)
 	}
 
 	for {
 		_, raw, err := conn.ReadMessage()
 		if err != nil {
-			return
+			return fmt.Errorf("event stream: %w", err)
 		}
-		*backoff = time.Second // the socket is live — reset the ladder
+		backoff.Reset() // the socket is live — reset the ladder
 		inb, fileIDs, ok := parseEvent(raw, selfID, selfUsername)
 		if !ok {
 			continue
@@ -170,12 +173,6 @@ func (c *Channel) runConn(ctx context.Context, sink channels.Sink, selfID, selfU
 		// retried — the durable record is best-effort here.
 		_ = sink.Deliver(ctx, inb)
 	}
-}
-
-// jitter returns d scaled by a random factor in [0.75, 1.25) so reconnecting
-// gateways don't retry in lockstep against a recovering server.
-func jitter(d time.Duration) time.Duration {
-	return time.Duration(float64(d) * (0.75 + rand.Float64()*0.5))
 }
 
 // deriveWSURL maps the server base URL to its websocket endpoint: https becomes

@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/memcode-ai/memcode/internal/atomicfile"
 	"github.com/memcode-ai/memcode/internal/config"
 )
 
@@ -49,7 +50,7 @@ func Write(root string, content string, targets []config.SyncTargetMeta) error {
 			errs = append(errs, fmt.Sprintf("%s: %v", t.Path, err))
 			continue
 		}
-		if err := os.WriteFile(full, []byte(body), 0o644); err != nil {
+		if err := atomicfile.WriteFile(full, []byte(body), 0o644); err != nil {
 			errs = append(errs, fmt.Sprintf("%s: %v", t.Path, err))
 		}
 	}

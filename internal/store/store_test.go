@@ -370,3 +370,49 @@ func TestRunInTxPreferenceAtomicity(t *testing.T) {
 		t.Errorf("expected survivor candidate, got %q", got[0].ID)
 	}
 }
+
+// TestOpenStampsSchemaVersion: Open must apply the migration ladder and stamp
+// PRAGMA user_version — the current base schema is version 1 — and reopening
+// an already-migrated database must be a clean no-op. A database stamped by a
+// NEWER binary (version beyond this binary's ladder) must refuse to open
+// rather than run against a schema it doesn't understand.
+func TestOpenStampsSchemaVersion(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "state.db")
+
+	version := func(s Store) int {
+		t.Helper()
+		var v int
+		if err := s.(*sqliteStore).db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&v); err != nil {
+			t.Fatalf("user_version: %v", err)
+		}
+		return v
+	}
+
+	s, err := Open(ctx, path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	if v := version(s); v != len(migrations) {
+		t.Fatalf("user_version = %d, want %d", v, len(migrations))
+	}
+	s.Close()
+
+	// Reopen: idempotent, still stamped.
+	s, err = Open(ctx, path)
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	if v := version(s); v != len(migrations) {
+		t.Fatalf("user_version after reopen = %d, want %d", v, len(migrations))
+	}
+	// Simulate a database from a newer binary.
+	if _, err := s.(*sqliteStore).db.ExecContext(ctx, "PRAGMA user_version = 999"); err != nil {
+		t.Fatalf("stamp future version: %v", err)
+	}
+	s.Close()
+
+	if _, err := Open(ctx, path); err == nil {
+		t.Fatalf("Open must refuse a schema version newer than the binary supports")
+	}
+}

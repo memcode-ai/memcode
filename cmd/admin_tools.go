@@ -12,8 +12,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -317,23 +315,12 @@ func adminPairing(ctx context.Context, input json.RawMessage) (string, error) {
 	if action == "deny" {
 		return fmt.Sprintf("Denied %s user %s.", p.Channel, p.Principal), nil
 	}
-	settings, err := gwconfig.Load()
+	already, err := approvePairing(p)
 	if err != nil {
 		return "", err
 	}
-	if settings.Channels == nil {
-		settings.Channels = map[string]gwconfig.Channel{}
-	}
-	ch := settings.Channels[p.Channel]
-	for _, id := range ch.AllowFrom {
-		if id == p.Principal {
-			return fmt.Sprintf("%s user %s was already allowed.", p.Channel, p.Principal), nil
-		}
-	}
-	ch.AllowFrom = append(ch.AllowFrom, p.Principal)
-	settings.Channels[p.Channel] = ch
-	if err := gwconfig.Save(settings); err != nil {
-		return "", err
+	if already {
+		return fmt.Sprintf("%s user %s was already allowed.", p.Channel, p.Principal), nil
 	}
 	return fmt.Sprintf("Approved %s user %s. The gateway picks this up within seconds.", p.Channel, p.Principal), nil
 }
@@ -358,32 +345,16 @@ func adminProject(input json.RawMessage) (string, error) {
 		if path == "" {
 			return "", fmt.Errorf("add needs a path")
 		}
-		if strings.HasPrefix(path, "~/") {
-			home, _ := os.UserHomeDir()
-			path = filepath.Join(home, path[2:])
-		}
-		abs, err := filepath.Abs(path)
+		// The SAME registration the CLI uses: canonical (symlink-resolved) root,
+		// and an id collision with a different path is refused, never overwritten.
+		id, root, err := settings.RegisterProject(in.ID, path)
 		if err != nil {
 			return "", err
-		}
-		if info, err := os.Stat(abs); err != nil || !info.IsDir() {
-			return "", fmt.Errorf("%s is not a directory", abs)
-		}
-		id := strings.TrimSpace(in.ID)
-		if id == "" {
-			id = filepath.Base(abs)
-		}
-		if settings.Projects == nil {
-			settings.Projects = map[string]gwconfig.Project{}
-		}
-		settings.Projects[id] = gwconfig.Project{Path: abs, Enabled: true}
-		if settings.DefaultProject == "" {
-			settings.DefaultProject = id
 		}
 		if err := gwconfig.Save(settings); err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("Registered project %s at %s.", id, abs), nil
+		return fmt.Sprintf("Registered project %s at %s.", id, root), nil
 	case "remove":
 		id := strings.TrimSpace(in.ID)
 		if _, ok := settings.Projects[id]; !ok {
@@ -516,7 +487,7 @@ func adminAgent(input json.RawMessage) (string, error) {
 		}
 		return fmt.Sprintf("Removed agent %s. Its home under ~/.memcode/agents is kept; delete it yourself if you want the memory gone.", name), nil
 	}
-	return "", fmt.Errorf("action must be add, remove, enable, or disable")
+	return "", fmt.Errorf("action must be add, tools, reasoning, model, or remove")
 }
 
 func adminSchedule(input json.RawMessage) (string, error) {
@@ -544,25 +515,15 @@ func adminSchedule(input json.RawMessage) (string, error) {
 	}
 	switch action {
 	case "add":
-		spec := 0
-		for _, v := range []string{in.Cron, in.Every, in.At} {
-			if strings.TrimSpace(v) != "" {
-				spec++
-			}
+		// The SAME validated construction the CLI uses (cron/every/at parsing,
+		// deliver_to shape, duplicate names) — the surfaces cannot drift.
+		sc, err := gwconfig.BuildSchedule(name, in.Cron, in.Every, in.At, "", in.Task, in.DeliverTo, in.Agent, time.Now())
+		if err != nil {
+			return "", err
 		}
-		if spec != 1 || strings.TrimSpace(in.Task) == "" {
-			return "", fmt.Errorf("add needs a task and exactly one of cron, every, or at")
+		if err := settings.AddSchedule(sc); err != nil {
+			return "", err
 		}
-		for _, sc := range settings.Schedules {
-			if sc.Name == name {
-				return "", fmt.Errorf("schedule %q already exists — remove it first to replace it", name)
-			}
-		}
-		settings.Schedules = append(settings.Schedules, gwconfig.Schedule{
-			Name: name, Cron: strings.TrimSpace(in.Cron), Every: strings.TrimSpace(in.Every),
-			At:   strings.TrimSpace(in.At),
-			Task: strings.TrimSpace(in.Task), DeliverTo: strings.TrimSpace(in.DeliverTo),
-		})
 		if err := gwconfig.Save(settings); err != nil {
 			return "", err
 		}

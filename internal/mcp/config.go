@@ -74,11 +74,14 @@ func (c ServerConfig) kind() string {
 // Transport returns the normalized transport (stdio | http | sse) for display/inspection.
 func (c ServerConfig) Transport() string { return c.kind() }
 
-// ScopedServer is a server resolved with the scope that won it.
+// ScopedServer is a server resolved with the scope that won it. Config is the RAW entry as
+// stored (${VAR} references intact): approvals and invocation grants hash the raw config (see
+// approvals.ConfigHash), so env changes never invalidate them and resolved secrets never feed
+// the hash. Expand with ExpandServer at connect time.
 type ScopedServer struct {
 	Name   string
 	Scope  Scope
-	Config ServerConfig // env-expanded, ready to connect
+	Config ServerConfig // raw (unexpanded); ExpandServer before connecting
 }
 
 // config is the standard .mcp.json / mcpServers shape, reused for the project file and the
@@ -106,8 +109,9 @@ func UserStoreFile() string {
 }
 
 // Resolve returns every configured server merged across scopes with Claude Code's precedence
-// (local > project > user, matched by name; the whole winning entry is used, never merged), each
-// env-expanded and tagged with its scope. The caller applies approval policy (project scope).
+// (local > project > user, matched by name; the whole winning entry is used, never merged),
+// each RAW (unexpanded) and tagged with its scope. The caller applies approval policy (project
+// scope) against the raw config and calls ExpandServer only on what it actually connects.
 func Resolve(root string) []ScopedServer {
 	out := map[string]ScopedServer{}
 	add := func(scope Scope, servers map[string]ServerConfig) {
@@ -115,7 +119,7 @@ func Resolve(root string) []ScopedServer {
 			if _, taken := out[name]; taken {
 				continue // higher-precedence scope already claimed this name
 			}
-			out[name] = ScopedServer{Name: name, Scope: scope, Config: expandServer(sc)}
+			out[name] = ScopedServer{Name: name, Scope: scope, Config: sc}
 		}
 	}
 	// Highest precedence first so add() can skip names already claimed.
@@ -266,12 +270,14 @@ func writeJSON(path string, v any) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, append(b, '\n'), 0o644)
+	// 0600: these stores can carry tokens (static headers, env) — owner-only.
+	return os.WriteFile(path, append(b, '\n'), 0o600)
 }
 
-// expandServer expands ${VAR} / ${VAR:-default} in every string the config carries — so a
-// secret like an access token lives in the environment, not committed in .mcp.json.
-func expandServer(sc ServerConfig) ServerConfig {
+// ExpandServer expands ${VAR} / ${VAR:-default} in every string the config carries — so a
+// secret like an access token lives in the environment, not committed in .mcp.json. Callers
+// expand at CONNECT time only; approvals/grants always hash the raw config (ConfigHash).
+func ExpandServer(sc ServerConfig) ServerConfig {
 	sc.Command = expand(sc.Command)
 	sc.URL = expand(sc.URL)
 	sc.HeadersHelper = expand(sc.HeadersHelper)

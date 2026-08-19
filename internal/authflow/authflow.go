@@ -54,6 +54,17 @@ type loginResult struct {
 
 // makeCallbackHandler returns an http.HandlerFunc that validates the state
 // parameter and sends the result (token or error) down resultCh.
+//
+// TOKEN-IN-URL CAVEAT: the web app currently delivers the minted org token as a
+// ?token= query parameter on a GET redirect, which lands in browser history. The
+// web app's side of the flow lives elsewhere, so this handler mitigates what it
+// can from this end: it also accepts the token in a POST form body (the
+// forward-compatible path the web app can move to without a CLI release), and
+// the success/error page immediately scrubs the query string from the history
+// entry via history.replaceState. The server itself is our own short-lived
+// 127.0.0.1 process — no third-party access log ever sees the URL. The full fix
+// (a one-time code exchanged server-side, or a POST-only callback) needs the web
+// app's end to change first.
 func makeCallbackHandler(state string, resultCh chan<- loginResult) http.HandlerFunc {
 	// deliver is non-blocking: resultCh has capacity 1 and only the FIRST
 	// outcome matters. A duplicate success callback (browser re-GET/prefetch)
@@ -65,28 +76,39 @@ func makeCallbackHandler(state string, resultCh chan<- loginResult) http.Handler
 		}
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
-		q := r.URL.Query()
-		if q.Get("state") != state {
+		// The response references a token delivery: never cache it, never leak a referrer.
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("Referrer-Policy", "no-referrer")
+		// POST form values (token kept out of the URL) win over query parameters.
+		param := func(key string) string {
+			if r.Method == http.MethodPost {
+				if v := r.PostFormValue(key); v != "" {
+					return v
+				}
+			}
+			return r.URL.Query().Get(key)
+		}
+		if param("state") != state {
 			// A stray local request (another process probing the port, a
 			// prefetch of a stale URL) must NOT abort the pending login —
 			// only the request carrying OUR state speaks for this flow.
 			http.NotFound(w, r)
 			return
 		}
-		if errMsg := q.Get("error"); errMsg != "" {
+		if errMsg := param("error"); errMsg != "" {
 			deliver(loginResult{err: errMsg})
 			writeCallbackPage(w, false, errMsg)
 			return
 		}
-		token := q.Get("token")
+		token := param("token")
 		if token == "" {
 			deliver(loginResult{err: "no token received"})
 			writeCallbackPage(w, false, "No token received.")
 			return
 		}
 		// The web app may include api_url (which gateway) and email (who signed in).
-		apiURL := q.Get("api_url")
-		deliver(loginResult{token: token, apiURL: apiURL, email: q.Get("email")})
+		apiURL := param("api_url")
+		deliver(loginResult{token: token, apiURL: apiURL, email: param("email")})
 		writeCallbackPage(w, true, "")
 	}
 }
@@ -171,7 +193,7 @@ func Run(ctx context.Context, status func(string)) (Result, error) {
 
 	case <-time.After(2 * time.Minute):
 		server.Close()
-		return Result{}, fmt.Errorf("timed out waiting for authentication (2 min). Try again.")
+		return Result{}, fmt.Errorf("timed out waiting for authentication (2 min); try again")
 	}
 }
 
@@ -324,6 +346,10 @@ func writeCallbackPage(w http.ResponseWriter, ok bool, errMsg string) {
 	// needs no assets. Generous vertical rhythm below it: wordmark, heading, and
 	// help line each get their own breathing room.
 	page := `<!doctype html><html lang="en"><head><meta charset="utf-8">` +
+		// FIRST thing: scrub the ?token=… query string out of the browser's history
+		// entry — the minted org token must not persist in browser history (see the
+		// makeCallbackHandler caveat).
+		`<script>try{history.replaceState(null,'',location.pathname)}catch(e){}</script>` +
 		`<meta name="viewport" content="width=device-width,initial-scale=1"><title>memcode</title><style>` +
 		`html,body{height:100%}` +
 		`body{margin:0;background:#0a0a0a;color:#fafafa;` +

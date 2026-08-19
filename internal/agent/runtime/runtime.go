@@ -24,6 +24,7 @@ import (
 
 	"github.com/memcode-ai/memcode/catalog"
 	"github.com/memcode-ai/memcode/internal/agent/edit"
+	"github.com/memcode-ai/memcode/internal/agent/gitporcelain"
 	"github.com/memcode-ai/memcode/internal/agent/input"
 	"github.com/memcode-ai/memcode/internal/agent/jobs"
 	"github.com/memcode-ai/memcode/internal/agent/mood"
@@ -45,6 +46,7 @@ import (
 	"github.com/memcode-ai/memcode/internal/sessionlog"
 	"github.com/memcode-ai/memcode/internal/skills"
 	"github.com/memcode-ai/memcode/internal/store"
+	"github.com/memcode-ai/memcode/internal/textutil"
 	"github.com/memcode-ai/memcode/internal/todos"
 	"github.com/memcode-ai/memcode/internal/wire"
 )
@@ -96,7 +98,8 @@ type Session struct {
 	mu                sync.Mutex                                    // guards output + metric counters during concurrent tool execution, and planCtl.Task/LastPlan for the plan-gate snapshot (PlanGateSnapshot / pinPresentedPlan)
 	browserRenderOK   bool                                          // user consented to local browser rendering this session
 	browserEnabled    bool                                          // --chrome: browser tools are advertised and a Chrome session is lazily launched
-	browserSession    *browser.Session                              // the persistent Chrome instance (lazily created on first browser tool call)
+	browserSession    *browser.Session                              // the persistent Chrome instance (lazily created on first browser tool call) — guarded by browserMu
+	browserMu         sync.Mutex                                    // guards browserSession init/teardown/access: read-only browser tools are parallel-safe, so concurrent goroutines reach browserOrInit
 	noContext         bool                                          // cold mode: skip the ContextPack (for A/B evaluation)
 	readOnly          bool                                          // explorer mode: no edit_file/bash (a "reader" sub-agent)
 	toolPolicy        tools.Policy                                  // agent tool policy (toolsets allow/deny); zero = unrestricted
@@ -136,10 +139,12 @@ type Session struct {
 	redactor          *secrets.Redactor
 	approvals         []permissions.Approval // remembered allow-rules
 	observer          UIObserver             // optional front-end tap (TUI); may be nil
+	toolNotify        func(label string)     // optional per-tool-call activity tap (job heartbeat); may be nil
 	mood              *mood.Tracker          // running interaction-friction reading
 	cadence           *mood.CadenceTracker   // message timing (burst / rapid-correction)
 	room              room.State             // assessed interaction/room state (drives policy)
-	todos             todos.List             // the agent's in-memory work tracker (scratchpad)
+	todos             todos.List             // the agent's in-memory work tracker (scratchpad) — guarded by todosMu
+	todosMu           sync.Mutex             // guards todos: DeferWhilePlanning mutates it from the TUI intake thread while the engine's runLoop/todoTool read + write it
 
 	planCtl *plan.Controller // plan-mode state (active/revision/models/apply), owned by EnterPlan/ExitPlan (plan.go)
 
@@ -378,6 +383,8 @@ func (s *Session) BrowserEnabled() bool {
 // CloseBrowser tears down the Chrome process if one was launched. Safe to call
 // when no browser session exists (nil-safe). Called at session end.
 func (s *Session) CloseBrowser() {
+	s.browserMu.Lock()
+	defer s.browserMu.Unlock()
 	if s.browserSession != nil {
 		s.browserSession.Close()
 		s.browserSession = nil
@@ -658,13 +665,6 @@ func (s *Session) noteDenied(ctx context.Context, action string) {
 	if s.mood != nil {
 		s.mood.Bump(0.2, "approval-denied")
 	}
-}
-
-// NoteFriction lets a front-end fold in a non-textual friction signal it alone
-// can see — a rapid Esc-mash ("rage keys") — and returns the updated reading so
-// the gauge can refresh.
-func (s *Session) NoteFriction(signal string, amount float64) mood.Reading {
-	return s.mood.Bump(amount, signal)
 }
 
 // Room returns the current assessed room state (for the TUI badge / tests).
@@ -1145,7 +1145,8 @@ func untrackedFiles(ctx context.Context, root string) []string {
 		if !strings.HasPrefix(line, "??") || len(line) < 4 {
 			continue
 		}
-		files = append(files, strings.TrimSpace(line[3:]))
+		// core.quotePath=true C-quotes non-ASCII paths ("caf\303\251.txt").
+		files = append(files, gitporcelain.Unquote(strings.TrimSpace(line[3:])))
 	}
 	return files
 }
@@ -1198,16 +1199,6 @@ func newSessionID() string {
 	return "sess_" + hex.EncodeToString(b[:])
 }
 
-func short(sha string) string {
-	if sha == "" {
-		return "(none)"
-	}
-	if len(sha) > 8 {
-		return sha[:8]
-	}
-	return sha
-}
-
 // shellCmd builds a command using the platform's shell (POSIX sh elsewhere,
 // PowerShell on Windows).
 // shellCmd builds the command WITHOUT binding a context — cancellation is handled by
@@ -1250,7 +1241,8 @@ func changedFiles(ctx context.Context, root string) []string {
 		if idx := strings.Index(path, " -> "); idx >= 0 {
 			path = path[idx+4:] // rename: keep the destination
 		}
-		files = append(files, path)
+		// core.quotePath=true C-quotes non-ASCII paths (each rename side separately).
+		files = append(files, gitporcelain.Unquote(path))
 	}
 	return files
 }
@@ -1279,7 +1271,7 @@ func truncate(s string, n int) string {
 	if len(s) <= n {
 		return s
 	}
-	return s[:n] + "\n…(truncated)"
+	return textutil.ClipBytes(s, n) + "\n…(truncated)" // rune-safe byte-budget cut
 }
 
 // clip shortens s to at most n runes with a single-line ellipsis — for inline
@@ -1351,6 +1343,29 @@ func safeJoin(root, rel string) (string, error) {
 		}
 	}
 	return p, nil
+}
+
+// repoRel resolves p through safeJoin and returns it relative to the canonical
+// repo root — so downstream joins (edit.Apply, edit.Hash) resolve it exactly
+// once. Without this, an ABSOLUTE in-root path validated fine here but was then
+// re-joined under root by edit.Apply, silently targeting /repo/repo/foo.go.
+func (s *Session) repoRel(p string) (string, error) {
+	abs, err := safeJoin(s.root, p)
+	if err != nil {
+		return "", err
+	}
+	rootAbs, err := filepath.Abs(s.root)
+	if err != nil {
+		return "", err
+	}
+	if resolved, err := filepath.EvalSymlinks(rootAbs); err == nil {
+		rootAbs = resolved // same canonicalization safeJoin applied to abs
+	}
+	rel, err := filepath.Rel(rootAbs, abs)
+	if err != nil {
+		return "", err
+	}
+	return rel, nil
 }
 
 // resolveExisting resolves symlinks on the longest existing prefix of p and re-appends the

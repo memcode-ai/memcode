@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/memcode-ai/memcode/internal/channels"
 )
@@ -146,7 +147,8 @@ func TestStreamDelivers(t *testing.T) {
 	c := New(srv.URL, "+15550009999", "", "")
 	var got []channels.Inbound
 	sink := sinkFn(func(inb channels.Inbound) error { got = append(got, inb); return nil })
-	if err := c.stream(context.Background(), sink); err != nil {
+	backoff := channels.NewBackoff(time.Second, time.Minute)
+	if err := c.stream(context.Background(), sink, backoff); err != nil {
 		t.Fatal(err)
 	}
 	if len(got) != 1 || got[0].Text != "fix the build" {

@@ -175,7 +175,11 @@ func LaneBackendVendor(backend string) (vendor, kind string, ok bool) {
 		return strings.TrimPrefix(backend, "ownkey:"), "ownkey", true
 	}
 	if SubscriptionEndpointName(backend) {
-		return SourceVendor(canonicalSourceAliases[ServingLabel(backend)]), "sub", true
+		// Endpoint names ARE alias-map keys ("claude-sub"→"claude", "copilot"→
+		// "copilot", …). Routing through ServingLabel first turned "copilot"
+		// into its display word "github" — not an alias — so the vendor came
+		// back "" with ok still true.
+		return SourceVendor(canonicalSourceAliases[backend]), "sub", true
 	}
 	return "", "", false
 }

@@ -28,6 +28,12 @@ import (
 // context and return "context canceled" forever. This is the recovery path: no
 // restart of the whole CLI is needed to bring the browser back.
 func (s *Session) browserOrInit() (*browser.Session, error) {
+	// Read-only browser tools are parallel-safe (see isParallelSafe), so several
+	// goroutines can land here at once — the whole init/health-check/relaunch
+	// sequence must be atomic or two of them race to launch two Chromes (and
+	// CloseBrowser can tear one down mid-init).
+	s.browserMu.Lock()
+	defer s.browserMu.Unlock()
 	if s.browserSession != nil {
 		// Cached — but verify the Chrome process is still alive. A dead session
 		// is worse than no session: it can't recover on its own.

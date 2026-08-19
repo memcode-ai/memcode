@@ -27,10 +27,12 @@ func (s *Session) traceTool(ctx context.Context, input json.RawMessage) toolResu
 		return errResult("trace needs a `target` — a URL or a file path.")
 	}
 	s.toolLine(true, "Trace", target, "", false)
+	// Redact like every other tool result: a traced page/file's preview lines can
+	// carry secret values just as easily as a fetch body.
 	if strings.HasPrefix(target, "http://") || strings.HasPrefix(target, "https://") {
-		return textResult(s.traceURL(ctx, target))
+		return textResult(s.redactor.Redact(s.traceURL(ctx, target)))
 	}
-	return textResult(s.traceFile(target))
+	return textResult(s.redactor.Redact(s.traceFile(target)))
 }
 
 const tracePreviewLen = 160 // chars of each stage's content shown as evidence
@@ -76,7 +78,13 @@ func (s *Session) traceURL(ctx context.Context, url string) string {
 
 // traceFile traces a local file: raw bytes → (if HTML) extracted text.
 func (s *Session) traceFile(path string) string {
-	b, err := os.ReadFile(path)
+	// Repo-scoped like the other structured file tools (safeJoin): trace is
+	// model-invokable and must not become an arbitrary-file read primitive.
+	abs, err := safeJoin(s.root, path)
+	if err != nil {
+		return "trace: " + err.Error()
+	}
+	b, err := os.ReadFile(abs)
 	if err != nil {
 		return "trace: " + err.Error()
 	}

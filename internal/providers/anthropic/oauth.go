@@ -1,6 +1,7 @@
 package anthropic
 
 import (
+	"context"
 	"os/exec"
 	"strings"
 	"sync"
@@ -68,20 +69,16 @@ var (
 
 // claudeCodeUserAgent returns the "claude-code/<version> (external, cli)"
 // User-Agent, detecting the installed CLI's version once (falling back to a
-// pinned recent version).
+// pinned recent version). CommandContext owns the timeout kill — the old
+// hand-rolled goroutine raced (cmd.Process could still be nil at the kill,
+// and out was read while the goroutine wrote it).
 func claudeCodeUserAgent() string {
 	ccVersionOnce.Do(func() {
 		ccVersion = claudeCodeFallbackVersion
 		for _, bin := range []string{"claude", "claude-code"} {
-			cmd := exec.Command(bin, "--version")
-			done := make(chan struct{})
-			var out []byte
-			go func() { out, _ = cmd.Output(); close(done) }()
-			select {
-			case <-done:
-			case <-time.After(3 * time.Second):
-				_ = cmd.Process.Kill()
-			}
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			out, _ := exec.CommandContext(ctx, bin, "--version").Output()
+			cancel()
 			if f := strings.Fields(string(out)); len(f) > 0 && f[0] != "" {
 				ccVersion = f[0]
 				break

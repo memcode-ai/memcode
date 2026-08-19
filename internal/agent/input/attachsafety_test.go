@@ -91,3 +91,29 @@ func TestResolveOutsideCwdAllowed(t *testing.T) {
 		t.Fatalf("absolute out-of-cwd image should resolve today: ok=%v kind=%q", ok, a.Kind)
 	}
 }
+
+// TestResolveSymlinkToSecret: a symlink with an innocent name pointing at a
+// credential file must classify as KindSecret — Resolve judges the RESOLVED
+// target, not just the typed path.
+func TestResolveSymlinkToSecret(t *testing.T) {
+	dir := t.TempDir()
+	sshDir := filepath.Join(dir, ".ssh")
+	if err := os.MkdirAll(sshDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	key := filepath.Join(sshDir, "id_rsa")
+	if err := os.WriteFile(key, []byte("-----BEGIN OPENSSH PRIVATE KEY-----\nzzz\n-----END OPENSSH PRIVATE KEY-----\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "notes.txt")
+	if err := os.Symlink(key, link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	a, ok := Resolve(link, dir, "attach")
+	if !ok {
+		t.Fatal("symlink should resolve")
+	}
+	if a.Kind != KindSecret {
+		t.Fatalf("symlink to id_rsa sniffed as %q, want %q", a.Kind, KindSecret)
+	}
+}

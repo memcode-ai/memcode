@@ -14,6 +14,13 @@ import (
 // and the CLI's ledger/meter all read this one embedded config file, so a model
 // swap or a price change is an edit to models.json, never a code change.
 
+// The repo root's /models.json is a generated copy of this package's
+// models.json (go:embed cannot reach outside the package, so the embedded
+// file here is the one Go code reads). Edit catalog/models.json, then run
+// `go generate ./catalog` to sync the root copy; catalog_root_test.go fails
+// on any drift.
+//go:generate cp models.json ../models.json
+
 //go:embed models.json
 var catalogData []byte
 

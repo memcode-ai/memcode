@@ -27,6 +27,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/memcode-ai/memcode/internal/atomicfile"
 	"github.com/memcode-ai/memcode/internal/buildinfo"
 )
 
@@ -300,6 +301,12 @@ func writeFile(dst string, r io.Reader) error {
 		f.Close()
 		return err
 	}
+	// fsync — this is a binary we're about to install; a crash must not leave
+	// a truncated file that a later step happily renames into place.
+	if err := f.Sync(); err != nil {
+		f.Close()
+		return err
+	}
 	return f.Close()
 }
 
@@ -333,6 +340,13 @@ func replaceExecutable(newBin string) error {
 		cleanup()
 		return err
 	}
+	// fsync BEFORE the rename (the atomicfile discipline): without it a power
+	// loss right after the rename can leave a truncated/empty binary installed.
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		cleanup()
+		return err
+	}
 	if err := tmp.Close(); err != nil {
 		cleanup()
 		return err
@@ -360,7 +374,23 @@ func replaceExecutable(newBin string) error {
 		cleanup()
 		return permissionHint(err, dir)
 	}
+	syncDir(dir) // best-effort: durably record the rename itself
 	return nil
+}
+
+// syncDir fsyncs a directory so a rename within it survives a crash. Best-effort:
+// not every platform/filesystem supports it (Windows notably), and a failure here
+// must never fail an otherwise-complete install.
+func syncDir(dir string) {
+	if runtime.GOOS == "windows" {
+		return
+	}
+	d, err := os.Open(dir)
+	if err != nil {
+		return
+	}
+	_ = d.Sync()
+	_ = d.Close()
 }
 
 func permissionHint(err error, dir string) error {
@@ -511,7 +541,9 @@ func writeCache(c checkCache) {
 	if err != nil {
 		return
 	}
-	_ = os.WriteFile(p, b, 0o644)
+	// Atomic: update-check.json is read/written by concurrently-running memcode
+	// processes (see checkCache) — a torn write must never corrupt it for the rest.
+	_ = atomicfile.WriteFile(p, b, 0o644)
 }
 
 // notice formats the user-facing update line ("" when current is latest).

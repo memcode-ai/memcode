@@ -9,6 +9,8 @@ package cloudclient
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,6 +18,7 @@ import (
 	"math/rand"
 	"net"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -72,10 +75,6 @@ func New(baseURL, token string, opts ...Option) *Client {
 		o(c)
 	}
 	return c
-}
-
-func (c *Client) post(ctx context.Context, path string, body []byte, stream bool, session string) (*http.Response, error) {
-	return c.request(ctx, http.MethodPost, path, body, stream, session)
 }
 
 // request issues one HTTP call with the client's auth/session headers. body
@@ -140,13 +139,38 @@ func retryableStatus(status int) bool {
 }
 
 // retryableNetErr reports whether a request error is a transient transport failure
-// (a connection reset, a DNS hiccup, a timeout) rather than a permanent config error.
+// (a connection reset, a DNS hiccup, a timeout) rather than a permanent config error
+// (DNS NXDOMAIN, a TLS certificate problem, an unsupported scheme) that no amount of
+// retrying can fix.
 func retryableNetErr(err error) bool {
+	// *url.Error (what http.Client returns) itself satisfies net.Error unconditionally,
+	// so unwrap it first and classify what actually failed.
+	var uerr *url.Error
+	if errors.As(err, &uerr) {
+		err = uerr.Err
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false // the caller's ctx decides, not the retry loop
+	}
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) {
+		return !dnsErr.IsNotFound // retry a flaky resolver, never NXDOMAIN
+	}
+	var certErr *tls.CertificateVerificationError
+	if errors.As(err, &certErr) {
+		return false
+	}
+	var unknownAuth x509.UnknownAuthorityError
+	var hostname x509.HostnameError
+	var certInvalid x509.CertificateInvalidError
+	if errors.As(err, &unknownAuth) || errors.As(err, &hostname) || errors.As(err, &certInvalid) {
+		return false
+	}
 	var netErr net.Error
 	if errors.As(err, &netErr) {
-		return true // timeout, temporary, connection refused/reset
+		return true // timeout, connection refused/reset
 	}
-	return false
+	return false // e.g. unsupported protocol scheme — permanent config error
 }
 
 // retryAfterDelay parses the Retry-After header (seconds or HTTP-date) and returns
@@ -232,18 +256,25 @@ func (c *Client) requestWithRetry(ctx context.Context, method, path string, body
 			}
 			return nil, nil, err
 		}
+		// A 413 may carry the context-overflow code — never retried, mapped to the
+		// sentinel HERE so every call site handles compaction the same way. A 413
+		// without the code stays a plain non-retryable response below.
+		if resp.StatusCode == http.StatusRequestEntityTooLarge {
+			raw, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			if overflowResponse(resp.StatusCode, raw) {
+				return nil, raw, wire.ErrContextOverflow
+			}
+			return nil, raw, apiError(resp.StatusCode, raw)
+		}
 		// Non-retryable status → return the open response for the caller to handle.
 		if !retryableStatus(resp.StatusCode) {
 			return resp, nil, nil
 		}
-		// Retryable status: read the body for potential Retry-After / overflow check,
-		// close it, then decide whether to retry.
+		// Retryable status: read the body for Retry-After handling, close it, then
+		// decide whether to retry.
 		raw, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
-		// Don't retry a context overflow (413+code) — the caller handles it via compaction.
-		if overflowResponse(resp.StatusCode, raw) {
-			return nil, raw, wire.ErrContextOverflow
-		}
 		if attempt < maxRetries {
 			// Honor Retry-After if present (429/503), otherwise exponential jitter.
 			delay, ok := retryAfterDelay(resp)
