@@ -234,8 +234,16 @@ func (s *appState) runSlash(line string) (quit bool) {
 		if os.Getenv("MEMCODE_TRACE") != "" {
 			trace = "on"
 		}
-		s.sysln(fmt.Sprintf("session %s\n  model %s (serving %s, backend %s)\n  vendor %s\n  pin %s\n  mode %s\n  ↑%d ↓%d tokens · cache %d read / %d write (%d%% hit)\n  context %d/%d (%d%%)\n  wire trace %s",
-			s.w.sess.SessionID(), model, serving, servedBy, vendor, pin, s.w.sess.Mode(), in, out, cr, cw, cacheHitRate(in, cr), ctxTokens, win, pct, trace))
+		lanes := ""
+		for _, ln := range s.w.sess.Lanes() {
+			label := provider.ServingLabel(ln.Name) + " subscription"
+			if ln.Kind == "ownkey" {
+				label = "your " + ln.Vendor + " key"
+			}
+			lanes += fmt.Sprintf("\n  lane %s → %s models", label, ln.Vendor)
+		}
+		s.sysln(fmt.Sprintf("session %s\n  model %s (serving %s, backend %s)\n  vendor %s\n  pin %s\n  mode %s%s\n  ↑%d ↓%d tokens · cache %d read / %d write (%d%% hit)\n  context %d/%d (%d%%)\n  wire trace %s",
+			s.w.sess.SessionID(), model, serving, servedBy, vendor, pin, s.w.sess.Mode(), lanes, in, out, cr, cw, cacheHitRate(in, cr), ctxTokens, win, pct, trace))
 	default:
 		s.sysln("unknown command " + cmd + " — try /help")
 	}
@@ -250,16 +258,36 @@ func (s *appState) costDetail(byPurpose bool) string {
 	}
 	ep, onEndpoint := s.w.sess.Endpoint()
 	showUSD := costShowsUSD(onEndpoint, s.w.sess.Pin())
-	// A subscription endpoint bills NOTHING per turn — printing "$0.05" as if
-	// money moved undoes the whole "is this really on my sub?" trust story.
-	// The API-value estimate stays visible, clearly labeled as not-a-charge.
+	// Money truth per serving path: lane turns bill NOTHING to memcode —
+	// sub turns are $0 (the API-value estimate stays, labeled as
+	// not-a-charge), own-key turns are the user's own provider dollars.
 	onSub := onEndpoint && provider.SubscriptionEndpointName(ep.Name)
+	var billed, subUSD, keyUSD float64
+	for _, bs := range s.w.sess.SpendByBackend() {
+		if _, kind, ok := provider.LaneBackendVendor(bs.Backend); ok {
+			if kind == "sub" {
+				subUSD += bs.USD
+			} else {
+				keyUSD += bs.USD
+			}
+			continue
+		}
+		billed += bs.USD
+	}
 	var b strings.Builder
 	b.WriteString("session spend (estimate):\n")
 	fmt.Fprintf(&b, "  ↑ input    %-8s  cache: %s read · %s write (%d%% hit)\n", fmtTokens(in), fmtTokens(cr), fmtTokens(cw), cacheHitRate(in, cr))
 	fmt.Fprintf(&b, "  ↓ output   %-8s\n", fmtTokens(out))
 	if onSub {
 		fmt.Fprintf(&b, "  ~ cost     $0 · %s subscription (≈$%.2f API value)", provider.ServingLabel(ep.Name), usd)
+	} else if subUSD > 0 || keyUSD > 0 {
+		fmt.Fprintf(&b, "  ~ cost     $%.2f billed to memcode credits", billed)
+		if subUSD > 0 {
+			fmt.Fprintf(&b, "\n             $0 on your subscription (≈$%.2f API value)", subUSD)
+		}
+		if keyUSD > 0 {
+			fmt.Fprintf(&b, "\n             ~$%.2f on your own API key (billed by the provider)", keyUSD)
+		}
 	} else if showUSD {
 		fmt.Fprintf(&b, "  ~ cost     $%.2f", usd)
 	} else {

@@ -166,3 +166,30 @@ func credentialNoun(kind string) string {
 	}
 	return "subscription"
 }
+
+// LaneBackendVendor maps a per-turn Backend stamp to its lane identity:
+// ("anthropic","sub",true) for "claude-sub", ("openai","ownkey",true) for
+// "ownkey:openai", ok=false for gateway/exclusive stamps.
+func LaneBackendVendor(backend string) (vendor, kind string, ok bool) {
+	if strings.HasPrefix(backend, "ownkey:") {
+		return strings.TrimPrefix(backend, "ownkey:"), "ownkey", true
+	}
+	if SubscriptionEndpointName(backend) {
+		return SourceVendor(canonicalSourceAliases[ServingLabel(backend)]), "sub", true
+	}
+	return "", "", false
+}
+
+// BackendServingLabel renders the per-turn "via X" for a lane-stamped
+// backend, "" for gateway/exclusive stamps (callers fall back to "memcode"
+// or the exclusive endpoint's name).
+func BackendServingLabel(backend string) string {
+	v, kind, ok := LaneBackendVendor(backend)
+	if !ok {
+		return ""
+	}
+	if kind == "ownkey" {
+		return "your " + v + " key"
+	}
+	return ServingLabel(backend)
+}

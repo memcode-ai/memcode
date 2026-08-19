@@ -1200,11 +1200,13 @@ func (s *Session) complete(ctx context.Context, purpose llm.Purpose, req wire.Re
 			name = provider.ShortModel(resp.Model)
 		}
 		line := "⇄ served by " + name
-		// Say WHOSE credential served the turn, every turn: "via claude" = the
-		// Claude subscription, "via codex"/"via github"/"via grok" the other
-		// subscriptions, a custom endpoint by its name, "via memcode" = the
-		// hosted gateway — the one-line answer to "who is serving this?".
-		if ep, ok := s.Endpoint(); ok && ep.Name != "" {
+		// Say WHOSE credential served the turn, every turn, from the RESPONSE
+		// (per-turn truth — a session can serve claude on the sub and kimi on
+		// the gateway back to back): lane stamps → "via claude"/"via your
+		// anthropic key"; exclusive endpoints by name; else "via memcode".
+		if v := provider.BackendServingLabel(resp.Backend); v != "" {
+			line += " via " + v
+		} else if ep, ok := s.Endpoint(); ok && ep.Name != "" {
 			line += " via " + provider.ServingLabel(ep.Name)
 		} else {
 			line += " via memcode"

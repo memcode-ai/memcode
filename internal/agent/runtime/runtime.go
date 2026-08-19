@@ -291,6 +291,15 @@ func (s *Session) Connected() bool {
 // Phase C). ok=false on the hosted gateway, signed out, and providers without
 // the Endpointer capability (test fakes). The TUI keys the /model picker, cost
 // display, and login-card copy on this; the runtime keys tool gating on it.
+// Lanes reports the attached family lanes (subscriptions + own keys), empty
+// off the Laner seam (exclusive endpoint mode, test fakes).
+func (s *Session) Lanes() []provider.LaneInfo {
+	if lz, ok := s.prov.(provider.Laner); ok {
+		return lz.Lanes()
+	}
+	return nil
+}
+
 func (s *Session) Endpoint() (provider.Endpoint, bool) {
 	if e, ok := s.prov.(provider.Endpointer); ok {
 		return e.Endpoint()

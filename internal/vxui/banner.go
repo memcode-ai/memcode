@@ -39,8 +39,8 @@ func printBanner(ctx context.Context, sess *runtime.Session, raw bool) {
 	s := bannerString(ctx, sess, theme.Active().Palette)
 	// A selected subscription that failed to resolve must be LOUD: turns are
 	// about to serve (and bill) somewhere the user did not choose.
-	if src, bad := provider.SelectedSourceUnresolved(); bad {
-		s += fmt.Sprintf("⚠ %s subscription selected but not signed in — serving falls back; run `memcode auth %s` to fix\n", src, src)
+	for _, src := range provider.SelectedSourcesUnresolved() {
+		s += fmt.Sprintf("⚠ %s subscription attached but not signed in — its models serve elsewhere; run `memcode auth %s` to fix\n", src, src)
 	}
 	if raw {
 		s = strings.ReplaceAll(s, "\n", "\r\n")
@@ -57,9 +57,24 @@ func sessionStatusChips(sess *runtime.Session) []string {
 		chips = append(chips, "signed out")
 	}
 	if ep, ok := sess.Endpoint(); ok {
-		// Endpoint mode: name where inference actually goes — the one signal
-		// that matters when there's no memcode account in the loop.
+		// Exclusive endpoint mode: name where inference actually goes — the
+		// one signal that matters when there's no memcode account in the loop.
 		chips = append(chips, "endpoint "+ep.Name)
+	}
+	// Family lanes: which subscriptions/keys serve their vendors' models.
+	var subs, keys []string
+	for _, ln := range sess.Lanes() {
+		if ln.Kind == "sub" {
+			subs = append(subs, provider.ServingLabel(ln.Name))
+		} else {
+			keys = append(keys, ln.Vendor)
+		}
+	}
+	if len(subs) > 0 {
+		chips = append(chips, "subs "+strings.Join(subs, "+"))
+	}
+	if len(keys) > 0 {
+		chips = append(chips, "key "+strings.Join(keys, "+"))
 	}
 	if t := theme.Chosen(); t != "" && t != "aurora" {
 		if t == "random" {
