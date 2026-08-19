@@ -1175,11 +1175,14 @@ func (s *Session) complete(ctx context.Context, purpose llm.Purpose, req wire.Re
 			name = provider.ShortModel(resp.Model)
 		}
 		line := "⇄ served by " + name
-		// In endpoint mode, say WHOSE credential served the turn ("via claude" =
-		// the Claude subscription, "via chatgpt" = Codex, a custom endpoint by
-		// its name) — the one-line answer to "is this really on my sub?".
+		// Say WHOSE credential served the turn, every turn: "via claude" = the
+		// Claude subscription, "via codex"/"via github"/"via grok" the other
+		// subscriptions, a custom endpoint by its name, "via memcode" = the
+		// hosted gateway — the one-line answer to "who is serving this?".
 		if ep, ok := s.Endpoint(); ok && ep.Name != "" {
 			line += " via " + provider.ServingLabel(ep.Name)
+		} else {
+			line += " via memcode"
 		}
 		// Why this turn isn't on the pool — the dogfooding instrument for the 80/20 flip.
 		// "thinking"/"planner"/"vision" = deterministic policy; "escalate:<reason>" = a

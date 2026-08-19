@@ -110,9 +110,9 @@ func ServingLabel(name string) string {
 	case "claude-sub":
 		return "claude"
 	case "codex":
-		return "chatgpt"
+		return "codex"
 	case "copilot":
-		return "copilot"
+		return "github"
 	case "grok-sub":
 		return "grok"
 	}
