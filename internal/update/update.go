@@ -372,6 +372,38 @@ func permissionHint(err error, dir string) error {
 
 // --- passive daily notice ----------------------------------------------------
 
+// ReexecStaged replaces the current process with the already-staged newer
+// binary, so "the next launch runs it" is THIS launch. Cache-only and
+// instant: no network, no version probe — the staged marker is written only
+// after a checksum-verified install. No-op on Windows (no exec) and for dev
+// builds. Loop-proof twice over: the re-exec'd binary IS the staged version
+// (IsNewer fails), and MEMCODE_REEXEC guards the pathological case.
+func ReexecStaged() {
+	if buildinfo.IsDev() || runtime.GOOS == "windows" || os.Getenv("MEMCODE_REEXEC") != "" {
+		return
+	}
+	target, ok := reexecTarget()
+	if !ok {
+		return
+	}
+	env := append(os.Environ(), "MEMCODE_REEXEC=1")
+	_ = syscallExec(target, os.Args, env) // on failure, just run the current build
+}
+
+// reexecTarget reports the executable path to re-exec when the staged install
+// is newer than the running build. Split from ReexecStaged for testability.
+func reexecTarget() (string, bool) {
+	c, ok := readCache()
+	if !ok || c.Installed == "" || !IsNewer(buildinfo.Compact(), c.Installed) {
+		return "", false
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return "", false
+	}
+	return exe, true
+}
+
 // checkCache is ~/.memcode/update-check.json.
 type checkCache struct {
 	CheckedAt time.Time `json:"checked_at"`
@@ -385,7 +417,10 @@ type checkCache struct {
 	Installed string `json:"installed,omitempty"`
 }
 
-const checkTTL = 24 * time.Hour
+// 6h, not 24: a check that lands minutes before a release used to poison the
+// cache for a whole day ("auto update doesn't work"). Four unauthenticated
+// GitHub API calls a day is nothing.
+const checkTTL = 6 * time.Hour
 
 func cachePath() string {
 	home, err := os.UserHomeDir()

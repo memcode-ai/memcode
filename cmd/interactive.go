@@ -91,7 +91,11 @@ func runInteractive(ctx context.Context, mode permissions.Mode, modeExplicit boo
 		}
 		sess.SetResume(id) // consumed by StartChat inside the TUI
 	}
-	// Daily self-update runs concurrently with the session: check, download,
+	// A binary staged by a PREVIOUS session's self-update runs NOW: swap the
+	// process image before the TUI touches the terminal. Cache-only and
+	// instant, so the local-state-decides-boot-UX law holds.
+	update.ReexecStaged()
+	// Self-update runs concurrently with the session: check, download,
 	// verify, and atomically stage the new binary on disk — the running
 	// process is untouched (local state decides boot UX; launch never waits
 	// on the network), and the NEXT launch runs the new version. Its line
