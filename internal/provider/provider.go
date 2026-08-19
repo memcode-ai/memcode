@@ -265,6 +265,17 @@ func NewFromEnvLazy(endpoints ...Endpoint) *Lazy {
 		// the endpoint instead of dead air (backend selection re-applies).
 		l.fallback.Store(&ep)
 	}
+	// An EXPLICITLY selected subscription source (memcode auth claude/codex/…)
+	// outranks a stored memcode login: the user just chose where turns should
+	// be served, and silently ignoring that choice made the auth wizard a lie
+	// (it printed "using your claude subscription" while the gateway kept
+	// serving). Ambient endpoints and own keys still lose to a login — only
+	// the wizard-consented subscription path gets this precedence.
+	if ep := l.fallback.Load(); ep != nil &&
+		ExplicitCredentialSource() && SubscriptionEndpointName(ep.Name) {
+		l.c.Store(dialEndpoint(*ep))
+		return l
+	}
 	if token := os.Getenv(EnvAPIToken); strings.HasPrefix(token, TokenPrefix) {
 		l.c.Store(dial(APIURL(), token))
 	} else if ep := l.fallback.Load(); ep != nil {

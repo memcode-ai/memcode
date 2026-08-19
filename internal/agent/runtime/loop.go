@@ -1175,6 +1175,12 @@ func (s *Session) complete(ctx context.Context, purpose llm.Purpose, req wire.Re
 			name = provider.ShortModel(resp.Model)
 		}
 		line := "⇄ served by " + name
+		// In endpoint mode, say WHOSE credential served the turn ("via claude" =
+		// the Claude subscription, "via chatgpt" = Codex, a custom endpoint by
+		// its name) — the one-line answer to "is this really on my sub?".
+		if ep, ok := s.Endpoint(); ok && ep.Name != "" {
+			line += " via " + provider.ServingLabel(ep.Name)
+		}
 		// Why this turn isn't on the pool — the dogfooding instrument for the 80/20 flip.
 		// "thinking"/"planner"/"vision" = deterministic policy; "escalate:<reason>" = a
 		// routing_hint; "cheap_lane_error"/"cheap_lane_overflow"/… = a real fallback. A drift back toward

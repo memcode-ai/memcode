@@ -102,6 +102,40 @@ func discoverCredentialEndpoint() (Endpoint, bool) {
 	return Endpoint{}, false
 }
 
+// ServingLabel maps an endpoint's internal name to the word a user chose in
+// the auth wizard — the "via X" in the TUI's served-by line. Empty for
+// endpoints that aren't a subscription source (their Name already reads fine).
+func ServingLabel(name string) string {
+	switch name {
+	case "claude-sub":
+		return "claude"
+	case "codex":
+		return "chatgpt"
+	case "copilot":
+		return "copilot"
+	case "grok-sub":
+		return "grok"
+	}
+	return name
+}
+
+// SubscriptionEndpointName reports whether an endpoint name is one of the
+// wizard-selected subscription sources (vs a custom endpoint or own key).
+func SubscriptionEndpointName(name string) bool {
+	switch name {
+	case "claude-sub", "codex", "copilot", "grok-sub":
+		return true
+	}
+	return false
+}
+
+// ExplicitCredentialSource reports the user has actively selected a
+// credential source (memcode auth …) — the consent signal that lets a
+// subscription login outrank other backends.
+func ExplicitCredentialSource() bool {
+	return strings.TrimSpace(os.Getenv(EnvCredentialSource)) != ""
+}
+
 // sourceModel resolves a subscription source's initial model: an explicit
 // MEMCODE_ENDPOINT_MODEL override wins, else the source's sensible default so a
 // subscription "just works" with no configuration. The /model picker changes it
