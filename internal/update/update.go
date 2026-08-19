@@ -372,6 +372,59 @@ func permissionHint(err error, dir string) error {
 
 // --- passive daily notice ----------------------------------------------------
 
+// SyncUpdate is the boot contract: CHECK, UPDATE, RESTART — every launch.
+// A bounded (3s) latest-version check; when a newer release exists it is
+// downloaded, checksum-verified, installed over the binary, and the process
+// re-execs into it before the TUI ever starts. Offline/rate-limited checks
+// fall back to running whatever is already staged. Dev builds,
+// MEMCODE_AUTO_UPDATE=off, and Windows (no exec — prints the restart nudge)
+// opt out of the swap.
+func SyncUpdate(ctx context.Context) {
+	if buildinfo.IsDev() || autoUpdateOff() || os.Getenv("MEMCODE_REEXEC") != "" {
+		return
+	}
+	lctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	latest, err := LatestVersion(lctx)
+	cancel()
+	if err != nil {
+		ReexecStaged() // offline: still run anything a prior launch staged
+		return
+	}
+	current := buildinfo.Compact()
+	if !IsNewer(current, latest) {
+		writeCache(checkCache{CheckedAt: time.Now(), Latest: latest, Installed: latest})
+		return
+	}
+	unlock, ok := lockUpdate()
+	if !ok {
+		return // another launch is mid-install; it will restart into the result
+	}
+	fmt.Fprintf(os.Stderr, "⟳ updating memcode %s → %s…\n", current, latest)
+	ictx, icancel := context.WithTimeout(ctx, 90*time.Second)
+	err = installLatest(ictx)
+	icancel()
+	unlock()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "  update failed (%v) — continuing on %s; `memcode update` to retry\n", err, current)
+		return
+	}
+	writeCache(checkCache{CheckedAt: time.Now(), Latest: latest, Installed: latest})
+	if runtime.GOOS == "windows" {
+		fmt.Fprintf(os.Stderr, "✓ memcode %s installed — restart to use it\n", latest)
+		return
+	}
+	env := append(os.Environ(), "MEMCODE_REEXEC=1")
+	_ = syscallExec(mustExecutable(), os.Args, env)
+}
+
+func mustExecutable() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return os.Args[0]
+	}
+	return exe
+}
+
 // ReexecStaged replaces the current process with the already-staged newer
 // binary, so "the next launch runs it" is THIS launch. Cache-only and
 // instant: no network, no version probe — the staged marker is written only

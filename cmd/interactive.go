@@ -91,11 +91,13 @@ func runInteractive(ctx context.Context, mode permissions.Mode, modeExplicit boo
 		}
 		sess.SetResume(id) // consumed by StartChat inside the TUI
 	}
-	// A binary staged by a PREVIOUS session's self-update runs NOW: swap the
-	// process image before the TUI touches the terminal. Cache-only and
-	// instant, so the local-state-decides-boot-UX law holds.
-	update.ReexecStaged()
-	// Self-update runs concurrently with the session: check, download,
+	// Boot contract (Tim): CHECK, UPDATE, RESTART — every launch. A bounded
+	// network check; a newer release installs synchronously and the process
+	// re-execs into it before the TUI starts. Offline falls back to any
+	// previously staged binary instantly.
+	update.SyncUpdate(ctx)
+	// The background path remains only for MEMCODE_AUTO_UPDATE=off users
+	// (a passive notice): check, download,
 	// verify, and atomically stage the new binary on disk — the running
 	// process is untouched (local state decides boot UX; launch never waits
 	// on the network), and the NEXT launch runs the new version. Its line

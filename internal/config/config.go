@@ -296,10 +296,35 @@ func Load(start string) (*Config, error) {
 	}
 	cfg.Root = root
 	cfg.applyDefaults()
+	// Self-heal the v0.25.x subscription-as-endpoint artifact: prune
+	// subscription-named endpoint entries and persist the cleaned config so
+	// the artifact disappears for good (best-effort — a read-only checkout
+	// still works via ResolveEndpoint's runtime guard).
+	if pruned := cfg.pruneSubscriptionEndpoints(); pruned {
+		_ = cfg.Save()
+	}
 	if err := cfg.Validate(path); err != nil {
 		return nil, err
 	}
 	return &cfg, nil
+}
+
+// pruneSubscriptionEndpoints drops endpoint entries that are really
+// subscription lanes (persisted by the v0.25.x exclusive mode), reporting
+// whether anything changed.
+func (c *Config) pruneSubscriptionEndpoints() bool {
+	var kept []Endpoint
+	for _, e := range c.Endpoints {
+		if provider.SubscriptionEndpointName(e.Name) {
+			continue
+		}
+		kept = append(kept, e)
+	}
+	if len(kept) == len(c.Endpoints) {
+		return false
+	}
+	c.Endpoints = kept
+	return true
 }
 
 // applyDefaults fills model tiers that have a documented fallback, so a config written
@@ -385,6 +410,14 @@ func (c *Config) ResolveEndpoint() (provider.Endpoint, bool) {
 	}
 	entry, ok := c.ActiveEndpoint()
 	if !ok || strings.TrimSpace(entry.BaseURL) == "" {
+		return provider.Endpoint{}, false
+	}
+	// v0.25.x persisted subscription sessions as config ENDPOINTS
+	// (name "claude-sub" → api.anthropic.com). Subscriptions are family
+	// lanes now — treating the artifact as an exclusive endpoint would put
+	// the whole session back on one vendor (the kimi-k3-404-at-Anthropic
+	// bug). Ignore it; Load prunes it from disk.
+	if provider.SubscriptionEndpointName(entry.Name) {
 		return provider.Endpoint{}, false
 	}
 	ep := provider.Endpoint{
