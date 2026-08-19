@@ -100,6 +100,12 @@ type ModelsInfo struct {
 	Roles            []RoleModel // which label plays which routing role
 	Models           []ModelFact // every servable label, catalog order
 	CreditsExhausted bool        // empty wallet → selection must prefer keyed lanes
+
+	// SubVendors is CLIENT-STAMPED (never decoded from the wire): vendors
+	// served by attached subscription lanes, i.e. $0 serving paths that
+	// selection should prefer. Empty on every wire-decoded snapshot, so all
+	// gateway-parity behavior is byte-identical when no subs are attached.
+	SubVendors map[string]bool `json:"-"`
 }
 
 // Role returns the label configured for a routing role, "" when unset.

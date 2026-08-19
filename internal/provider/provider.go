@@ -273,6 +273,21 @@ func (l *Lazy) laneSet() []lane {
 	return nil
 }
 
+// Laner is the policy-side seam over the lane set: selection consults it to
+// prefer $0 subscription vendors and to clamp signed-out resolution to
+// attached families.
+type Laner interface {
+	Lanes() []LaneInfo
+	GatewayPresent() bool
+}
+
+// GatewayPresent reports a live hosted-gateway base (side channels exist).
+// False in exclusive-endpoint mode and when signed out.
+func (l *Lazy) GatewayPresent() bool {
+	c := l.c.Load()
+	return c != nil && c.side != nil
+}
+
 // Lanes reports the attached family lanes for UI/policy consumers (the
 // provider.Laner seam). Empty in exclusive-endpoint mode and plain hosted.
 func (l *Lazy) Lanes() []LaneInfo {

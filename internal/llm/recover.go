@@ -44,6 +44,14 @@ func terminalForFallback(err error) bool {
 			return true
 		}
 	}
+	// Lane sentinels carry their own policy: ErrLaneExhausted raises the
+	// runtime's fallback-choice card; ErrNoLane is a user-action error. The
+	// automatic walk must never touch either.
+	var exh *provider.ErrLaneExhausted
+	var noLane *provider.ErrNoLane
+	if errors.As(err, &exh) || errors.As(err, &noLane) {
+		return true
+	}
 	return errors.Is(err, provider.ErrNotLoggedIn) || errors.Is(err, provider.ErrGatewayOnly)
 }
 
@@ -82,7 +90,8 @@ func nextFallback(label string, tried map[string]bool, req wire.Request, info pr
 		if f.Window > 0 && estimate > f.Window {
 			continue
 		}
-		if info.CreditsExhausted && len(keyed) > 0 && !keyed[f.Vendor] {
+		if info.CreditsExhausted && (len(keyed) > 0 || len(info.SubVendors) > 0) &&
+			!fundedVendor(f.Vendor, keyed, info) {
 			continue // the $0 rule holds mid-recovery too
 		}
 		return fb

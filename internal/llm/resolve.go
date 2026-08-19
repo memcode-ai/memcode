@@ -139,7 +139,7 @@ func resolveHosted(it wire.Intent, req wire.Request, info provider.ModelsInfo) r
 	// turn resolved to a strong vendor the user has NO key for remaps to the
 	// keyed preference's member at the SAME altitude. Explicit vendor choices
 	// are never overridden; with no keys this is a byte-identical no-op.
-	label = steerLabel(label, it.Vendor, info)
+	label = steerLabelWithLanes(label, it.Vendor, purpose, info)
 
 	return capabilityAdjust(label, false, it, req, info)
 }
@@ -319,11 +319,18 @@ func capabilityAdjust(label string, pinned bool, it wire.Intent, req wire.Reques
 	// at $0 gets the gateway's clean 402 naming the vendor, never a coercion.
 	if !pinned && info.CreditsExhausted {
 		keyed := info.ByokVendorSet()
-		if len(keyed) > 0 && !keyed[fact(out.label).Vendor] && !explicitVendor(it.Vendor, info) {
-			if pref := keyedPreference(info); pref != "" && pref != fact(out.label).Vendor {
+		funded := len(keyed) > 0 || len(info.SubVendors) > 0
+		if funded && !fundedVendor(fact(out.label).Vendor, keyed, info) && !explicitVendor(it.Vendor, info) {
+			// Sub lanes are the cheapest funded path ($0 and no key metering).
+			pref := subPreference(info)
+			reason := "credits_sub"
+			if pref == "" {
+				pref, reason = keyedPreference(info), "credits_byok"
+			}
+			if pref != "" && pref != fact(out.label).Vendor {
 				out.label = tierMember(pref, "balanced", hasBlock(req, "image"), estimate)
 				if out.reason == "" {
-					out.reason = "credits_byok"
+					out.reason = reason
 				}
 			}
 		}

@@ -269,6 +269,9 @@ func (r *Runner) prepare(ctx context.Context, p Purpose, req *wire.Request) (res
 		return resolved{}, provider.ModelsInfo{}, false, nil
 	}
 	info := r.sel.models(ctx)
+	if lz, ok := r.prov.(provider.Laner); ok {
+		info = applyLaneFacts(info, lz.Lanes(), lz.GatewayPresent())
+	}
 	it := wire.Intent{Purpose: string(p), Mode: req.Mode, Reasoning: req.Effort,
 		Difficulty: req.Difficulty, Vendor: r.vendor, Pin: r.pin}
 	if req.RoutingHint != nil {
