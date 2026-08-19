@@ -24,6 +24,7 @@ import (
 	"github.com/memcode-ai/memcode/internal/agent/input"
 	"github.com/memcode-ai/memcode/internal/agent/permissions"
 	"github.com/memcode-ai/memcode/internal/agent/runtime"
+	"github.com/memcode-ai/memcode/internal/banner"
 	"github.com/memcode-ai/memcode/internal/checkpoint"
 	"github.com/memcode-ai/memcode/internal/config"
 	"github.com/memcode-ai/memcode/internal/provider"
@@ -43,7 +44,10 @@ func Run(ctx context.Context, sess *runtime.Session, themeName string) error {
 	// Banner BEFORE the inline TUI starts; vaxis's primary screen preserves prior scrollback,
 	// so it settles above the live region. Matrix theme plays the original digital-rain intro
 	// (skippable by typing — the keystrokes carry into the composer); others print statically.
-	matrix := theme.Active().Name == "matrix"
+	// The digital-rain intro plays ONCE per machine (first boot on the matrix
+	// theme); afterwards matrix boots like every other theme — straight to
+	// the static settled banner, no per-launch animation toll.
+	matrix := theme.Active().Name == "matrix" && !banner.IntroSeen()
 	// Building the banner can be slow (it resolves the serving model + repo orientation), and that
 	// whole window runs before vaxis owns the tty. In cooked mode a user who starts typing has their
 	// keystrokes echoed as raw garbage and then swallowed when vaxis flips to raw. So render the
@@ -306,6 +310,7 @@ func (s *appState) InitState() {
 			s.w.sess.SetWidth(w) // seed the diff renderer's width so the first edit's diff isn't clipped to the 95-col fallback
 		}
 		if s.w.introMatrix {
+			banner.MarkIntroSeen()
 			s.intro = true
 			s.introRecall = matrixRecall(s.w.ctx, s.w.sess)
 			go s.runIntro()

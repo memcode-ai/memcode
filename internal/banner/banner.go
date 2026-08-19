@@ -5,6 +5,8 @@
 package banner
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -83,6 +85,32 @@ var matrixWordShades = func() []lipgloss.Style {
 
 // MatrixFrames is the number of animation frames before the landed hold.
 func MatrixFrames() int { return matrixAnimFrames }
+
+// IntroSeen reports the animated intro has already played once on this
+// machine. The animation is a first-boot moment, not a per-launch toll:
+// every later launch rests on the static settled wordmark immediately.
+func IntroSeen() bool {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return false
+	}
+	_, err = os.Stat(filepath.Join(home, ".memcode", "intro-seen"))
+	return err == nil
+}
+
+// MarkIntroSeen records that the intro played (called when the animation
+// starts, so even a skipped or interrupted first run counts as seen).
+func MarkIntroSeen() {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return
+	}
+	dir := filepath.Join(home, ".memcode")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return
+	}
+	_ = os.WriteFile(filepath.Join(dir, "intro-seen"), []byte{}, 0o644)
+}
 
 // Matrix renders one frame of the digital-rain intro for the given terminal width. recall is the
 // "↺ recalled …" line, shown near the end. frame >= MatrixFrames() yields the landed splash.

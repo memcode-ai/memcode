@@ -204,6 +204,11 @@ func (s *appState) matrixIntroView() ui.Widget {
 	if w < 80 {
 		w = 80
 	}
+	// Cap the rain card: on a wide terminal a full-bleed card reads as noise;
+	// ~100 cols frames the 77-col wordmark with margin and stops there.
+	if w > 100 {
+		w = 100
+	}
 	var rows []ui.Widget
 	for _, line := range strings.Split(banner.Matrix(w, s.introFrame, s.introRecall), "\n") {
 		rows = append(rows, ui.RichText{Spans: parseANSISpans(line)})
