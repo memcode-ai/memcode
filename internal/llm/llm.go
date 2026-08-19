@@ -282,6 +282,7 @@ func (r *Runner) prepare(ctx context.Context, p Purpose, req *wire.Request) (res
 		return res, info, true, res.err
 	}
 	req.Pin = res.label
+	scrubForeignThinking(req, res.label)
 	// The delegate doctrine: the cheap coding lane, serving an interactive
 	// building mode under Automatic, is told to hand non-code work to a
 	// strong-tier agent. Appended to the composed STABLE half (cache-safe:

@@ -79,6 +79,7 @@ type Session struct {
 	scoutModel        string // model for read-only explore sub-agents (cheap; Luna by default)
 	vendor            string // per-session strong-tier vendor ("" = configured default; set by /model)
 	pin               string // pinned model label ("" = Automatic; set by /model — every real request serves this model)
+	lastServedModel   string // last turn's serving model — cross-family thinking-block hygiene (loop.go)
 	pinWindow         int    // the pin's context window from the picker list (0 = unknown; sizes the meter before the first serve)
 	mode              permissions.Mode
 	modeMu            sync.RWMutex // guards mode: the TUI goroutine cycles it (Shift+Tab // /mode) while the engine reads it at the permission gate

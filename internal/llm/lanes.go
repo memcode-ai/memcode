@@ -3,6 +3,7 @@ package llm
 import (
 	"github.com/memcode-ai/memcode/catalog"
 	"github.com/memcode-ai/memcode/internal/provider"
+	"github.com/memcode-ai/memcode/internal/wire"
 )
 
 // Lane-aware policy: attached subscriptions are $0 serving paths, so
@@ -107,4 +108,40 @@ func steerLabelWithLanes(label, vendor, purpose string, info provider.ModelsInfo
 // key, a local key lane (merged into Byok above), or a subscription lane.
 func fundedVendor(v string, keyed map[string]bool, info provider.ModelsInfo) bool {
 	return keyed[v] || info.SubVendors[v]
+}
+
+// scrubForeignThinking drops thinking/redacted_thinking blocks when the
+// serving label is NOT an Anthropic model: thinking input is an
+// Anthropic-only wire concept, and per-turn family switching (a lane turn
+// after a gateway Claude turn, a mid-call fallback hop) can otherwise replay
+// an Anthropic thinking block into an OpenAI/Fireworks/xAI request — a hard
+// 400. Copy-on-write: shared history slices are never mutated.
+func scrubForeignThinking(req *wire.Request, servingLabel string) {
+	if catalog.ModelVendor(servingLabel) == "anthropic" {
+		return
+	}
+	for i := range req.Messages {
+		m := &req.Messages[i]
+		if m.Role != "assistant" {
+			continue
+		}
+		dirty := false
+		for _, b := range m.Blocks {
+			if b.Type == "thinking" || b.Type == "redacted_thinking" {
+				dirty = true
+				break
+			}
+		}
+		if !dirty {
+			continue
+		}
+		kept := make([]wire.Block, 0, len(m.Blocks))
+		for _, b := range m.Blocks {
+			if b.Type == "thinking" || b.Type == "redacted_thinking" {
+				continue
+			}
+			kept = append(kept, b)
+		}
+		m.Blocks = kept
+	}
 }

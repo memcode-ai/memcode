@@ -1167,6 +1167,17 @@ func (s *Session) complete(ctx context.Context, purpose llm.Purpose, req wire.Re
 				v.inputBudget = resp.InputBudget
 			}
 		})
+		// Cross-family serving hygiene: if a different model served this turn
+		// than the last one, the prior turn's thinking blocks are no longer
+		// replayable (Anthropic signature-validates them per model; other
+		// vendors reject the block type entirely). Strip them from the live
+		// history before the next turn is assembled.
+		if resp.Model != "" && s.lastServedModel != "" && resp.Model != s.lastServedModel {
+			s.stripThinkingFromLiveChat()
+		}
+		if resp.Model != "" {
+			s.lastServedModel = resp.Model
+		}
 		// Just the model name — it already implies the backend (kimi-k2p6 = cheap lane, opus =
 		// Anthropic). The cheap lane tags a short Pool label; Anthropic has none, so fall back to
 		// the short model id.
