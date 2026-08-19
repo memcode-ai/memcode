@@ -23,6 +23,9 @@ jobs:
           go-version: "1.26"
           cache-dependency-path: go.sum
 
+      # Never publish a release from a commit whose tests don't pass.
+      - run: go test -race ./...
+
       - uses: goreleaser/goreleaser-action@v6
         with:
           version: "~> v2"
