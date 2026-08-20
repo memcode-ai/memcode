@@ -35,7 +35,7 @@ var ErrSubscriptionRequired = errors.New("subscription required — choose a pla
 // ErrAccountLocked is returned when the org's balance went negative from a
 // post-hoc debit overrun — the gateway returns 402 with code "account_locked".
 // Everything is refused, BYOK included, until credits are added. Never retried.
-var ErrAccountLocked = errors.New("account locked — your balance is negative; add credits at memcode.ai/account/billing")
+var ErrAccountLocked = errors.New("your balance is negative — hosted models are paused; settle it at memcode.ai/account/billing (your own API keys keep working via /apikeys)")
 
 // ErrByokKeyFailed is returned when the turn died on the USER's own provider
 // key (fail-the-turn doctrine: a failing BYOK key is never absorbed onto

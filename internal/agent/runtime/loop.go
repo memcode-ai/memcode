@@ -289,10 +289,11 @@ func (s *Session) runLoop(ctx context.Context, sys promptSpec, messages *[]wire.
 				s.printf("\n■ %s\n", metaStyle.Render("Subscription required — choose a plan at https://memcode.ai/account/billing"))
 				return iterations, false, nil
 			}
-			// Negative balance locked the account: everything is refused (BYOK
-			// included) until credits are added. Consumed, no retry.
+			// Negative balance paused the hosted lane (2026-08-20: a billing
+			// lock never blocks the user's own keys — the gateway keeps BYOK
+			// serving via LimitToKeyed). Consumed, no retry.
 			if errors.Is(err, wire.ErrAccountLocked) {
-				s.printf("\n■ %s\n", metaStyle.Render("Account locked — your balance is negative. Add credits at https://memcode.ai/account/billing"))
+				s.printf("\n■ %s\n", metaStyle.Render("Balance negative — hosted models paused. Settle it at https://memcode.ai/account/billing, or keep working on your own keys with /apikeys"))
 				return iterations, false, nil
 			}
 			// The turn died on the user's OWN provider key. The doctrine's real
