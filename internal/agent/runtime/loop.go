@@ -279,7 +279,7 @@ func (s *Session) runLoop(ctx context.Context, sys promptSpec, messages *[]wire.
 			// "insufficient_credits"; the client mapped it to the sentinel. The
 			// error is CONSUMED (a return would double-print as a raw "error:").
 			if errors.Is(err, wire.ErrInsufficientCredit) {
-				s.printf("\n■ %s\n", metaStyle.Render("Credits exhausted — visit https://memcode.ai/account/billing to top up"))
+				s.printf("\n■ %s\n", metaStyle.Render("Credits exhausted — add your own API keys with /apikeys, or manage your plan and credits at https://memcode.ai/account/billing"))
 				return iterations, false, nil
 			}
 			// Subscription mandatory (2026-07-26): the gateway refuses every LLM

@@ -21,9 +21,10 @@ var ErrStreamIncomplete = errors.New("gateway stream ended without a response")
 
 // ErrInsufficientCredit is returned when the org's prepaid credit balance is
 // exhausted — the gateway returns 402 with code "insufficient_credits". The CLI
-// surfaces a friendly "add credits" message and stops the turn (no retry: buying
-// credits is a user action, not a transient failure).
-var ErrInsufficientCredit = errors.New("credits exhausted — add credits at memcode.ai/account/billing")
+// surfaces a friendly message and stops the turn (no retry: it's a user action,
+// not a transient failure). Keys lead the message: they're the fix on every
+// plan, while "add credits" doesn't exist on the BYOK-only Free plan.
+var ErrInsufficientCredit = errors.New("credits exhausted — add your own API keys with /apikeys, or manage your plan and credits at memcode.ai/account/billing")
 
 // ErrSubscriptionRequired is returned when the org has no active subscription —
 // the gateway returns 402 with code "subscription_required". Subscription is
