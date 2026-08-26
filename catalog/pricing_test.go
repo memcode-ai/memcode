@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"math"
 	"testing"
 	"time"
 )
@@ -26,6 +27,8 @@ func TestModelPricingRealIDs(t *testing.T) {
 		{"accounts/fireworks/models/kimi-k3", 3.00, 15.00},       // K3's own Fireworks headline card ($3/$15), NOT the kimi family rule
 		{"accounts/fireworks/models/kimi-k2p7-code", 0.95, 4.00}, // pinnable via /model
 		{"accounts/fireworks/models/qwen3p8-2p4t-a95b", 2.00, 6.00},
+		{"accounts/fireworks/models/deepseek-v4-pro-0813", 1.32, 3.96},
+		{"accounts/fireworks/models/deepseek-v4-flash-0731", 0.22, 0.66},
 		{"claude-opus-5", 5, 25},   // $5/$25 since Opus 4.5 repricing
 		{"claude-fable-5", 10, 50}, // Fable 5 flagship $10/$50 (explicit entry price)
 		{"claude-sonnet-5", 2, 10}, // explicit sonnet rule (was falling to $3/$15 defaults)
@@ -55,6 +58,7 @@ func TestModelPricingByLabel(t *testing.T) {
 	}{
 		{"sol", 5}, {"terra", 2}, {"luna", 0.2},
 		{"glm-5p2", 1.40}, {"kimi-k2p6", 0.95}, {"qwen3p8-max", 2.00},
+		{"deepseek-v4-pro", 1.32}, {"deepseek-v4-flash", 0.22},
 		{"gemini-flash-lite", 0.3},
 	}
 	for _, c := range cases {
@@ -81,6 +85,8 @@ func TestContextWindowFireworks(t *testing.T) {
 		{"accounts/fireworks/models/kimi-k3", 1_000_000}, // k3 ≠ the kimi-k2 262K case
 		{"accounts/fireworks/models/kimi-k2p6", 262_000},
 		{"accounts/fireworks/models/qwen3p8-2p4t-a95b", 262_144},
+		{"accounts/fireworks/models/deepseek-v4-pro-0813", 1_040_000},
+		{"accounts/fireworks/models/deepseek-v4-flash-0731", 1_040_000},
 		{"gemini-3.1-pro-preview", 1_000_000},
 		{"gemini-3.6-flash", 1_000_000},
 	}
@@ -105,11 +111,13 @@ func TestModelPricingCacheRates(t *testing.T) {
 		{"accounts/fireworks/models/glm-5p2", 0.14, 1.75},
 		{"accounts/fireworks/models/kimi-k2p6", 0.16, 1.1875},
 		{"accounts/fireworks/models/qwen3p8-2p4t-a95b", 0.2, 2.5},
+		{"accounts/fireworks/models/deepseek-v4-pro-0813", 0.044, 1.32 * 1.25},
+		{"accounts/fireworks/models/deepseek-v4-flash-0731", 0.007, 0.275},
 		{"gpt-image-2", 0.8, 10},
 	}
 	for _, c := range cases {
 		p := ModelPricing(c.id)
-		if p.CacheRead != c.cacheRead || p.CacheWrite != c.cacheWrite {
+		if p.CacheRead != c.cacheRead || math.Abs(p.CacheWrite-c.cacheWrite) > 1e-12 {
 			t.Errorf("%s cache rates = read %.4f / write %.4f, want %.4f / %.4f",
 				c.id, p.CacheRead, p.CacheWrite, c.cacheRead, c.cacheWrite)
 		}

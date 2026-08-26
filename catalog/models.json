@@ -419,29 +419,54 @@
       ]
     },
     {
-      "id": "accounts/fireworks/models/deepseek-v4-pro",
+      "id": "accounts/fireworks/models/deepseek-v4-pro-0813",
       "label": "deepseek-v4-pro",
       "vendor": "fireworks",
-      "window": 1000000,
+      "window": 1040000,
       "vision": false,
       "reasoning": true,
-      "_note": "DeepSeek V4 (Fireworks, exposed 2026-08-10 at Tim's request): open-weight reasoning + coding, 1M context, no vision. Fireworks-family pricing applies (glm rate card floor, so cheap-lane metering is never $0). Pinnable + web chat; NOT a routing role. The Fireworks id was NOT re-probed at expose time \u2014 verify accounts/fireworks/models/deepseek-v4-pro resolves on the account before making it a role. PRICING verified 2026-08-15 fireworks.ai model page: $1.74/$3.48, cached $0.145 (the glm-family fallback rate was undercharging in/overcharging out).",
+      "_note": "DeepSeek V4 Pro 0813 (Fireworks official release, supersedes the earlier deepseek-v4-pro preview). Updated 2026-08-26 after Fireworks model page showed serverless Ready with path accounts/fireworks/models/deepseek-v4-pro-0813, 1,040K context, function calling, $1.32/$3.96 per 1M, cached input $0.044. Label stays deepseek-v4-pro so existing pins keep following the latest Pro release.",
       "pinnable": true,
       "group": "DeepSeek",
       "desc": "Open-weight reasoning",
-      "name": "DeepSeek V4",
+      "name": "DeepSeek V4 Pro",
       "www": {
         "chat": true,
         "order": 25,
-        "description": "DeepSeek's open-weight reasoning and coding model with a 1M context window."
+        "description": "DeepSeek's official V4 Pro reasoning and coding model with a 1.04M context window."
       },
       "max_output": 32000,
       "fallback": [
         "glm-5p2"
       ],
-      "price_in": 1.74,
-      "price_out": 3.48,
-      "price_cache_read": 0.145
+      "price_in": 1.32,
+      "price_out": 3.96,
+      "price_cache_read": 0.044
+    },
+    {
+      "id": "accounts/fireworks/models/deepseek-v4-flash-0731",
+      "label": "deepseek-v4-flash",
+      "vendor": "fireworks",
+      "window": 1040000,
+      "vision": false,
+      "reasoning": true,
+      "_note": "DeepSeek V4 Flash 0731 (Fireworks serverless). Added 2026-08-26 after Fireworks model page showed serverless Ready with path accounts/fireworks/models/deepseek-v4-flash-0731, 1,040K context, function calling, $0.22/$0.66 per 1M, cached input $0.007. Pin-only + web chat initially; not a routing role until live-probed on memcode agent workloads.",
+      "pinnable": true,
+      "group": "DeepSeek",
+      "desc": "Fast reasoning",
+      "name": "DeepSeek V4 Flash",
+      "www": {
+        "chat": true,
+        "order": 26,
+        "description": "DeepSeek's fast V4 Flash model for lower-cost reasoning and coding with a 1.04M context window."
+      },
+      "max_output": 32000,
+      "fallback": [
+        "glm-5p2"
+      ],
+      "price_in": 0.22,
+      "price_out": 0.66,
+      "price_cache_read": 0.007
     },
     {
       "id": "accounts/fireworks/models/minimax-m3",
@@ -576,7 +601,7 @@
         "glm-5p2",
         "deepseek-v4"
       ],
-      "window": 1000000
+      "window": 1040000
     },
     {
       "match": [
