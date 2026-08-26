@@ -206,17 +206,32 @@ func NewFromEnv(endpoints ...Endpoint) (ModelProvider, error) {
 	return nil, fmt.Errorf("not connected to memcode.ai — run `memcode login` to sign in and set up this machine\n(advanced: set %s in %s, or point memcode at a local endpoint with %s)", EnvAPIToken, GlobalEnvPath(), EnvEndpointURL)
 }
 
-// resolveEndpoint picks the active custom endpoint: the caller's resolved one
-// (config-aware callers pass exactly one) wins, else the env-configured one.
-// Either way a keyless endpoint on a well-known provider host picks up the
-// ecosystem-standard env var (ConventionalKey) — explicit keys always win.
-func resolveEndpoint(endpoints []Endpoint) (Endpoint, bool) {
+// resolveConfiguredEndpoint picks only an explicitly configured custom
+// endpoint: the caller's resolved one (config-aware callers pass exactly one)
+// wins, else the env-configured one. Credential sources and ambient provider
+// keys are family lanes in the TUI, not exclusive endpoints.
+func resolveConfiguredEndpoint(endpoints []Endpoint) (Endpoint, bool) {
 	pick := func(ep Endpoint) (Endpoint, bool) {
 		if ep.Key == "" {
 			ep.Key = ConventionalKey(ep.BaseURL)
 		}
 		return ep, true
 	}
+	for _, ep := range endpoints {
+		if ep.BaseURL != "" {
+			return pick(ep)
+		}
+	}
+	if ep, ok := EndpointFromEnv(); ok {
+		return pick(ep)
+	}
+	return Endpoint{}, false
+}
+
+// resolveEndpoint picks the active backend endpoint for non-lazy callers that
+// cannot host family-lane dispatch. Explicit subscription sources and ambient
+// own keys still resolve as endpoints here so one-shot commands keep working.
+func resolveEndpoint(endpoints []Endpoint) (Endpoint, bool) {
 	// An explicitly selected credential source is checked FIRST: the user's
 	// wizard choice must not be shadowed by a stale config endpoint or env
 	// URL. Only when the selected source fails to resolve do the other paths
@@ -227,13 +242,8 @@ func resolveEndpoint(endpoints []Endpoint) (Endpoint, bool) {
 			return ep, true
 		}
 	}
-	for _, ep := range endpoints {
-		if ep.BaseURL != "" {
-			return pick(ep)
-		}
-	}
-	if ep, ok := EndpointFromEnv(); ok {
-		return pick(ep)
+	if ep, ok := resolveConfiguredEndpoint(endpoints); ok {
+		return ep, true
 	}
 	// Last: an ambient exported provider key (no memcode account, no explicit
 	// endpoint). Already carries its own key, so it skips the conventional-key
@@ -303,37 +313,31 @@ func (l *Lazy) Lanes() []LaneInfo {
 // Phase C): a real login (a memcode_-prefixed org key — the local logged-in
 // signal) → the hosted gateway; else a configured endpoint (the caller's
 // resolved config endpoint, or MEMCODE_ENDPOINT_URL) → that endpoint on the
-// compat transport; else signed out — the TUI opens on the sign-in card.
-// Unlike NewFromEnv it never fails — signed-out is a valid state for the TUI.
+// compat transport; else family lanes from attached subscriptions / own keys;
+// else signed out — the TUI opens on the sign-in card. Unlike NewFromEnv it
+// never fails — signed-out is a valid state for the TUI.
 func NewFromEnvLazy(endpoints ...Endpoint) *Lazy {
 	l := &Lazy{}
-	if ep, ok := resolveEndpoint(endpoints); ok {
+	if ep, ok := resolveConfiguredEndpoint(endpoints); ok {
 		// Remembered even when a login wins right now: /logout falls back to
 		// the endpoint instead of dead air (backend selection re-applies).
 		l.fallback.Store(&ep)
 	}
-	// An EXPLICITLY selected subscription source (memcode auth claude/codex/…)
-	// outranks a stored memcode login: the user just chose where turns should
-	// be served, and silently ignoring that choice made the auth wizard a lie
-	// (it printed "using your claude subscription" while the gateway kept
-	// serving). Ambient endpoints and own keys still lose to a login — only
-	// the wizard-consented subscription path gets this precedence.
-	if ep := l.fallback.Load(); ep != nil &&
-		ExplicitCredentialSource() && SubscriptionEndpointName(ep.Name) {
-		l.c.Store(dialEndpoint(*ep))
-		return l
-	}
 	if token := os.Getenv(EnvAPIToken); strings.HasPrefix(token, TokenPrefix) {
 		l.c.Store(dial(APIURL(), token))
+		if lanes := buildLanes(); len(lanes) > 0 {
+			l.lanes.Store(&lanes)
+		}
 	} else if ep := l.fallback.Load(); ep != nil {
 		l.c.Store(dialEndpoint(*ep))
+	} else if lanes := buildLanes(); len(lanes) > 0 {
+		l.lanes.Store(&lanes)
 	}
 	return l
 }
 
 // Connected reports whether a usable backend is present — hosted gateway
-// credentials OR a configured custom endpoint (Phase C widening: endpoint
-// mode is a connected state; only token-less-and-endpoint-less is signed out).
+// credentials, a configured custom endpoint, or at least one family lane.
 func (l *Lazy) Connected() bool { return l.c.Load() != nil || len(l.laneSet()) > 0 }
 
 // Endpoint reports the ACTIVE custom endpoint, ok=false when hosted or signed

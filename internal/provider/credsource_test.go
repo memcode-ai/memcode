@@ -3,30 +3,35 @@ package provider
 import "testing"
 
 // An exported provider key, with no memcode login and no explicit endpoint, is
-// a CONNECTED own-key backend on the native vendor adapter — the account-free
+// a CONNECTED own-key lane on the native vendor adapter — the account-free
 // first turn. It must never outrank a real login or a configured endpoint.
 func TestOwnKeyBackendSelection(t *testing.T) {
-	t.Run("exported anthropic key selects the native anthropic backend", func(t *testing.T) {
+	t.Run("exported anthropic key attaches a native anthropic lane", func(t *testing.T) {
 		clearBackendEnv(t)
 		t.Setenv("ANTHROPIC_API_KEY", "sk-ant-own")
 		l := NewFromEnvLazy()
 		if !l.Connected() {
 			t.Fatal("an exported provider key must be a connected state")
 		}
-		ep, ok := l.Endpoint()
-		if !ok || ep.BaseURL != "https://api.anthropic.com" || ep.Key != "sk-ant-own" {
-			t.Fatalf("own-key endpoint resolved wrong: %+v (ok=%v)", ep, ok)
+		if ep, ok := l.Endpoint(); ok {
+			t.Fatalf("own-key lane must not put the TUI in endpoint mode: %+v", ep)
 		}
-		c := l.c.Load()
-		if _, isNative := c.turn.(*nativeShim); !isNative {
-			t.Errorf("own-key mode on a vendor host must use the native adapter, got %T", c.turn)
+		lanes := l.laneSet()
+		if len(lanes) != 1 || lanes[0].vendor != "anthropic" || lanes[0].kind != laneOwnKey {
+			t.Fatalf("own-key lanes = %+v, want one anthropic own-key lane", l.Lanes())
 		}
-		if c.side != nil {
+		if lanes[0].ep.BaseURL != "https://api.anthropic.com" || lanes[0].ep.Key != "sk-ant-own" {
+			t.Fatalf("own-key lane endpoint resolved wrong: %+v", lanes[0].ep)
+		}
+		if _, isNative := lanes[0].c.turn.(*nativeShim); !isNative {
+			t.Errorf("own-key lane on a vendor host must use the native adapter, got %T", lanes[0].c.turn)
+		}
+		if lanes[0].c.side != nil {
 			t.Error("own-key mode has NO memcode side channel")
 		}
 	})
 
-	t.Run("a memcode token outranks an exported key", func(t *testing.T) {
+	t.Run("a memcode token becomes the base beside an exported key lane", func(t *testing.T) {
 		clearBackendEnv(t)
 		t.Setenv("ANTHROPIC_API_KEY", "sk-ant-own")
 		t.Setenv(EnvAPIToken, "memcode_tok")
@@ -36,6 +41,9 @@ func TestOwnKeyBackendSelection(t *testing.T) {
 		}
 		if l.c.Load().side == nil {
 			t.Error("the winning hosted backend must keep its side channel")
+		}
+		if lanes := l.Lanes(); len(lanes) != 1 || lanes[0].Kind != "ownkey" || lanes[0].Vendor != "anthropic" {
+			t.Fatalf("hosted session should keep the exported key as a family lane, got %+v", lanes)
 		}
 	})
 

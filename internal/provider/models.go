@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 
+	"github.com/memcode-ai/memcode/catalog"
 	"github.com/memcode-ai/memcode/internal/providers/memcode"
 )
 
@@ -34,12 +35,13 @@ func envOr(key, fallback string) string {
 }
 
 // AvailablePins asks the gateway which concrete models the /model picker may
-// offer (the pinnable subset of the servable list). Empty on error — the
-// picker then shows Automatic only.
+// offer (the pinnable subset of the servable list). On gateway outage or a
+// lane-only session, fall back to the embedded catalog so /model remains a
+// real picker instead of collapsing to Automatic/free-text.
 func AvailablePins(ctx context.Context) []PinnableModel {
 	info, err := FetchModels(ctx)
 	if err != nil {
-		return nil
+		return catalogPins()
 	}
 	var out []PinnableModel
 	for _, f := range info.Models {
@@ -48,6 +50,20 @@ func AvailablePins(ctx context.Context) []PinnableModel {
 		}
 		out = append(out, PinnableModel{Label: f.Label, Name: f.Name, Desc: f.Desc,
 			Group: f.Group, Window: f.Window, Vision: f.Vision, Byok: f.Byok})
+	}
+	return out
+}
+
+func catalogPins() []PinnableModel {
+	var out []PinnableModel
+	for _, m := range catalog.CatalogModels() {
+		if !m.Pinnable {
+			continue
+		}
+		out = append(out, PinnableModel{
+			Label: m.Label, Name: m.Name, Desc: m.Desc,
+			Group: m.Group, Window: m.Window, Vision: m.Vision,
+		})
 	}
 	return out
 }

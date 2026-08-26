@@ -2,9 +2,7 @@ package provider
 
 import "testing"
 
-// The wizard's explicit subscription choice must never be silently shadowed:
-// not by a stored memcode login, not by a stale config endpoint. These pin the
-// selection rules that make "✓ using your claude subscription" true.
+// Subscription sources are user-facing labels for family lanes.
 func TestServingLabels(t *testing.T) {
 	cases := map[string]string{
 		"claude-sub": "claude",
@@ -58,5 +56,93 @@ func TestSelectedSourceUnresolvedWhenSignedOut(t *testing.T) {
 	t.Setenv(EnvCredentialSource, "")
 	if _, bad := SelectedSourceUnresolved(); bad {
 		t.Fatal("no source selected but reported unresolved")
+	}
+}
+
+func TestLazySelectedSubscriptionIsLaneNotEndpoint(t *testing.T) {
+	restoreResolve := resolveSourceFn
+	restoreDial := dialLane
+	defer func() {
+		resolveSourceFn = restoreResolve
+		dialLane = restoreDial
+	}()
+	resolveSourceFn = func(source string) (Endpoint, bool) {
+		if source != "claude" {
+			return Endpoint{}, false
+		}
+		return Endpoint{Name: "claude-sub", BaseURL: "https://api.anthropic.com", Key: "oauth", Model: "claude-sonnet-5"}, true
+	}
+	dialLane = func(ep Endpoint) *conn { return &conn{ep: &ep} }
+
+	t.Setenv(EnvCredentials, "claude")
+	t.Setenv(EnvAPIToken, "memcode_x")
+	withGateway := NewFromEnvLazy()
+	if ep, ok := withGateway.Endpoint(); ok {
+		t.Fatalf("Endpoint() = %+v, true; subscription must be a lane beside the gateway", ep)
+	}
+	if lanes := withGateway.Lanes(); len(lanes) != 1 || lanes[0].Name != "claude-sub" {
+		t.Fatalf("Lanes() = %+v, want claude-sub lane", lanes)
+	}
+	if !withGateway.GatewayPresent() {
+		t.Fatal("gateway token should remain the base while subscription is attached as a lane")
+	}
+
+	t.Setenv(EnvAPIToken, "")
+	laneOnly := NewFromEnvLazy()
+	if ep, ok := laneOnly.Endpoint(); ok {
+		t.Fatalf("lane-only Endpoint() = %+v, true; /model would open the endpoint picker again", ep)
+	}
+	if lanes := laneOnly.Lanes(); len(lanes) != 1 || lanes[0].Name != "claude-sub" {
+		t.Fatalf("lane-only Lanes() = %+v, want claude-sub lane", lanes)
+	}
+	if !laneOnly.Connected() {
+		t.Fatal("lane-only session must be connected")
+	}
+	if laneOnly.GatewayPresent() {
+		t.Fatal("lane-only session must not report a gateway base")
+	}
+}
+
+func TestLazyMemcodeAccountKeepsAllSubscriptionLanes(t *testing.T) {
+	restoreResolve := resolveSourceFn
+	restoreDial := dialLane
+	defer func() {
+		resolveSourceFn = restoreResolve
+		dialLane = restoreDial
+	}()
+	resolveSourceFn = func(source string) (Endpoint, bool) {
+		switch source {
+		case "claude":
+			return Endpoint{Name: "claude-sub", BaseURL: "https://api.anthropic.com", Key: "claude-oauth", Model: "claude-sonnet-5"}, true
+		case "codex":
+			return Endpoint{Name: "codex", BaseURL: "https://chatgpt.com/backend-api/codex", Key: "codex-oauth", Model: "gpt-5.6-terra"}, true
+		default:
+			return Endpoint{}, false
+		}
+	}
+	dialLane = func(ep Endpoint) *conn { return &conn{ep: &ep} }
+
+	t.Setenv(EnvCredentials, "claude,codex")
+	t.Setenv(EnvAPIToken, "memcode_x")
+	l := NewFromEnvLazy()
+	if ep, ok := l.Endpoint(); ok {
+		t.Fatalf("Endpoint() = %+v, true; subscriptions must not replace the memcode account backend", ep)
+	}
+	if !l.GatewayPresent() {
+		t.Fatal("memcode account must remain the base backend")
+	}
+	lanes := l.Lanes()
+	if len(lanes) != 2 {
+		t.Fatalf("Lanes() = %+v, want claude and codex lanes", lanes)
+	}
+	want := map[string]string{"claude-sub": "anthropic", "codex": "openai"}
+	for _, ln := range lanes {
+		if want[ln.Name] != ln.Vendor {
+			t.Fatalf("unexpected lane %+v in %+v", ln, lanes)
+		}
+		delete(want, ln.Name)
+	}
+	if len(want) != 0 {
+		t.Fatalf("missing lanes: %+v from %+v", want, lanes)
 	}
 }
