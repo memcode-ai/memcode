@@ -25,9 +25,10 @@ func TestModelPricingRealIDs(t *testing.T) {
 		{"accounts/fireworks/models/glm-5p1", 1.40, 4.40},
 		{"accounts/fireworks/models/kimi-k3", 3.00, 15.00},       // K3's own Fireworks headline card ($3/$15), NOT the kimi family rule
 		{"accounts/fireworks/models/kimi-k2p7-code", 0.95, 4.00}, // pinnable via /model
-		{"claude-opus-5", 5, 25},                                 // $5/$25 since Opus 4.5 repricing
-		{"claude-fable-5", 10, 50},                               // Fable 5 flagship $10/$50 (explicit entry price)
-		{"claude-sonnet-5", 2, 10},                               // explicit sonnet rule (was falling to $3/$15 defaults)
+		{"accounts/fireworks/models/qwen3p8-2p4t-a95b", 2.00, 6.00},
+		{"claude-opus-5", 5, 25},   // $5/$25 since Opus 4.5 repricing
+		{"claude-fable-5", 10, 50}, // Fable 5 flagship $10/$50 (explicit entry price)
+		{"claude-sonnet-5", 2, 10}, // explicit sonnet rule (was falling to $3/$15 defaults)
 		// Billing-only entries (embeddings/images) — priced so no metered call
 		// is ever $0. Same pinned numbers as apps/www ai-models.test.js.
 		{"gemini-embedding-001", 0.15, 0},
@@ -53,7 +54,7 @@ func TestModelPricingByLabel(t *testing.T) {
 		in    float64
 	}{
 		{"sol", 5}, {"terra", 2}, {"luna", 0.2},
-		{"glm-5p2", 1.40}, {"kimi-k2p6", 0.95},
+		{"glm-5p2", 1.40}, {"kimi-k2p6", 0.95}, {"qwen3p8-max", 2.00},
 		{"gemini-flash-lite", 0.3},
 	}
 	for _, c := range cases {
@@ -64,6 +65,9 @@ func TestModelPricingByLabel(t *testing.T) {
 	// Windows resolve by label too (the footer meter sees labels, not raw ids).
 	if got := ContextWindow("glm-5p2"); got != 1_000_000 {
 		t.Errorf("ContextWindow(label glm-5p2) = %d, want 1M", got)
+	}
+	if got := ContextWindow("qwen3p8-max"); got != 262_144 {
+		t.Errorf("ContextWindow(label qwen3p8-max) = %d, want 262144", got)
 	}
 }
 
@@ -76,6 +80,7 @@ func TestContextWindowFireworks(t *testing.T) {
 		{"accounts/fireworks/models/glm-5p1", 202_000},
 		{"accounts/fireworks/models/kimi-k3", 1_000_000}, // k3 ≠ the kimi-k2 262K case
 		{"accounts/fireworks/models/kimi-k2p6", 262_000},
+		{"accounts/fireworks/models/qwen3p8-2p4t-a95b", 262_144},
 		{"gemini-3.1-pro-preview", 1_000_000},
 		{"gemini-3.6-flash", 1_000_000},
 	}
@@ -99,6 +104,7 @@ func TestModelPricingCacheRates(t *testing.T) {
 		{"gpt-5.6-terra", 0.2, 2.5},
 		{"accounts/fireworks/models/glm-5p2", 0.14, 1.75},
 		{"accounts/fireworks/models/kimi-k2p6", 0.16, 1.1875},
+		{"accounts/fireworks/models/qwen3p8-2p4t-a95b", 0.2, 2.5},
 		{"gpt-image-2", 0.8, 10},
 	}
 	for _, c := range cases {

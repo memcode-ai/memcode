@@ -295,6 +295,32 @@
       ]
     },
     {
+      "id": "accounts/fireworks/models/qwen3p8-2p4t-a95b",
+      "label": "qwen3p8-max",
+      "vendor": "fireworks",
+      "window": 262144,
+      "vision": false,
+      "reasoning": true,
+      "price_in": 2.0,
+      "price_out": 6.0,
+      "price_cache_read": 0.2,
+      "_note": "Qwen3.8-2.4T-A95B (Alibaba, Fireworks). Added 2026-08-26 after Fireworks model page showed Ready with path accounts/fireworks/models/qwen3p8-2p4t-a95b, 262144 context, $2/$6 per 1M. Pin-only + web chat initially; not a routing role until live-probed on memcode agent workloads.",
+      "pinnable": true,
+      "group": "Qwen",
+      "desc": "Alibaba frontier coding",
+      "name": "Qwen3.8 Max",
+      "www": {
+        "chat": true,
+        "order": 17,
+        "description": "Alibaba's Qwen3.8 Max on Fireworks: built for long-horizon coding and autonomous repo work."
+      },
+      "max_output": 32000,
+      "fallback": [
+        "glm-5p2",
+        "terra"
+      ]
+    },
+    {
       "id": "accounts/fireworks/models/kimi-k2p7-code",
       "label": "kimi-k2p7-code",
       "vendor": "fireworks",
@@ -557,6 +583,13 @@
         "glm-5p1"
       ],
       "window": 202000
+    },
+    {
+      "match": [
+        "qwen3p8",
+        "qwen3.8"
+      ],
+      "window": 262144
     },
     {
       "match": [
