@@ -7,6 +7,7 @@
 package guard
 
 import (
+	"bytes"
 	"os/exec"
 	"strings"
 	"testing"
@@ -14,20 +15,41 @@ import (
 
 const modulePrefix = "github.com/memcode-ai/memcode"
 
-// deps returns the transitive import closure of pkg (including pkg itself).
-// `go list` keeps the guard honest about TRANSITIVE deps, not just direct ones.
-func deps(t *testing.T, pkg string) []string {
+// goListLines runs `go list` and returns its STDOUT lines.
+//
+// Reading stdout only is load-bearing, not tidiness. `go list` writes advisory
+// warnings to stderr while still exiting 0 with a complete, correct package
+// list — most commonly "warning: ignoring symlink ..." when an untracked
+// sibling directory (a node_modules tree from another branch, say) sits in the
+// module root. CombinedOutput folds those warning lines into the results, each
+// one then gets handed back to `go list` as if it were a package path, and THAT
+// invocation fails. The original symptom looked like a desktop/node_modules
+// problem; it was really this function laundering stderr into data.
+//
+// Genuine failures still fail: a non-zero exit is fatal, and so is an empty
+// package list, which would otherwise let a guard pass vacuously.
+func goListLines(t *testing.T, label string, args ...string) []string {
 	t.Helper()
-	out, err := exec.Command("go", "list", "-deps", pkg).CombinedOutput()
-	if err != nil {
-		t.Fatalf("go list -deps %s: %v\n%s", pkg, err, out)
+	cmd := exec.Command("go", args...)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("%s: %v\n%s", label, err, stderr.String())
 	}
 	var ps []string
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+	for _, line := range strings.Split(strings.TrimSpace(stdout.String()), "\n") {
 		if line = strings.TrimSpace(line); line != "" {
 			ps = append(ps, line)
 		}
 	}
+	return ps
+}
+
+// deps returns the transitive import closure of pkg (including pkg itself).
+// `go list` keeps the guard honest about TRANSITIVE deps, not just direct ones.
+func deps(t *testing.T, pkg string) []string {
+	t.Helper()
+	ps := goListLines(t, "go list -deps "+pkg, "list", "-deps", pkg)
 	return ps
 }
 
@@ -96,32 +118,15 @@ var vendorSDKs = map[string]string{
 
 func directImports(t *testing.T, pkg string) []string {
 	t.Helper()
-	out, err := exec.Command("go", "list", "-f", `{{join .Imports "\n"}}`, pkg).CombinedOutput()
-	if err != nil {
-		t.Fatalf("go list %s: %v\n%s", pkg, err, out)
-	}
-	var ps []string
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		if line = strings.TrimSpace(line); line != "" {
-			ps = append(ps, line)
-		}
-	}
-	return ps
+	return goListLines(t, "go list "+pkg, "list", "-f", `{{join .Imports "\n"}}`, pkg)
 }
 
 func modulePackages(t *testing.T) []string {
-	t.Helper()
-	out, err := exec.Command("go", "list", modulePrefix+"/...").CombinedOutput()
-	if err != nil {
-		t.Fatalf("go list: %v\n%s", err, out)
+	pkgs := goListLines(t, "go list", "list", modulePrefix+"/...")
+	if len(pkgs) == 0 {
+		t.Fatal("go list returned no packages — every guard below would pass vacuously")
 	}
-	var ps []string
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		if line = strings.TrimSpace(line); line != "" {
-			ps = append(ps, line)
-		}
-	}
-	return ps
+	return pkgs
 }
 
 // TestVendorSDKsOnlyInTheirAdapters: a vendor client library imported outside

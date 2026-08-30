@@ -26,7 +26,7 @@ type ExecutionEnvelope struct {
 	// Agent delegation — the user's own already-running, already-logged-in
 	// Chrome, reached through the gateway-owned broker) or BrowserEphemeral
 	// (a fresh, logged-out profile — explicit opt-down only). See
-	// docs/design/personal-agents.md "Browser broker trust boundary".
+	// docs/design/autonomous-agents.md "Browser broker trust boundary".
 	BrowserSession string
 }
 

@@ -648,7 +648,7 @@ func delegateMode(cs []ConsequenceClass) string {
 // (Gmail, LinkedIn, an ATS, an internal dashboard) requires being signed in.
 // "browser:ephemeral" is the explicit opt-down to a fresh, logged-out
 // profile, for tasks that genuinely don't want the user's session (e.g.
-// visiting a site anonymously). See docs/design/personal-agents.md "Browser
+// visiting a site anonymously). See docs/design/autonomous-agents.md "Browser
 // broker trust boundary".
 func browserModeFor(toolsets []string) string {
 	for _, t := range toolsets {
