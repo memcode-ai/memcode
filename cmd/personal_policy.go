@@ -46,6 +46,7 @@ var personalPolicySetCmd = &cobra.Command{
 		if err := atomicfile.WriteFile(path, canon, 0o600); err != nil {
 			return err
 		}
+		_ = personal.WriteConfigMirror(cmd.Context(), home, st)
 		fmt.Fprintf(cmd.OutOrStdout(), "Draft policy v%d staged (hash %s…). Review with `personal policy show %s` then approve with `personal approve-policy %s %s`.\n", ver, hash[:12], args[0], args[0], hash)
 		return nil
 	},
@@ -90,7 +91,7 @@ var personalApprovePolicyCmd = &cobra.Command{
 	Use: "approve-policy <agent> <hash>", Args: cobra.ExactArgs(2),
 	Short: "Approve a staged draft policy by its hash",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		st, _, err := personalStoreHome(cmd, args[0])
+		st, home, err := personalStoreHome(cmd, args[0])
 		if err != nil {
 			return err
 		}
@@ -114,6 +115,7 @@ var personalApprovePolicyCmd = &cobra.Command{
 		}
 		// Move objective out of draft so scheduled/manual wakes may run.
 		_ = st.SetObjectiveStatus(cmd.Context(), "primary", "active")
+		_ = personal.WriteConfigMirror(cmd.Context(), home, st)
 		fmt.Fprintf(cmd.OutOrStdout(), "Approved policy %s… for %s; objective is now active.\n", match[:12], args[0])
 		return nil
 	},

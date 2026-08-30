@@ -137,7 +137,31 @@ func personalCreate(cmd *cobra.Command, args []string) error {
 	if err := st.CreateObjective(cmd.Context(), personal.Objective{ID: "primary", Description: objective, Status: "draft"}); err != nil {
 		return err
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "Created Personal Agent %s. Consequential work remains blocked until its delegation policy is approved.\n", name)
+	// --grant: fold the common "create it, then give it something to read" two
+	// steps into one. Filesystem only (type is inferred, same as `resources
+	// add`) — mcp/command/channel grants still need the fuller form, since
+	// there's no single flag shape that reads naturally for all four.
+	grants, _ := cmd.Flags().GetStringArray("grant")
+	for _, g := range grants {
+		canon, err := personal.CanonicalFilesystemGrant(g)
+		if err != nil {
+			return fmt.Errorf("cannot grant %q: %w", g, err)
+		}
+		id := fmt.Sprintf("res-filesystem-%d", time.Now().UnixNano())
+		if err := st.InsertResource(cmd.Context(), personal.Resource{
+			ID: id, ObjectiveID: "primary", Type: "filesystem", Locator: canon,
+			AccessMode: "read", AuthorizationSource: "user-cli", Status: "active",
+		}); err != nil {
+			return fmt.Errorf("granting %q: %w", g, err)
+		}
+	}
+	_ = personal.WriteConfigMirror(cmd.Context(), home, st)
+	msg := "Created Personal Agent %s"
+	if len(grants) > 0 {
+		msg += fmt.Sprintf(" with read access to %s", strings.Join(grants, ", "))
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), msg+". Consequential work remains blocked until its delegation policy is approved.\n", name)
+	fmt.Fprintf(cmd.OutOrStdout(), "Config: %s\n", home)
 	return nil
 }
 
@@ -315,6 +339,7 @@ func personalDelete(cmd *cobra.Command, args []string) error {
 
 func init() {
 	create := &cobra.Command{Use: "create <name> <objective...>", Args: cobra.MinimumNArgs(2), RunE: personalCreate}
+	create.Flags().StringArray("grant", nil, "grant read access to a file or directory (repeatable), e.g. --grant ~/resume.md")
 	list := &cobra.Command{Use: "list", Args: cobra.NoArgs, RunE: personalList}
 	show := &cobra.Command{Use: "show <name>", Args: cobra.ExactArgs(1), RunE: personalShow}
 	pause := &cobra.Command{Use: "pause <name>", Args: cobra.ExactArgs(1), RunE: personalStatus("paused")}

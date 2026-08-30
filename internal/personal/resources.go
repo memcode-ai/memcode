@@ -1,7 +1,6 @@
 package personal
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -50,12 +49,13 @@ func CanonicalFilesystemGrant(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	info, err := os.Stat(resolved)
-	if err != nil {
+	// A grant may be a single file (e.g. a resume) or a directory root — both
+	// work with PathWithinGrant unchanged (a file grant's only "contained"
+	// path is itself: rel == "."). Requiring a directory here would force
+	// granting a whole folder just to share one file, which is both more
+	// ceremony and a broader grant than the task needs.
+	if _, err := os.Stat(resolved); err != nil {
 		return "", err
-	}
-	if !info.IsDir() {
-		return "", fmt.Errorf("resource root %s is not a directory", resolved)
 	}
 	return resolved, nil
 }

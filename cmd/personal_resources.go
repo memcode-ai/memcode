@@ -11,16 +11,36 @@ import (
 var personalResourcesCmd = &cobra.Command{Use: "resources", Short: "Manage resource grants"}
 
 var personalResourcesAddCmd = &cobra.Command{
-	Use: "add <agent> <type> <locator>", Args: cobra.ExactArgs(3),
+	Use: "add <agent> [type] <locator>", Args: cobra.RangeArgs(2, 3),
 	Short: "Grant a resource (filesystem path, mcp tool, command, channel)",
+	Long: `Grant a resource to a Personal Agent.
+
+For a filesystem path, type is optional and inferred — a bare path is enough:
+
+  memcode personal resources add jobhunt ~/resume.md
+
+Non-filesystem grants (mcp, command, channel) need the type spelled out:
+
+  memcode personal resources add jobhunt mcp gmail`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		st, _, err := personalStoreHome(cmd, args[0])
+		st, home, err := personalStoreHome(cmd, args[0])
 		if err != nil {
 			return err
 		}
 		defer st.Close()
 		mode, _ := cmd.Flags().GetString("mode")
-		rtype, locator := args[1], args[2]
+		// Two positional args (agent, locator): type is inferred as filesystem
+		// when the locator actually resolves to a real path on disk — that's
+		// the common case (grant a file/dir), and it fails loudly rather than
+		// guessing when it doesn't resolve. Three args names the type
+		// explicitly, required for mcp/command/channel (nothing on disk to
+		// resolve against).
+		var rtype, locator string
+		if len(args) == 2 {
+			rtype, locator = "filesystem", args[1]
+		} else {
+			rtype, locator = args[1], args[2]
+		}
 		if rtype == "filesystem" {
 			canon, err := personal.CanonicalFilesystemGrant(locator)
 			if err != nil {
@@ -35,6 +55,7 @@ var personalResourcesAddCmd = &cobra.Command{
 		}); err != nil {
 			return err
 		}
+		_ = personal.WriteConfigMirror(cmd.Context(), home, st)
 		fmt.Fprintf(cmd.OutOrStdout(), "Granted %s %s (%s) to %s.\n", rtype, locator, mode, args[0])
 		return nil
 	},
@@ -67,7 +88,7 @@ var personalResourcesListCmd = &cobra.Command{
 var personalResourcesRevokeCmd = &cobra.Command{
 	Use: "revoke <agent> <resource-id>", Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		st, _, err := personalStoreHome(cmd, args[0])
+		st, home, err := personalStoreHome(cmd, args[0])
 		if err != nil {
 			return err
 		}
@@ -75,6 +96,7 @@ var personalResourcesRevokeCmd = &cobra.Command{
 		if err := st.SetResourceStatus(cmd.Context(), args[1], "revoked"); err != nil {
 			return err
 		}
+		_ = personal.WriteConfigMirror(cmd.Context(), home, st)
 		fmt.Fprintf(cmd.OutOrStdout(), "Revoked %s on %s (effective at the next dispatch).\n", args[1], args[0])
 		return nil
 	},
