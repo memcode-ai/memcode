@@ -24,6 +24,7 @@ import (
 	"github.com/robfig/cron/v3"
 
 	"github.com/memcode-ai/memcode/internal/agent/permissions"
+	"github.com/memcode-ai/memcode/internal/browser/broker"
 	"github.com/memcode-ai/memcode/internal/channels"
 	"github.com/memcode-ai/memcode/internal/channels/discord"
 	"github.com/memcode-ai/memcode/internal/channels/email"
@@ -78,6 +79,17 @@ type runtime struct {
 	disp      *dispatcher
 	out       io.Writer
 	notify    chan struct{} // wakes the worker when a message is accepted
+
+	// browserBroker arbitrates exclusive mutation rights over the user's
+	// existing (already-running, already-logged-in) Chrome, so at most one
+	// delegated Personal Agent worker drives it at a time. It is a SINGLE
+	// object for the gateway's whole lifetime — that persistence is the point:
+	// a worker on wake N and a different worker on wake N+1 reach the SAME
+	// broker, not a fresh one, so ownership/leasing state survives across
+	// wakes. brokerServer exposes it over a local socket so a worker (a
+	// separate OS process, see jobs.SpawnWithSpec) can reach it too.
+	browserBroker *broker.Broker
+	brokerServer  *broker.Server
 
 	// sched is the live schedule runner (recurring entries), timers the pending
 	// one-shots, and schedList the schedules both were built from (for change
@@ -141,17 +153,33 @@ func Run(ctx context.Context, root string, mainStore store.Store, settings gwcon
 	}()
 
 	rt := &runtime{
-		root:      root,
-		gw:        gw,
-		mainStore: mainStore,
-		settings:  settings,
-		mediaDir:  mediaDir,
-		stt:       newTranscriber(),
-		tts:       newSpeaker(),
-		byName:    make(map[string]replySender, 4),
-		disp:      newDispatcher(),
-		out:       out,
-		notify:    make(chan struct{}, 1),
+		root:          root,
+		gw:            gw,
+		mainStore:     mainStore,
+		settings:      settings,
+		mediaDir:      mediaDir,
+		stt:           newTranscriber(),
+		tts:           newSpeaker(),
+		byName:        make(map[string]replySender, 4),
+		disp:          newDispatcher(),
+		out:           out,
+		notify:        make(chan struct{}, 1),
+		browserBroker: broker.New(),
+	}
+	// Existing-Chrome coordination socket: started unconditionally (cheap — a
+	// local listener) so it's there the moment a Personal Agent's delegate
+	// call needs it, without requiring a gateway restart after `memcode
+	// personal browser setup`. Its failure is non-fatal to the gateway as a
+	// whole — a delegated worker that needs it fails closed on its own when
+	// it can't reach the socket, per design; it never silently falls back to
+	// ephemeral Chrome.
+	if sock, err := broker.SocketPath(); err == nil {
+		if srv, err := broker.Serve(rt.browserBroker, sock); err == nil {
+			rt.brokerServer = srv
+			defer srv.Close()
+		} else {
+			fmt.Fprintf(out, "gateway: browser broker socket unavailable: %v (existing-Chrome delegation will fail closed)\n", err)
+		}
 	}
 
 	// Register EVERY sender in byName before any goroutine that reads it exists: the channel

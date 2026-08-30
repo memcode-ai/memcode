@@ -5,13 +5,17 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/x/term"
 	"github.com/spf13/cobra"
 
 	"github.com/memcode-ai/memcode/internal/agent/permissions"
 	"github.com/memcode-ai/memcode/internal/agent/runtime"
+	"github.com/memcode-ai/memcode/internal/browser"
+	"github.com/memcode-ai/memcode/internal/browser/broker"
 	"github.com/memcode-ai/memcode/internal/jobs"
+	"github.com/memcode-ai/memcode/internal/mcp"
 	"github.com/memcode-ai/memcode/internal/provider"
 )
 
@@ -123,9 +127,35 @@ for local gateway development. Never store keys in .memcode.`,
 		sess := runtime.New(st, runner, cfg.Root, model, mode, userOut())
 		sess.SetScoutModel(provider.EffectiveModel(cfg.Models.Explorer)) // cheap read-only scouts
 		sess.SetNoContext(noContext)
-		if chrome {
+		browserSession, _ := cmd.Flags().GetString("browser-session")
+		if chrome && browserSession != "existing_chrome" {
 			sess.SetBrowserEnabled(true)
 			defer sess.CloseBrowser() // tear down Chrome when the one-shot session ends
+		}
+		// --browser-session existing_chrome: this run is a Personal Agent's
+		// delegated worker that needs the USER'S OWN already-running,
+		// already-logged-in Chrome (Gmail, LinkedIn, an ATS, whatever the user
+		// is signed into) — NOT a fresh ephemeral profile with no session. It
+		// must acquire the gateway-owned broker's exclusive lease first;
+		// failing that, it fails closed. It must NEVER silently fall back to
+		// ephemeral Chrome — that would silently run the task logged out,
+		// which is not what was asked for and not what the policy authorized.
+		if browserSession == "existing_chrome" {
+			agentID, _ := cmd.Flags().GetString("browser-agent")
+			runID, _ := cmd.Flags().GetString("browser-run")
+			sock, err := broker.SocketPath()
+			if err != nil {
+				return fmt.Errorf("existing-Chrome unavailable (%w) — refusing to fall back to ephemeral Chrome", err)
+			}
+			client := broker.NewClient(sock)
+			lease, err := client.Acquire(agentID, runID, 10*time.Minute)
+			if err != nil {
+				return fmt.Errorf("existing-Chrome unavailable: %w — run `memcode personal browser setup`; refusing to fall back to ephemeral Chrome", err)
+			}
+			defer client.Release(lease.Token)
+			sess.SetExtraMCPServers(map[string]mcp.ServerConfig{
+				"chrome-devtools": {Type: "stdio", Command: "npx", Args: []string{"-y", browser.ChromeDevToolsMCPPackage, "--autoConnect"}},
+			})
 		}
 		// --allow-tools/--deny-tools: a delegated job's actual toolset restriction
 		// (see jobs.SpawnSpec.ToolPolicy). Applied here — before the --job branch —
@@ -314,6 +344,12 @@ func init() {
 	_ = runCmd.Flags().MarkHidden("allow-tools")
 	runCmd.Flags().String("deny-tools", "", "internal: comma-separated toolset/tool deny-list for a delegated job (deny wins)")
 	_ = runCmd.Flags().MarkHidden("deny-tools")
+	runCmd.Flags().String("browser-session", "", "internal: \"existing_chrome\" attaches this run to the user's own already-running Chrome via the gateway browser broker (fails closed, never falls back to ephemeral)")
+	_ = runCmd.Flags().MarkHidden("browser-session")
+	runCmd.Flags().String("browser-agent", "", "internal: agent id for the existing-Chrome broker lease")
+	_ = runCmd.Flags().MarkHidden("browser-agent")
+	runCmd.Flags().String("browser-run", "", "internal: run id for the existing-Chrome broker lease")
+	_ = runCmd.Flags().MarkHidden("browser-run")
 	runCmd.Flags().String("protocol", "", "machine control protocol: stream-json (newline-delimited JSON on stdio, for SDK wrappers)")
 	runCmd.Flags().BoolP("continue", "c", false, "resume the most recent session with its full conversation")
 	runCmd.Flags().String("resume", "", "resume a session by id or prefix (see `memcode session recent`)")

@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/memcode-ai/memcode/internal/browser/broker"
 	"github.com/memcode-ai/memcode/internal/jobs"
 	"github.com/memcode-ai/memcode/internal/llm"
 	"github.com/memcode-ai/memcode/internal/provider"
@@ -234,6 +235,138 @@ func TestPolicyApprovalMovesObjectiveActive(t *testing.T) {
 // the wiring: an executive whose policy allows delegation actually launches a
 // real, tracked, policy-scoped child process and can read its outcome back on
 // a later wake, instead of failing closed or silently no-op'ing.
+// TestExecutiveDelegateFailsClosedWithoutBroker proves the fail-closed
+// requirement: delegating browser work when no gateway (and therefore no
+// broker socket) is running must be REJECTED, not silently downgraded to
+// ephemeral Chrome. No job may be spawned in this case at all.
+func TestExecutiveDelegateFailsClosedWithoutBroker(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir()) // guarantees no broker socket exists here
+	prov := &fakeProv{steps: []wire.Response{
+		{StopReason: "tool_use", Blocks: []wire.Block{toolUse("t1", "delegate", map[string]any{
+			"task": "check gmail", "expected_output": "a summary", "completion_condition": "read the inbox",
+			"toolsets": []string{"browser"}, "consequences": []string{"observe"},
+		})}},
+		{StopReason: "tool_use", Blocks: []wire.Block{toolUse("t2", "report", map[string]any{"summary": "done"})}},
+	}}
+	ex, st, _ := newTestExecutive(t, prov)
+	ctx := context.Background()
+	doc := DelegationPolicy{ObjectiveScope: "primary", ConsequenceClasses: []ConsequenceClass{Observe}, MaxDelegationDepth: 1, MaxSeconds: 300, MaxActionsPerPeriod: 8}
+	canon, hash, err := CanonicalPolicy(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.InsertPolicy(ctx, Policy{ID: "p1", ObjectiveID: "primary", Version: 1, Document: canon, Hash: hash, Status: "draft"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.ApprovePolicy(ctx, hash); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := ex.RunOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	// The delegate tool call must have failed (surfaced as a tool_result error,
+	// not a spawned job) — no delegation fact should exist.
+	facts, err := st.ListFacts(ctx, "primary")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range facts {
+		if strings.HasPrefix(f.Key, "delegation.") {
+			t.Fatalf("expected no delegation to have been spawned without a broker, got fact %v", f)
+		}
+	}
+	actions, err := st.ListActions(ctx, "primary", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range actions {
+		if a.Kind == "delegate" {
+			t.Fatalf("expected no journaled delegate action without a broker, got %+v", a)
+		}
+	}
+}
+
+// TestExecutiveDelegateUsesExistingChromeWhenBrokerRunning proves the other
+// half of the fail-closed contract: when a broker IS reachable, a bare
+// "browser" toolset resolves to existing_chrome (never silently downgrades to
+// ephemeral), and that mode actually rides the spawned job's SpawnSpec.
+func TestExecutiveDelegateUsesExistingChromeWhenBrokerRunning(t *testing.T) {
+	// Unix socket paths have a short OS limit (~104 bytes on macOS/BSD) —
+	// t.TempDir() nests deep enough to blow past it, so use a short root.
+	short, err := os.MkdirTemp("", "pab")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(short) })
+	t.Setenv("XDG_CONFIG_HOME", short)
+	sock, err := broker.SocketPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(sock), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	srv, err := broker.Serve(broker.New(), sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer srv.Close()
+
+	prov := &fakeProv{steps: []wire.Response{
+		{StopReason: "tool_use", Blocks: []wire.Block{toolUse("t1", "delegate", map[string]any{
+			"task": "check gmail", "expected_output": "a summary", "completion_condition": "read the inbox",
+			"toolsets": []string{"browser"}, "consequences": []string{"observe"},
+		})}},
+		{StopReason: "tool_use", Blocks: []wire.Block{toolUse("t2", "report", map[string]any{"summary": "delegated"})}},
+	}}
+	ex, st, _ := newTestExecutive(t, prov)
+	ctx := context.Background()
+	doc := DelegationPolicy{ObjectiveScope: "primary", ConsequenceClasses: []ConsequenceClass{Observe}, MaxDelegationDepth: 1, MaxSeconds: 300, MaxActionsPerPeriod: 8}
+	canon, hash, err := CanonicalPolicy(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.InsertPolicy(ctx, Policy{ID: "p1", ObjectiveID: "primary", Version: 1, Document: canon, Hash: hash, Status: "draft"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.ApprovePolicy(ctx, hash); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := ex.RunOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	facts, err := st.ListFacts(ctx, "primary")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var jobID string
+	for _, f := range facts {
+		if strings.HasPrefix(f.Key, "delegation.") {
+			jobID = strings.TrimPrefix(f.Key, "delegation.")
+		}
+	}
+	if jobID == "" {
+		t.Fatalf("no delegation fact recorded: %v", facts)
+	}
+	root, err := ex.delegateRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	job, err := jobs.Get(root, jobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var spec jobs.SpawnSpec
+	if err := json.Unmarshal(job.ExecutionEnvelope, &spec); err != nil {
+		t.Fatal(err)
+	}
+	if spec.BrowserMode != BrowserExistingChrome {
+		t.Fatalf("expected BrowserMode=%q, got %q — \"browser\" must default to existing_chrome, not ephemeral", BrowserExistingChrome, spec.BrowserMode)
+	}
+}
+
 func TestExecutiveDelegatesToWorker(t *testing.T) {
 	prov1 := &fakeProv{steps: []wire.Response{
 		{StopReason: "tool_use", Blocks: []wire.Block{toolUse("t1", "delegate", map[string]any{

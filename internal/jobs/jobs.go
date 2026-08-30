@@ -137,6 +137,7 @@ func Spawn(root, task, mode, tier string, chrome, reportBack bool, session strin
 func SpawnWithSpec(spec SpawnSpec) (Job, error) {
 	root, task, mode, tier, reportBack, session := spec.Root, spec.Task, spec.Mode, spec.Tier, spec.ReportBack, spec.SessionID
 	chrome := spec.BrowserMode == "ephemeral"
+	existingChrome := spec.BrowserMode == "existing_chrome"
 	self, err := os.Executable()
 	if err != nil {
 		return Job{}, fmt.Errorf("locating memcode binary: %w", err)
@@ -160,6 +161,13 @@ func SpawnWithSpec(spec SpawnSpec) (Job, error) {
 	}
 	if chrome {
 		argv = append(argv, "--chrome")
+	}
+	if existingChrome {
+		// The child dials the gateway-owned browser broker itself (socket path
+		// is well-known, see internal/browser/broker.SocketPath), authenticating
+		// the lease request as (AgentID, this job's own id) — a job id is unique
+		// per delegate call, so it doubles as the lease's RunID.
+		argv = append(argv, "--browser-session", "existing_chrome", "--browser-agent", spec.AgentID, "--browser-run", id)
 	}
 	if session != "" {
 		argv = append(argv, "--session", session) // continue this conversation's session (resume-or-create)

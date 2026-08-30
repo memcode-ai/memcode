@@ -47,6 +47,13 @@ func (s *Session) connectMCP(ctx context.Context, interactive bool) {
 		connect[ss.Name] = mcp.ExpandServer(ss.Config)
 		s.mcpConfigs[ss.Name] = ss.Config
 	}
+	// Programmatically-set servers (currently: existing-Chrome, see
+	// SetExtraMCPServers) are already trusted by the caller that set them —
+	// no approval gate, same as a locally-configured server.
+	for name, cfg := range s.extraMCPServers {
+		connect[name] = mcp.ExpandServer(cfg)
+		s.mcpConfigs[name] = cfg
+	}
 	s.mcpInteractive = interactive
 	s.mcp = mcp.Connect(ctx, connect, mcp.Options{Version: mcpClientVersion, AllowOAuth: interactive})
 	s.reportMCP()

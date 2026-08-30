@@ -129,6 +129,7 @@ type Session struct {
 	lspOnce           sync.Once                   // guards lazy lspMgr creation
 	mcpPending        []mcp.ScopedServer          // project-scoped servers awaiting approval (reviewed on the first interactive turn)
 	mcpConfigs        map[string]mcp.ServerConfig // connected servers' configs (invocation grants key to their hash)
+	extraMCPServers   map[string]mcp.ServerConfig // set programmatically (e.g. existing-Chrome), merged in at connect time — see SetExtraMCPServers
 	mcpInteractive    bool                        // this session can complete interactive flows (approval prompts, OAuth browser)
 	mcpErrsShown      int                         // count of MCP connect errors already surfaced (so Add doesn't re-print)
 	bgCtx             context.Context             // LONG-LIVED ctx for jobs (session-scoped, NOT a turn ctx)
@@ -386,6 +387,16 @@ func (s *Session) Admin() bool { return s.adminMode }
 
 func (s *Session) SetBrowserEnabled(enabled bool) {
 	s.browserEnabled = enabled
+}
+
+// SetExtraMCPServers adds server configs that were NOT discovered from
+// .mcp.json (project/user/local config) — currently used for one thing:
+// handing this run its own chrome-devtools-mcp connection to the user's
+// existing Chrome, after the caller has already acquired a broker lease. The
+// caller is responsible for that lease; this only wires the resulting MCP
+// server into the session like any other.
+func (s *Session) SetExtraMCPServers(servers map[string]mcp.ServerConfig) {
+	s.extraMCPServers = servers
 }
 
 // BrowserEnabled reports whether --chrome is active (browser tools are advertised

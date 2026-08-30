@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/memcode-ai/memcode/internal/atomicfile"
+	"github.com/memcode-ai/memcode/internal/browser/broker"
 	"github.com/memcode-ai/memcode/internal/jobs"
 	"github.com/memcode-ai/memcode/internal/llm"
 	"github.com/memcode-ai/memcode/internal/wire"
@@ -118,7 +119,7 @@ var executiveToolDefs = []wire.ToolDef{
 			"task":                 strProp("the bounded task for the worker, self-contained (the worker has no access to this conversation)"),
 			"expected_output":      strProp("what a successful result looks like"),
 			"completion_condition": strProp("how the worker knows it's done"),
-			"toolsets":             map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "toolsets/tools the worker may use, e.g. [\"browser\"], [\"mcp:gmail\"] — must be a subset of this agent's approved allowed_tools"},
+			"toolsets":             map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "toolsets/tools the worker may use, e.g. [\"browser\"], [\"mcp:gmail\"] — must be a subset of this agent's approved allowed_tools. \"browser\" defaults to the user's OWN already-running, already-logged-in Chrome (existing sessions: Gmail, LinkedIn, etc.) — use \"browser:ephemeral\" instead only when the task genuinely wants a fresh, logged-out profile."},
 			"consequences":         map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "consequence classes this task may incur, e.g. [\"observe\"], [\"external_effect\"] — must be a subset of this agent's approved consequence classes"},
 			"max_seconds":          map[string]any{"type": "integer", "description": "wall-clock budget for the worker"},
 		}, "task", "expected_output", "completion_condition"),
@@ -489,15 +490,27 @@ func (e *Executive) execTool(ctx context.Context, runID string, p DelegationPoli
 			}
 			consequences = append(consequences, cls)
 		}
+		browserSession := browserModeFor(in.Toolsets)
 		env := ExecutionEnvelope{
 			Task: in.Task, ExpectedOutput: in.ExpectedOutput, CompletionCondition: in.CompletionCondition,
 			Toolsets: in.Toolsets, Consequences: consequences, ParentRunID: runID,
 			Budgets:         jobs.ExecutionBudgets{MaxSeconds: in.MaxSeconds},
 			DelegationDepth: e.DelegationDepth + 1,
 			AllowDelegation: false, // the worker is a plain memcode run, not another executive — it cannot delegate further
+			BrowserSession:  browserSession,
 		}
 		if err := ValidateDelegation(p, env); err != nil {
 			return toolResult{}, nil, err
+		}
+		if browserSession == BrowserExistingChrome {
+			// Fail closed BEFORE spawning anything: a worker that can't reach
+			// the broker must never silently run with ephemeral (logged-out)
+			// Chrome instead — that would complete "successfully" while doing
+			// something other than what was asked and authorized.
+			sock, err := broker.SocketPath()
+			if err != nil || !broker.NewClient(sock).Reachable() {
+				return toolResult{}, nil, fmt.Errorf("existing-Chrome is not available (gateway not running, or `memcode personal browser setup` not completed) — refusing to fall back to ephemeral Chrome")
+			}
 		}
 		actID, err := journaling("delegate", in.Task, delegateConsequence(consequences), call.Input)
 		if err != nil {
@@ -519,7 +532,7 @@ func (e *Executive) execTool(ctx context.Context, runID string, p DelegationPoli
 			ToolPolicy: jobs.ToolPolicy{Allowed: in.Toolsets},
 			Budgets:    env.Budgets,
 			AgentID:    e.AgentID, ObjectiveID: "primary", RunID: runID, ParentRunID: runID,
-			PolicyHash: policyHash, BrowserMode: browserModeFor(in.Toolsets), ReportBack: true,
+			PolicyHash: policyHash, BrowserMode: browserSession, ReportBack: true,
 		})
 		if err != nil {
 			_ = e.Store.CompleteAction(ctx, actID, ActionFailed, json.RawMessage(fmt.Sprintf(`{%q:%q}`, "error", err.Error())), nil)
@@ -662,16 +675,22 @@ func delegateMode(cs []ConsequenceClass) string {
 }
 
 // browserModeFor reports the jobs.SpawnSpec.BrowserMode for a requested
-// toolset list. "browser" here reuses memcode's existing ephemeral Chrome
-// session (the same one --chrome already drives for ordinary agents) — NOT
-// the user's own already-running Chrome. Attaching a delegated worker to the
-// user's real browser needs the broker/remote-controller wiring in
-// internal/browser/broker and internal/browser/remote.go, which is declared
-// but has no implementation yet.
+// toolset list. A bare "browser" defaults to BrowserExistingChrome — the
+// user's own already-running, already-logged-in Chrome, reached through the
+// gateway-owned broker (see internal/browser/broker) — because a Personal
+// Agent's whole point is acting as the user, and most useful browser work
+// (Gmail, LinkedIn, an ATS, an internal dashboard) requires being signed in.
+// "browser:ephemeral" is the explicit opt-down to a fresh, logged-out
+// profile, for tasks that genuinely don't want the user's session (e.g.
+// visiting a site anonymously). See docs/design/personal-agents.md "Browser
+// broker trust boundary".
 func browserModeFor(toolsets []string) string {
 	for _, t := range toolsets {
-		if t == "browser" {
-			return "ephemeral"
+		switch t {
+		case "browser", "browser:existing_chrome":
+			return BrowserExistingChrome
+		case "browser:ephemeral":
+			return BrowserEphemeral
 		}
 	}
 	return ""

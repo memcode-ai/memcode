@@ -21,7 +21,19 @@ type ExecutionEnvelope struct {
 	ParentRunID, SubgoalID                    string
 	AllowDelegation                           bool
 	DelegationDepth                           int
+	// BrowserSession selects the worker's browser backend when Toolsets
+	// includes "browser": BrowserExistingChrome (the default for Personal
+	// Agent delegation — the user's own already-running, already-logged-in
+	// Chrome, reached through the gateway-owned broker) or BrowserEphemeral
+	// (a fresh, logged-out profile — explicit opt-down only). See
+	// docs/design/personal-agents.md "Browser broker trust boundary".
+	BrowserSession string
 }
+
+const (
+	BrowserExistingChrome = "existing_chrome"
+	BrowserEphemeral      = "ephemeral"
+)
 
 func ValidateDelegation(parent DelegationPolicy, e ExecutionEnvelope) error {
 	if e.Task == "" || e.CompletionCondition == "" {
@@ -30,7 +42,11 @@ func ValidateDelegation(parent DelegationPolicy, e ExecutionEnvelope) error {
 	if e.DelegationDepth > parent.MaxDelegationDepth {
 		return fmt.Errorf("delegation depth exceeds policy")
 	}
-	if !subset(e.Toolsets, parent.AllowedTools) {
+	// An empty parent.AllowedTools means "no restriction by name" — the same
+	// convention Executive.allowedTools uses (restrictByName := len(...) > 0).
+	// Treating empty as "allows nothing" here would make every delegate call
+	// fail for the common case of a policy that doesn't bother naming tools.
+	if len(parent.AllowedTools) > 0 && !subset(e.Toolsets, parent.AllowedTools) {
 		return fmt.Errorf("worker tools expand parent authority")
 	}
 	if !classSubset(e.Consequences, parent.ConsequenceClasses) {
