@@ -10,14 +10,18 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/memcode-ai/memcode/internal/agent/tools"
 	"github.com/memcode-ai/memcode/internal/atomicfile"
+	"github.com/memcode-ai/memcode/internal/browser"
+	"github.com/memcode-ai/memcode/internal/browser/broker"
 	gwconfig "github.com/memcode-ai/memcode/internal/gateway/config"
 	"github.com/memcode-ai/memcode/internal/llm"
+	"github.com/memcode-ai/memcode/internal/mcp"
 	"github.com/memcode-ai/memcode/internal/personal"
 	"github.com/memcode-ai/memcode/internal/provider"
 )
@@ -71,6 +75,9 @@ func personalExecute(ctx context.Context, name string, input json.RawMessage) (s
 		// operation that runs before that gate.
 		return paCreate(ctx, in.Agent, in.Objective)
 	}
+	if name == tools.PaBrowserSetup {
+		return paBrowserSetup(ctx) // agent-independent: gateway-wide broker/Chrome setup
+	}
 	if strings.TrimSpace(in.Agent) == "" {
 		return "", fmt.Errorf("an agent name is required")
 	}
@@ -98,6 +105,8 @@ func personalExecute(ctx context.Context, name string, input json.RawMessage) (s
 		return paHistory(ctx, st)
 	case tools.PaLifecycle:
 		return paLifecycle(ctx, in.Agent, in.Action, in.DeleteHome)
+	case tools.PaDoctor:
+		return paDoctor(ctx, st, home, in.Agent)
 	}
 	return "", fmt.Errorf("unknown personal tool %q", name)
 }
@@ -481,4 +490,116 @@ func sortStrings(s []string) {
 			s[j], s[j-1] = s[j-1], s[j]
 		}
 	}
+}
+
+func shortHash(h string) string {
+	if len(h) > 12 {
+		return h[:12]
+	}
+	return h
+}
+
+func sandboxNote() string {
+	if personal.SandboxAvailable() {
+		return "hardened (bwrap)"
+	}
+	return "no bwrap — generated code runs fail-closed unless explicitly approved"
+}
+
+// paDoctor health-checks one agent: home layout, objective, approved policy,
+// generated workspace, sandbox availability, trigger/pending-interaction
+// counts. Returns a report string rather than a bool — the cockpit relays
+// findings to the user itself, it doesn't need a separate pass/fail signal.
+func paDoctor(ctx context.Context, st *personal.Store, home, agent string) (string, error) {
+	var b strings.Builder
+	check := func(label string, good bool, detail string) {
+		mark := "ok"
+		if !good {
+			mark = "FAIL"
+		}
+		fmt.Fprintf(&b, "[%s] %s: %s\n", mark, label, detail)
+	}
+	for _, d := range []string{"policies", "workspace/generated", "workspace/scratch", "runs", ".memcode/sessions"} {
+		_, err := os.Stat(filepath.Join(home, d))
+		check("dir "+d, err == nil, filepath.Join(home, d))
+	}
+	obj, hasObj, _ := st.GetObjective(ctx, "primary")
+	check("objective", hasObj, obj.Description)
+	pol, hasPol, _ := st.ApprovedPolicy(ctx, "primary")
+	check("approved policy", hasPol, func() string {
+		if hasPol {
+			return fmt.Sprintf("v%d %s", pol.Version, shortHash(pol.Hash))
+		}
+		return "none — consequential work blocked"
+	}())
+	if _, err := personal.InitializeGeneratedWorkspace(home); err != nil {
+		check("generated workspace", false, err.Error())
+	} else {
+		check("generated workspace", true, "git initialized")
+	}
+	fmt.Fprintf(&b, "[info] sandbox: %s\n", sandboxNote())
+	trigs, _ := st.ListTriggers(ctx)
+	pend, _ := st.PendingInteractions(ctx, agent)
+	fmt.Fprintf(&b, "triggers: %d, pending interactions: %d\n", len(trigs), len(pend))
+	return b.String(), nil
+}
+
+// paBrowserSetup checks existing-Chrome delegation prerequisites and attempts
+// a real, bounded connection — the same checks `memcode personal browser
+// setup` used to run as a separate CLI command, now reachable the same way
+// every other Personal Agent operation is: a tool call in the cockpit
+// conversation, not a command the user has to know to type.
+func paBrowserSetup(ctx context.Context) (string, error) {
+	var b strings.Builder
+	ok := true
+	check := func(label string, good bool, detail string) {
+		mark := "ok"
+		if !good {
+			mark = "FAIL"
+			ok = false
+		}
+		fmt.Fprintf(&b, "[%s] %s: %s\n", mark, label, detail)
+	}
+	npx, err := exec.LookPath("npx")
+	check("npx available", err == nil, func() string {
+		if err != nil {
+			return "not found on PATH — Node.js is required"
+		}
+		return npx
+	}())
+	sock, err := broker.SocketPath()
+	if err != nil {
+		check("broker socket path", false, err.Error())
+	} else {
+		reachable := broker.NewClient(sock).Reachable()
+		check("gateway browser broker", reachable, func() string {
+			if reachable {
+				return sock
+			}
+			return "not reachable — start the gateway (memcode gateway run) first"
+		}())
+	}
+	if !ok {
+		b.WriteString("\nFix the above, then try again.")
+		return b.String(), nil
+	}
+	b.WriteString("\nAttempting a connection to the running Chrome (10s timeout)...\n")
+	cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	mgr := mcp.Connect(cctx, map[string]mcp.ServerConfig{
+		"chrome-devtools": {Type: "stdio", Command: "npx", Args: []string{"-y", browser.ChromeDevToolsMCPPackage, "--autoConnect"}},
+	}, mcp.Options{Version: "0.1.0"})
+	defer mgr.Close()
+	toolCount := len(mgr.Tools())
+	if toolCount == 0 {
+		b.WriteString("[FAIL] could not connect to Chrome\n")
+		for _, e := range mgr.Errors() {
+			fmt.Fprintf(&b, "  - %v\n", e)
+		}
+		b.WriteString("Tell the user: Chrome 144+, chrome://inspect/#remote-debugging toggled on, Chrome\n")
+		b.WriteString("actually running, and click Allow if a dialog appears in Chrome — only they can.\n")
+		return b.String(), nil
+	}
+	fmt.Fprintf(&b, "[ok] connected — %d browser tool(s) available. Existing-Chrome delegation is ready.\n", toolCount)
+	return b.String(), nil
 }

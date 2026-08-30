@@ -6,17 +6,19 @@ import "github.com/memcode-ai/memcode/internal/wire"
 // typed operations (plus ask_user). Deterministic management of Personal Agents:
 // objectives, policies, resources, triggers, wakes, and pending interactions.
 const (
-	PaOverview  = "pa_overview"  // list all Personal Agents with status
-	PaCreate    = "pa_create"    // create a new Personal Agent (name + objective)
-	PaObjective = "pa_objective" // show/set an agent's objective
-	PaPolicy    = "pa_policy"    // stage/show/approve delegation policies
-	PaResource  = "pa_resource"  // grant/list/revoke resources
-	PaTrigger   = "pa_trigger"   // add/list/pause/resume wake triggers
-	PaWake      = "pa_wake"      // run one bounded wake now
-	PaInbox     = "pa_inbox"     // list pending human interactions
-	PaAnswer    = "pa_answer"    // answer a pending interaction
-	PaHistory   = "pa_history"   // recent runs + journaled actions
-	PaLifecycle = "pa_lifecycle" // pause/resume/stop/delete an agent
+	PaOverview     = "pa_overview"      // list all Personal Agents with status
+	PaCreate       = "pa_create"        // create a new Personal Agent (name + objective)
+	PaObjective    = "pa_objective"     // show/set an agent's objective
+	PaPolicy       = "pa_policy"        // stage/show/approve delegation policies
+	PaResource     = "pa_resource"      // grant/list/revoke resources
+	PaTrigger      = "pa_trigger"       // add/list/pause/resume wake triggers
+	PaWake         = "pa_wake"          // run one bounded wake now
+	PaInbox        = "pa_inbox"         // list pending human interactions
+	PaAnswer       = "pa_answer"        // answer a pending interaction
+	PaHistory      = "pa_history"       // recent runs + journaled actions
+	PaLifecycle    = "pa_lifecycle"     // pause/resume/stop/delete an agent
+	PaDoctor       = "pa_doctor"        // health check: home layout, objective, policy, sandbox, triggers, pending interactions
+	PaBrowserSetup = "pa_browser_setup" // check/connect existing-Chrome delegation prerequisites
 )
 
 // PersonalDefs returns the personal-cockpit tool registry.
@@ -115,6 +117,18 @@ func PersonalDefs() []wire.ToolDef {
 				"action":      str("pause, resume, stop, or delete"),
 				"delete_home": str("delete only: 'true' to also permanently delete the agent home"),
 			}, "agent", "action"),
+		},
+		{
+			Name:        PaDoctor,
+			Description: "Health check an agent: home directory layout, objective, approved policy, generated workspace, sandbox availability, trigger count, pending interaction count. Use when something seems wrong or before a first wake.",
+			InputSchema: obj(map[string]any{
+				"agent": str("agent name"),
+			}, "agent"),
+		},
+		{
+			Name:        PaBrowserSetup,
+			Description: "Check existing-Chrome delegation prerequisites (npx, the gateway's browser broker) and attempt a real, bounded connection to the user's running Chrome. Call this when a delegate call with a browser toolset fails closed, or when the user asks to set up browser access. Does not click Chrome's own consent dialog — only the user can do that.",
+			InputSchema: obj(map[string]any{}),
 		},
 	}
 }

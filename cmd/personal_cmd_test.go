@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"os"
@@ -13,18 +12,8 @@ import (
 	gwconfig "github.com/memcode-ai/memcode/internal/gateway/config"
 )
 
-// execPersonal runs a personal subcommand with an isolated HOME + config.
-func execPersonal(t *testing.T, args ...string) (string, error) {
-	t.Helper()
-	cmd := rootCmd
-	var out bytes.Buffer
-	cmd.SetOut(&out)
-	cmd.SetErr(&out)
-	cmd.SetArgs(args)
-	err := cmd.Execute()
-	return out.String(), err
-}
-
+// setupPersonalHome isolates HOME/XDG_CONFIG_HOME so a test's Personal Agents
+// never touch the real ~/.memcode or ~/.config/memcode.
 func setupPersonalHome(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
@@ -33,174 +22,165 @@ func setupPersonalHome(t *testing.T) string {
 	return home
 }
 
-func TestPolicyLifecycleBlocksThenApproves(t *testing.T) {
-	setupPersonalHome(t)
-	if _, err := execPersonal(t, "personal", "create", "pa", "Keep things tidy"); err != nil {
-		t.Fatal(err)
-	}
-	// No policy yet → run is blocked (and must not call a model).
-	out, err := execPersonal(t, "personal", "run", "pa")
-	// run errors only because no model is configured in test env; that's fine —
-	// what we assert is the policy gate happens BEFORE any model requirement.
-	_ = out
-	_ = err
-	// Stage + approve a policy.
-	dir := t.TempDir()
-	pfile := filepath.Join(dir, "policy.json")
-	policy := map[string]any{
-		"objective_scope":     "primary",
-		"consequence_classes": []string{"observe", "local_mutation"},
-		"max_seconds":         300, "max_actions_per_period": 8, "max_delegation_depth": 1,
-	}
-	b, _ := json.Marshal(policy)
-	if err := os.WriteFile(pfile, b, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	out, err = execPersonal(t, "personal", "policy", "set", "pa", pfile)
+// call runs one pa_* tool exactly as the cockpit would — this IS the
+// interface now (see cmd/personal.go): there is no CLI subcommand path to
+// fall back to, so every test here goes through personalExecute.
+func call(t *testing.T, name string, in map[string]any) string {
+	t.Helper()
+	b, err := json.Marshal(in)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, "Draft policy v1 staged") {
-		t.Fatalf("set=%q", out)
+	out, err := personalExecute(context.Background(), name, b)
+	if err != nil {
+		t.Fatalf("%s(%v): %v", name, in, err)
 	}
-	// Extract hash from the policy file name written under the agent home.
+	return out
+}
+
+func TestPaCreateListPauseResumeStopDelete(t *testing.T) {
+	home := setupPersonalHome(t)
+	call(t, tools.PaCreate, map[string]any{"agent": "test-agent", "objective": "Maintain an arbitrary outcome"})
+
+	cfg, err := gwconfig.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Agents["test-agent"].Kind != "personal" {
+		t.Fatalf("agent=%+v", cfg.Agents["test-agent"])
+	}
+	if _, err := os.Stat(filepath.Join(home, ".memcode", "agents", "test-agent", "personal.db")); err != nil {
+		t.Fatal(err)
+	}
+
+	call(t, tools.PaLifecycle, map[string]any{"agent": "test-agent", "action": "pause"})
+	call(t, tools.PaLifecycle, map[string]any{"agent": "test-agent", "action": "resume"})
+	call(t, tools.PaLifecycle, map[string]any{"agent": "test-agent", "action": "stop"})
+
+	out := call(t, tools.PaOverview, map[string]any{})
+	if !strings.Contains(out, "test-agent") {
+		t.Fatalf("overview missing agent: %q", out)
+	}
+
+	call(t, tools.PaLifecycle, map[string]any{"agent": "test-agent", "action": "delete"})
+	if _, err := os.Stat(filepath.Join(home, ".memcode", "agents", "test-agent")); err != nil {
+		t.Fatal("non-destructive delete removed home")
+	}
+}
+
+func TestPaPolicyLifecycleBlocksThenApproves(t *testing.T) {
+	setupPersonalHome(t)
+	call(t, tools.PaCreate, map[string]any{"agent": "pa", "objective": "Keep things tidy"})
+
+	// No policy yet → wake is blocked.
+	out := call(t, tools.PaWake, map[string]any{"agent": "pa"})
+	if !strings.Contains(out, "blocked") {
+		t.Fatalf("expected blocked wake, got %q", out)
+	}
+
+	policy := map[string]any{
+		"objective_scope": "primary", "consequence_classes": []string{"observe", "local_mutation"},
+		"max_seconds": 300, "max_actions_per_period": 8, "max_delegation_depth": 1,
+	}
+	pb, _ := json.Marshal(policy)
+	out = call(t, tools.PaPolicy, map[string]any{"agent": "pa", "action": "stage", "document": string(pb)})
+	if !strings.Contains(out, "Draft policy v1 staged") {
+		t.Fatalf("stage=%q", out)
+	}
 	home, _ := gwconfig.AgentHome("pa")
 	entries, err := os.ReadDir(filepath.Join(home, "policies"))
 	if err != nil || len(entries) != 1 {
 		t.Fatalf("policies dir: %v %v", entries, err)
 	}
 	hash := strings.TrimSuffix(entries[0].Name(), ".json")
-	// Approve by prefix.
-	out, err = execPersonal(t, "personal", "approve-policy", "pa", hash[:12])
-	if err != nil {
-		t.Fatal(err)
-	}
+
+	out = call(t, tools.PaPolicy, map[string]any{"agent": "pa", "action": "approve", "hash": hash[:12]})
 	if !strings.Contains(out, "Approved policy") {
 		t.Fatalf("approve=%q", out)
 	}
-	// Show reports approved.
-	out, err = execPersonal(t, "personal", "policy", "show", "pa")
-	if err != nil {
-		t.Fatal(err)
-	}
+	out = call(t, tools.PaPolicy, map[string]any{"agent": "pa", "action": "show"})
 	if !strings.Contains(out, "approved policy v1") {
 		t.Fatalf("show=%q", out)
 	}
+
+	// Config mirror actually reflects the approved policy.
+	mirrored, err := os.ReadFile(filepath.Join(home, "policy.yaml"))
+	if err != nil || !strings.Contains(string(mirrored), "approved: true") {
+		t.Fatalf("policy.yaml mirror missing approval: %v %q", err, mirrored)
+	}
 }
 
-func TestResourcesAndTriggersCommands(t *testing.T) {
+func TestPaResourceAndTrigger(t *testing.T) {
 	home := setupPersonalHome(t)
-	if _, err := execPersonal(t, "personal", "create", "pa2", "Watch a folder"); err != nil {
-		t.Fatal(err)
-	}
+	call(t, tools.PaCreate, map[string]any{"agent": "pa2", "objective": "Watch a folder"})
+
 	grant := filepath.Join(home, "watch")
 	if err := os.MkdirAll(grant, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	out, err := execPersonal(t, "personal", "resources", "add", "pa2", "filesystem", grant, "--mode", "write")
-	if err != nil {
-		t.Fatal(err)
+	// No type, no mode — the common case a person would actually ask for.
+	out := call(t, tools.PaResource, map[string]any{"agent": "pa2", "action": "grant", "locator": grant})
+	if !strings.Contains(out, "Granted filesystem") || !strings.Contains(out, "(read)") {
+		t.Fatalf("grant=%q", out)
 	}
-	if !strings.Contains(out, "Granted filesystem") {
-		t.Fatalf("add=%q", out)
+	out = call(t, tools.PaResource, map[string]any{"agent": "pa2", "action": "list"})
+	if !strings.Contains(out, "filesystem") {
+		t.Fatalf("list=%q", out)
 	}
-	out, err = execPersonal(t, "personal", "resources", "list", "pa2")
-	if err != nil || !strings.Contains(out, "filesystem") {
-		t.Fatalf("list=%q err=%v", out, err)
-	}
-	// Trigger add/list.
-	out, err = execPersonal(t, "personal", "triggers", "add", "pa2", "interval", "30m")
-	if err != nil {
-		t.Fatal(err)
-	}
+
+	out = call(t, tools.PaTrigger, map[string]any{"agent": "pa2", "action": "add", "kind": "interval", "spec": "30m"})
 	if !strings.Contains(out, "next wake") {
 		t.Fatalf("trigger add=%q", out)
 	}
-	out, err = execPersonal(t, "personal", "triggers", "list", "pa2")
-	if err != nil || !strings.Contains(out, "interval") {
-		t.Fatalf("triggers list=%q err=%v", out, err)
+	out = call(t, tools.PaTrigger, map[string]any{"agent": "pa2", "action": "list"})
+	if !strings.Contains(out, "interval") {
+		t.Fatalf("trigger list=%q", out)
 	}
-	// Revoke a resource by parsing its id (field after "- ", before ":").
-	out, err = execPersonal(t, "personal", "resources", "list", "pa2")
-	if err != nil {
-		t.Fatal(err)
-	}
+
+	// Revoke by parsing the id out of the list output.
+	out = call(t, tools.PaResource, map[string]any{"agent": "pa2", "action": "list"})
 	var resID string
 	for _, line := range strings.Split(out, "\n") {
-		if strings.HasPrefix(line, "- ") {
-			rest := strings.TrimPrefix(line, "- ")
-			if i := strings.Index(rest, ":"); i > 0 {
-				resID = rest[:i]
-			}
+		if i := strings.Index(line, ":"); i > 0 {
+			resID = line[:i]
+			break
 		}
 	}
 	if resID == "" {
 		t.Fatalf("no resource id in %q", out)
 	}
-	if _, err := execPersonal(t, "personal", "resources", "revoke", "pa2", resID); err != nil {
-		t.Fatal(err)
-	}
-	// Confirm revoked.
-	out, _ = execPersonal(t, "personal", "resources", "list", "pa2")
+	call(t, tools.PaResource, map[string]any{"agent": "pa2", "action": "revoke", "id": resID})
+	out = call(t, tools.PaResource, map[string]any{"agent": "pa2", "action": "list"})
 	if !strings.Contains(out, "[revoked]") {
 		t.Fatalf("expected revoked: %q", out)
 	}
+
+	// resources.yaml mirror reflects the revoke.
+	agentHome, _ := gwconfig.AgentHome("pa2")
+	mirrored, err := os.ReadFile(filepath.Join(agentHome, "resources.yaml"))
+	if err != nil || !strings.Contains(string(mirrored), "revoked") {
+		t.Fatalf("resources.yaml mirror missing revoke: %v %q", err, mirrored)
+	}
 }
 
-// The cockpit executor drives the same operations the subcommands expose, via
-// typed pa_* tool calls. Read-only calls return state; mutations mutate.
-func TestPersonalCockpitExecutor(t *testing.T) {
+func TestPaDoctorAndOverview(t *testing.T) {
 	setupPersonalHome(t)
-	ctx := context.Background()
-	if _, err := execPersonal(t, "personal", "create", "cock", "Tidy my notes"); err != nil {
-		t.Fatal(err)
+	call(t, tools.PaCreate, map[string]any{"agent": "cock", "objective": "Tidy my notes"})
+
+	out := call(t, tools.PaOverview, map[string]any{})
+	if !strings.Contains(out, "cock") {
+		t.Fatalf("overview=%q", out)
 	}
-	// Overview (read).
-	out, err := personalExecute(ctx, tools.PaOverview, json.RawMessage(`{}`))
-	if err != nil || !strings.Contains(out, "cock") {
-		t.Fatalf("overview=%q err=%v", out, err)
+	out = call(t, tools.PaObjective, map[string]any{"agent": "cock", "action": "show"})
+	if !strings.Contains(out, "Tidy my notes") {
+		t.Fatalf("objective=%q", out)
 	}
-	// Objective show (read).
-	out, err = personalExecute(ctx, tools.PaObjective, json.RawMessage(`{"agent":"cock","action":"show"}`))
-	if err != nil || !strings.Contains(out, "Tidy my notes") {
-		t.Fatalf("objective=%q err=%v", out, err)
+	out = call(t, tools.PaDoctor, map[string]any{"agent": "cock"})
+	if !strings.Contains(out, "objective") || !strings.Contains(out, "sandbox") {
+		t.Fatalf("doctor=%q", out)
 	}
-	// Policy stage + approve via cockpit.
-	pol := map[string]any{"objective_scope": "primary", "consequence_classes": []string{"observe"}, "max_seconds": 60, "max_actions_per_period": 4}
-	pb, _ := json.Marshal(pol)
-	docJSON, _ := json.Marshal(map[string]string{"agent": "cock", "action": "stage", "document": string(pb)})
-	out, err = personalExecute(ctx, tools.PaPolicy, docJSON)
-	if err != nil || !strings.Contains(out, "Draft policy v1 staged") {
-		t.Fatalf("stage=%q err=%v", out, err)
-	}
-	home, _ := gwconfig.AgentHome("cock")
-	entries, _ := os.ReadDir(filepath.Join(home, "policies"))
-	hash := strings.TrimSuffix(entries[0].Name(), ".json")
-	apJSON, _ := json.Marshal(map[string]string{"agent": "cock", "action": "approve", "hash": hash})
-	out, err = personalExecute(ctx, tools.PaPolicy, apJSON)
-	if err != nil || !strings.Contains(out, "Approved policy") {
-		t.Fatalf("approve=%q err=%v", out, err)
-	}
-	// Trigger add + list via cockpit.
-	trJSON, _ := json.Marshal(map[string]string{"agent": "cock", "action": "add", "kind": "interval", "spec": "15m"})
-	out, err = personalExecute(ctx, tools.PaTrigger, trJSON)
-	if err != nil || !strings.Contains(out, "next wake") {
-		t.Fatalf("trigger add=%q err=%v", out, err)
-	}
-	tlJSON, _ := json.Marshal(map[string]string{"agent": "cock", "action": "list"})
-	out, err = personalExecute(ctx, tools.PaTrigger, tlJSON)
-	if err != nil || !strings.Contains(out, "interval") {
-		t.Fatalf("trigger list=%q err=%v", out, err)
-	}
-	// Inbox (read) and lifecycle pause.
-	inJSON, _ := json.Marshal(map[string]string{"agent": "cock"})
-	out, err = personalExecute(ctx, tools.PaInbox, inJSON)
-	if err != nil || !strings.Contains(out, "inbox empty") {
-		t.Fatalf("inbox=%q err=%v", out, err)
-	}
-	lcJSON, _ := json.Marshal(map[string]string{"agent": "cock", "action": "pause"})
-	out, err = personalExecute(ctx, tools.PaLifecycle, lcJSON)
-	if err != nil || !strings.Contains(out, "paused") {
-		t.Fatalf("pause=%q err=%v", out, err)
+	out = call(t, tools.PaInbox, map[string]any{"agent": "cock"})
+	if !strings.Contains(out, "inbox empty") {
+		t.Fatalf("inbox=%q", out)
 	}
 }
