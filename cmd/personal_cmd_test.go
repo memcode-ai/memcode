@@ -104,9 +104,9 @@ func TestPaPolicyLifecycleBlocksThenApproves(t *testing.T) {
 	}
 
 	// Config mirror actually reflects the approved policy.
-	mirrored, err := os.ReadFile(filepath.Join(home, "policy.yaml"))
+	mirrored, err := os.ReadFile(filepath.Join(home, "config.yaml"))
 	if err != nil || !strings.Contains(string(mirrored), "approved: true") {
-		t.Fatalf("policy.yaml mirror missing approval: %v %q", err, mirrored)
+		t.Fatalf("config.yaml mirror missing approval: %v %q", err, mirrored)
 	}
 }
 
@@ -155,11 +155,11 @@ func TestPaResourceAndTrigger(t *testing.T) {
 		t.Fatalf("expected revoked: %q", out)
 	}
 
-	// resources.yaml mirror reflects the revoke.
+	// Config mirror reflects the revoke.
 	agentHome, _ := gwconfig.AgentHome("pa2")
-	mirrored, err := os.ReadFile(filepath.Join(agentHome, "resources.yaml"))
+	mirrored, err := os.ReadFile(filepath.Join(agentHome, "config.yaml"))
 	if err != nil || !strings.Contains(string(mirrored), "revoked") {
-		t.Fatalf("resources.yaml mirror missing revoke: %v %q", err, mirrored)
+		t.Fatalf("config.yaml mirror missing revoke: %v %q", err, mirrored)
 	}
 }
 
