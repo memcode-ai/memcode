@@ -96,6 +96,13 @@ type Settings struct {
 // a project and NOT the `memcode run` CLI command — the agent's context is
 // composed and handed to the coding engine as generic supplemental context.
 type Agent struct {
+	// LegacyKind captures a removed `kind:` field so an old config fails LOUDLY
+	// instead of silently. `kind: personal` used to mean "this agent runs on its
+	// own"; autonomy is now an explicit setting. YAML ignores unknown fields, so
+	// without this the agent would quietly load as an ordinary one — still
+	// configured, apparently fine, and never waking again. Validate rejects it
+	// with the one-line fix. Never read this for behavior.
+	LegacyKind string `yaml:"kind,omitempty"`
 	// Objective is the durable outcome this agent works toward — the thing it
 	// is still pursuing between conversations. Empty for an ordinary
 	// conversational agent.
@@ -432,6 +439,9 @@ func Load() (Settings, error) {
 // legacy zero values.
 func (s Settings) Validate() error {
 	for id, agent := range s.Agents {
+		if agent.LegacyKind != "" {
+			return fmt.Errorf("agent %q still uses the removed `kind: %s` setting. Autonomy is now explicit: replace it with `autonomous: true` (and an `objective:` describing what it works toward) if this agent should keep running on its own, or just delete the `kind:` line if it should not. Its home under ~/.memcode/agents/%s is untouched either way", id, agent.LegacyKind, id)
+		}
 		if agent.Browser != "" && agent.Browser != BrowserEphemeral && agent.Browser != BrowserExistingChrome {
 			return fmt.Errorf("agent %q has unknown browser %q (want %s or %s)", id, agent.Browser, BrowserEphemeral, BrowserExistingChrome)
 		}

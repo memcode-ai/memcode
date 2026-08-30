@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -153,5 +154,21 @@ func TestPairingEnabledDefaults(t *testing.T) {
 	}
 	if s.PairingEnabled("telegram") {
 		t.Error("explicit telegram pairing:false ignored")
+	}
+}
+
+// A removed setting must fail loudly, not vanish. `kind: personal` used to mean
+// "runs on its own"; YAML would silently ignore it now, leaving an agent that
+// looks configured but never wakes again.
+func TestLegacyKindIsRejectedWithAFix(t *testing.T) {
+	s := Settings{Agents: map[string]Agent{"demo": {LegacyKind: "personal"}}}
+	err := s.Validate()
+	if err == nil {
+		t.Fatal("legacy kind silently accepted — an agent would quietly stop running")
+	}
+	for _, want := range []string{"autonomous: true", "objective:", "demo"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error should tell the user how to fix it; missing %q in: %v", want, err)
+		}
 	}
 }

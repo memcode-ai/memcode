@@ -121,10 +121,20 @@ func TestNoSecondCockpit(t *testing.T) {
 
 // TestNoAgentKind: autonomy is orthogonal settings on an agent, never a "kind"
 // discriminator. A kind field is what made Personal a separate species.
+//
+// gwconfig.Agent.LegacyKind is the one allowed mention: it exists solely so an
+// old `kind: personal` config is REJECTED with a fix rather than silently
+// ignored by YAML. Behavior must never branch on it, so the check below looks
+// for the branch, not the name.
 func TestNoAgentKind(t *testing.T) {
 	for path, src := range goFiles(t, false) {
-		if strings.Contains(src, `Kind: "personal"`) || strings.Contains(src, `kind == "personal"`) || strings.Contains(src, `Kind == "personal"`) {
-			t.Errorf("%s still discriminates on an agent kind — use Agent.Autonomous / Agent.Objective", path)
+		for _, line := range strings.Split(src, "\n") {
+			if strings.Contains(line, "LegacyKind") {
+				continue
+			}
+			if strings.Contains(line, `Kind: "personal"`) || strings.Contains(line, `Kind == "personal"`) || strings.Contains(line, `kind == "personal"`) {
+				t.Errorf("%s still discriminates on an agent kind — use Agent.Autonomous / Agent.Objective:\n  %s", path, strings.TrimSpace(line))
+			}
 		}
 	}
 }

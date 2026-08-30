@@ -1,23 +1,39 @@
-# Personal Agents
+# Autonomous agents
 
-**Status:** Draft design contract  
+**Status:** Design contract  
 **Date:** August 30, 2026
+
+> **Revised during implementation.** This was originally specified as "Personal
+> Agents", a first-class agent type with its own cockpit (`memcode personal`),
+> database, scheduler and tool registry. Review found that most of that
+> duplicated infrastructure the ordinary agent system already had, and the two
+> paths drifted. The capabilities below are unchanged; what changed is that they
+> are now SETTINGS on the one Agent abstraction rather than a separate species,
+> managed through `memcode admin`. Read "Personal Agent" below as "an agent with
+> an objective, running autonomously". See `docs/autonomous-agents.md` for the
+> shipped surface.
+>
+> One correction to the model itself: an objective and permission to pursue it
+> unattended are ORTHOGONAL. `autonomous: true` gates governance (policy,
+> journal, durable HITL) and applies with or without an objective — which is how
+> a plain scheduled agent finally gets those protections too.
 
 ## Purpose
 
-Personal Agents are domain-general, long-lived environment agents operated through:
+Autonomous agents are domain-general, long-lived environment agents configured
+on any agent and operated through:
 
 ```text
-memcode personal
+memcode admin
 ```
 
-A Personal Agent accepts a user-authored objective, models relevant parts of the user's granted environment, creates and revises intermediate subgoals, schedules bounded future work, delegates dynamically scoped workers, pauses durably for human involvement, and improves its effectiveness through external generated artifacts.
+Such an agent accepts a user-authored objective, models relevant parts of the user's granted environment, creates and revises intermediate subgoals, schedules bounded future work, delegates dynamically scoped workers, pauses durably for human involvement, and improves its effectiveness through external generated artifacts.
 
 Memcode is the stable runtime kernel. Self-evolution occurs in the agent-owned capability layer, not by modifying the Memcode binary or source checkout.
 
 ## Architectural invariant
 
-> `internal/personal` contains no domain-specific workflow concepts, fixed worker roles, provider-specific business logic, or predefined user-profile schema.
+> `internal/agent/autonomy` contains no domain-specific workflow concepts, fixed worker roles, provider-specific business logic, or predefined user-profile schema.
 
 Domain behavior belongs in objective data, memory, generated artifacts, installed skills, resource grants, and available tools.
 
@@ -130,7 +146,7 @@ After meaningful work the executive evaluates progress, cost, latency, repeated 
 
 ## Browser broker trust boundary
 
-Ordinary sessions retain the existing ephemeral browser backend. Personal Agents may use an explicitly authorized connection to the user's existing Chrome through a gateway-owned broker and permission-protected local socket.
+Ordinary sessions retain the existing ephemeral browser backend. An agent configured with `browser: existing_chrome` may use an explicitly authorized connection to the user's existing Chrome through a gateway-owned broker and permission-protected local socket.
 
 The broker owns controller lifecycle, authenticates short-lived scoped run tokens, serializes control with leases, associates created pages with an agent and run, redacts sensitive headers, and exposes narrow operations rather than raw controller access. It never exports cookies or credentials and never closes or mutates unrelated tabs.
 
