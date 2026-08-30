@@ -92,6 +92,26 @@ func TestAllowed(t *testing.T) {
 	}
 }
 
+func TestAgentKindCompatibilityAndValidation(t *testing.T) {
+	legacy := Settings{Agents: map[string]Agent{"ordinary": {Model: "m"}}}
+	if err := legacy.Validate(); err != nil {
+		t.Fatalf("legacy empty kind must remain valid: %v", err)
+	}
+	if got := legacy.Agents["ordinary"].Kind; got != "" {
+		t.Fatalf("legacy kind = %q, want empty", got)
+	}
+
+	personal := Settings{Agents: map[string]Agent{"executive": {Kind: "personal"}}}
+	if err := personal.Validate(); err != nil {
+		t.Fatalf("personal kind rejected: %v", err)
+	}
+
+	unknown := Settings{Agents: map[string]Agent{"bad": {Kind: "workflow"}}}
+	if err := unknown.Validate(); err == nil {
+		t.Fatal("unknown agent kind must be rejected")
+	}
+}
+
 func TestGetZeroValue(t *testing.T) {
 	var s Settings // nil Channels map
 	if got := s.Get("telegram"); !reflect.DeepEqual(got, Channel{}) {

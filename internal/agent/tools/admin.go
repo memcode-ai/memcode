@@ -52,10 +52,11 @@ func AdminDefs() []wire.ToolDef {
 		},
 		{
 			Name:        GwAgent,
-			Description: "Create or remove an agent: a lasting assistant identity with its own memory and skills (identity file: ~/.memcode/agents/<name>/SOUL.md). Bind a channel to one with gw_channel field=agent. action=model pins/clears its model; action=reasoning pins/clears its thinking effort; action=tools sets its tool policy (toolsets allow-list and/or disabled list; valid names: files, shell, code, web, browser, mcp, memory, skills, delegation, planning, interaction, or an individual tool name).",
+			Description: "Create or remove a lasting agent identity with its own memory and skills; use gw_overview to inspect existing agents (identity file: ~/.memcode/agents/<name>/SOUL.md). Optional kind=personal creates a Personal Agent, whose objective and lifecycle must be managed with memcode personal. Bind ordinary agents to channels with gw_channel field=agent. action=model pins/clears its model; action=reasoning pins/clears its thinking effort; action=tools sets its tool policy.",
 			InputSchema: obj(map[string]any{
 				"action":            str("add, remove, model, reasoning, or tools"),
 				"name":              str("agent name, e.g. personal, coder, researcher"),
+				"kind":              str("add only: empty for an ordinary agent, or personal; Personal lifecycle is managed with memcode personal"),
 				"model":             str("add/model: pin the model that drives this agent everywhere (catalog id, e.g. \"claude-sonnet-5\"); empty = automatic routing"),
 				"reasoning":         str("add/reasoning: pin thinking effort — off, medium, or high; empty = per-turn automatic"),
 				"toolsets":          str("tools: comma-separated allow-list of toolsets/tools; empty = all"),

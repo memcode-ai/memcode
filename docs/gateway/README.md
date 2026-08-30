@@ -96,6 +96,7 @@ projects:                                # written by `memcode project add`
 default_project: memcode
 agents:                                  # durable agents; identity + state in ~/.memcode/agents/<id>
   personal:
+    kind: personal             # additive Personal Agent runtime; omit for ordinary agents
     model: claude-haiku-4-5    # omit model to let routing pick per task
   coder:
     model: claude-sonnet-5
@@ -133,6 +134,12 @@ onto the run as supplemental context and an extra skill root, above whatever the
 project itself provides. A channel binds to a agent with `channels.<name>.agent`,
 and a conversation switches with `/agent <id>`. Each agent gets its own session
 transcript per conversation.
+
+An optional `kind: personal` marks an additive Personal Agent runtime type.
+Empty `kind` preserves ordinary named-agent behavior. Personal objective,
+policy, resource, trigger, and runtime state lives in the agent home rather than
+`gateway.yaml`; manage that lifecycle through `memcode personal`. Removing the
+configuration entry does not delete the home.
 
 ## Authorization and triggering
 

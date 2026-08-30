@@ -315,6 +315,8 @@ func (s *Session) dispatch(ctx context.Context, u wire.Block) toolResult {
 		return s.mcpPromptTool(ctx, u.Input)
 	case tools.GwOverview, tools.GwChannel, tools.GwPairing, tools.GwProject, tools.GwAgent, tools.GwSchedule, tools.GwService:
 		return s.adminTool(ctx, u.Name, u.Input)
+	case tools.PaOverview, tools.PaObjective, tools.PaPolicy, tools.PaResource, tools.PaTrigger, tools.PaWake, tools.PaInbox, tools.PaAnswer, tools.PaHistory, tools.PaLifecycle:
+		return s.personalTool(ctx, u.Name, u.Input)
 	case tools.GitHub:
 		return s.githubTool(ctx, u.Input)
 	case tools.RunTests:
@@ -708,6 +710,17 @@ func reviewTool(name string) bool {
 
 // toolDefs returns the tools advertised to the model for the current mode.
 func (s *Session) toolDefs() []wire.ToolDef {
+	if s.personalMode {
+		// Personal cockpit: the pa_* registry plus ask_user. No repo/coding/shell
+		// tools — management goes through typed, gated pa_* operations.
+		defs := tools.PersonalDefs()
+		for _, d := range tools.Defs() {
+			if d.Name == tools.AskUser {
+				defs = append(defs, d)
+			}
+		}
+		return defs
+	}
 	if s.adminMode {
 		// Admin sessions get the admin registry plus a small file surface for
 		// agent homes (instructions, memory, skills): read/edit/search/bash

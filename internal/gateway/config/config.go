@@ -96,6 +96,10 @@ type Settings struct {
 // a project and NOT the `memcode run` CLI command — the agent's context is
 // composed and handed to the coding engine as generic supplemental context.
 type Agent struct {
+	// Kind selects additive runtime behavior. Empty preserves the ordinary named
+	// agent behavior. "personal" enables the Personal Agent runtime; its mutable
+	// state remains in the agent home rather than gateway.yaml.
+	Kind string `yaml:"kind,omitempty"`
 	// Model pins the model that drives this agent (an id from the catalog,
 	// e.g. "claude-sonnet-5"). Empty = automatic routing. Wherever the agent
 	// answers — any channel, any schedule — this is the model that serves it.
@@ -392,12 +396,29 @@ func Load() (Settings, error) {
 	if err := yaml.Unmarshal(b, &s); err != nil {
 		return Settings{}, fmt.Errorf("parsing %s: %w", p, err)
 	}
+	if err := s.Validate(); err != nil {
+		return Settings{}, fmt.Errorf("validating %s: %w", p, err)
+	}
 	return s, nil
+}
+
+// Validate checks additive configuration discriminators while preserving
+// legacy zero values.
+func (s Settings) Validate() error {
+	for id, agent := range s.Agents {
+		if agent.Kind != "" && agent.Kind != "personal" {
+			return fmt.Errorf("agent %q has unknown kind %q", id, agent.Kind)
+		}
+	}
+	return nil
 }
 
 // Save writes gateway.yaml atomically. 0600 — it holds no secrets, but the
 // allow-list of user ids is sensitive on a shared host, so keep it owner-only.
 func Save(s Settings) error {
+	if err := s.Validate(); err != nil {
+		return err
+	}
 	p, err := Path()
 	if err != nil {
 		return err

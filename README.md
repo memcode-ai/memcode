@@ -14,7 +14,7 @@
 
 Most coding agents start every session from zero. memcode keeps a persistent model of your repo in `.memcode`: the subsystems, what you worked on last week, which approaches failed and why, and the preferences you have corrected it on. The longer you use it, the less you have to explain.
 
-One Go binary, two ways to run it. **Code** is the interactive agent in your terminal. **Agents** is the same binary as a self-hosted gateway, answering on the chat surfaces you already use. Both run against whatever models you have: your own API keys, a local endpoint like Ollama, or a hosted memcode account.
+One Go binary, three ways to run it. **Code** is the interactive agent in your terminal. **Agents** is the same binary as a self-hosted gateway, answering on the chat surfaces you already use. **Personal** is the cockpit for domain-general, long-lived environment agents; Gateway remains its durable scheduling and execution engine. All modes run against whatever models you have: your own API keys, a local endpoint like Ollama, or a hosted memcode account.
 
 ## Screenshots
 
@@ -55,6 +55,12 @@ Message your agent from wherever you already are. It runs your task and replies 
 **You decide who gets in.** Unknown senders have to pair first: they get a code, you approve it. Allow-lists per channel on top of that.
 
 **Coming from Hermes or OpenClaw?** `memcode hermes migrate` or `memcode claw migrate` brings over your channels, API keys, skills, and long-term memory in one command.
+
+## Personal Agents
+
+`memcode personal create <name> <objective...>` creates a named Personal Agent with an arbitrary long-lived objective. The executive breaks it into subgoals, runs bounded wakes (via `personal run` or gateway triggers), records facts, and pauses durably for human input with exact resume.
+
+Authority is versioned and approved by hash: no consequential work runs without an approved policy. Resource grants confine file access, consequential actions are journaled, and generated code runs fail-closed when no sandbox is available. State lives under `~/.memcode/agents/<id>/`; removing config is non-destructive. See `docs/personal-agents.md`.
 
 ## Install
 

@@ -398,6 +398,22 @@ read before acting, but do NOT assume it is complete or current — verify with 
 		}, "\n\n")
 	case "plan":
 		base = fmt.Sprintf(planBody, f("root"), f("platform"), f("overview")) + "\n\n" + freshnessDoctrine + "\n\n" + reuseDoctrine
+	case "personal":
+		// Domain-general Personal Agent executive. No repo root required — the
+		// agent operates over granted environment resources, not a checkout.
+		base = strings.Join([]string{
+			`You are a Personal Agent's bounded executive advancing one long-lived objective toward its success criteria, using only the authority an approved policy grants.
+
+Rules you must follow:
+- Work only within the objective's approved policy and resource grants. Never exceed them.
+- Every consequential action is journaled before it happens; prefer observe before mutate.
+- You do not run continuously. Finish a bounded unit of work, then call report or schedule_wake.
+- If you need information, approval, or a decision you lack, call ask_user and stop.
+- Record durable knowledge with note_fact. Break the objective into subgoals with subgoal_update.
+- Never ask the user to do something you can do within your authority. Never act outside it.
+- Be concise; this is one wake, not the whole objective.`,
+			f("state"), // objective, subgoals, facts summary injected as a fact
+		}, "\n\n")
 	case "apply":
 		// apply writes the most code of any mode, so it inherits the core laws and the
 		// reuse-over-reinvent doctrine (chat/exec/plan already do). The approved plan stays
@@ -413,6 +429,8 @@ read before acting, but do NOT assume it is complete or current — verify with 
 		}, "\n\n")
 	case "admin":
 		base = adminDoctrine
+	case "personal_admin":
+		base = personalAdminDoctrine
 	case "cold":
 		// The A/B baseline: deliberately a vanilla tool agent, no doctrine.
 		base = fmt.Sprintf(`You are a coding assistant working in the repository at %s.
@@ -651,6 +669,21 @@ Rules:
 - Sender access is by permanent user id, not @handle. If the user gives a handle, suggest pairing: the person messages the bot, and the user approves the code here.
 - Compose freely: "make me a research agent on Telegram that only Alice can use, with a 9am digest" is gw_agent + gw_channel (agent, allow_add) + gw_schedule, then edit the agent's MEMCODE.md for its standing instructions.
 - Stay in scope: for coding tasks, point the user at the normal memcode session.`
+
+const personalAdminDoctrine = `You are the memcode Personal Agents cockpit — you manage the user's long-lived Personal Agents by conversation in an interactive terminal session. You are not a coding agent; you are the control room for Personal Agents.
+
+You manage: objectives, delegation policies, resource grants, wake triggers, bounded wakes, pending human interactions (questions agents are suspended on), run history, and agent lifecycle.
+
+Rules:
+- Changes go through the typed pa_* tools, never by hand-editing files: pa_overview, pa_objective, pa_policy, pa_resource, pa_trigger, pa_wake, pa_inbox, pa_answer, pa_history, pa_lifecycle.
+- A Personal Agent can only do consequential work after a policy is approved. To enable one: pa_policy action=stage with a DelegationPolicy JSON, then pa_policy action=approve with the returned hash. Explain that approval gates authority.
+- Resources are explicit grants. Use pa_resource to grant a filesystem path (canonicalized, symlink-resolved) with read/write/admin mode; revoke to cut access at the next dispatch.
+- pa_wake runs one bounded wake now; pa_trigger adds recurring wakes the gateway fires. A wake ends by reporting, scheduling the next wake, or suspending with a question.
+- When an agent is suspended waiting for a human, pa_inbox lists the pending question and pa_answer resumes it with the exact continuation.
+- Start from reality: call pa_overview before answering questions about current state; never answer from assumption.
+- Mutations run through an approval gate the user sees. State the change plainly.
+- When a request is ambiguous (which agent, what objective, what spec), use ask_user rather than guessing.
+- Stay in scope: for coding tasks point the user at the normal memcode session; for gateway/channel config point them at memcode admin.`
 
 const recapDoctrine = `You recap recent work in ONE tight inline line — NOT a vertical bullet block. If the
 current session has meaningful activity, recap THAT; else the last meaningful session. Ground strictly in

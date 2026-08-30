@@ -130,6 +130,9 @@ func adminOverview(ctx context.Context) (string, error) {
 	for _, name := range agentNames {
 		a := settings.Agents[name]
 		extra := ""
+		if a.Kind != "" {
+			extra += " kind=" + a.Kind
+		}
 		if a.Model != "" {
 			extra += " model=" + a.Model
 		}
@@ -386,6 +389,7 @@ func adminAgent(input json.RawMessage) (string, error) {
 	var in struct {
 		Action           string `json:"action"`
 		Name             string `json:"name"`
+		Kind             string `json:"kind"`
 		Model            string `json:"model"`
 		Reasoning        string `json:"reasoning"`
 		Toolsets         string `json:"toolsets"`
@@ -411,9 +415,16 @@ func adminAgent(input json.RawMessage) (string, error) {
 		if r := strings.TrimSpace(in.Reasoning); r != "" && r != "off" && r != "medium" && r != "high" {
 			return "", fmt.Errorf("reasoning must be off, medium, or high")
 		}
-		settings.Agents[name] = gwconfig.Agent{Model: strings.TrimSpace(in.Model), Reasoning: strings.TrimSpace(in.Reasoning)}
+		kind := strings.TrimSpace(in.Kind)
+		if kind != "" && kind != "personal" {
+			return "", fmt.Errorf("kind must be empty or personal")
+		}
+		settings.Agents[name] = gwconfig.Agent{Kind: kind, Model: strings.TrimSpace(in.Model), Reasoning: strings.TrimSpace(in.Reasoning)}
 		if err := gwconfig.Save(settings); err != nil {
 			return "", err
+		}
+		if kind == "personal" {
+			return fmt.Sprintf("Created Personal Agent %s. Manage its objective and lifecycle with `memcode personal`; its home is retained independently at ~/.memcode/agents/%s/.", name, name), nil
 		}
 		return fmt.Sprintf("Created agent %s. Bind a channel to it with gw_channel field=agent; its identity lives at ~/.memcode/agents/%s/SOUL.md.", name, name), nil
 	case "tools":

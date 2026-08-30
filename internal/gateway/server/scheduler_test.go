@@ -11,6 +11,18 @@ import (
 	"github.com/memcode-ai/memcode/internal/gateway/state"
 )
 
+func TestHasPersonalAgents(t *testing.T) {
+	if hasPersonalAgents(gwconfig.Settings{}) {
+		t.Fatal("empty settings reported Personal Agents")
+	}
+	if hasPersonalAgents(gwconfig.Settings{Agents: map[string]gwconfig.Agent{"ordinary": {}}}) {
+		t.Fatal("ordinary agent reported as personal")
+	}
+	if !hasPersonalAgents(gwconfig.Settings{Agents: map[string]gwconfig.Agent{"executive": {Kind: "personal"}}}) {
+		t.Fatal("Personal Agent not discovered")
+	}
+}
+
 type fakeSender struct{}
 
 func (fakeSender) Send(context.Context, string, channels.Outbound) error { return nil }

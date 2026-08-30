@@ -59,6 +59,50 @@ func (s *Session) adminTool(ctx context.Context, name string, input json.RawMess
 	return textResult(out)
 }
 
+// personalReadOnly reports whether a pa_* call is a pure read (no approval gate).
+func personalReadOnly(name string, input json.RawMessage) bool {
+	switch name {
+	case tools.PaOverview, tools.PaInbox, tools.PaHistory:
+		return true
+	}
+	// show/list sub-actions are reads.
+	var in struct {
+		Action string `json:"action"`
+	}
+	_ = json.Unmarshal(input, &in)
+	a := strings.ToLower(strings.TrimSpace(in.Action))
+	switch name {
+	case tools.PaObjective, tools.PaPolicy:
+		return a == "show"
+	case tools.PaResource, tools.PaTrigger:
+		return a == "list"
+	}
+	return false
+}
+
+// personalTool gates and dispatches a personal-cockpit tool call.
+func (s *Session) personalTool(ctx context.Context, name string, input json.RawMessage) toolResult {
+	if s.adminExec == nil {
+		return errResult("personal cockpit is unavailable in this session")
+	}
+	if !personalReadOnly(name, input) {
+		title := name
+		if compact := compactAdminInput(input); compact != "" {
+			title = fmt.Sprintf("%s %s", name, compact)
+		}
+		if ok, reason := s.gate(ctx, permissions.Medium, false, ApprovalRequest{
+			Title: title, Label: "Personal Agent change", Risk: permissions.Medium.String(),
+		}); !ok {
+			return errResult("denied: " + reason)
+		}
+	}
+	out, err := s.adminExec(ctx, name, input)
+	if err != nil {
+		return errResult(err.Error())
+	}
+	return textResult(out)
+}
+
 // compactAdminInput renders tool input as a short single-line summary for the
 // approval card, "" when it is empty.
 func compactAdminInput(input json.RawMessage) string {

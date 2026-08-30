@@ -9,6 +9,30 @@ import (
 	"time"
 )
 
+func TestSpawnWithSpecCompatibility(t *testing.T) {
+	root := t.TempDir()
+	job, err := SpawnWithSpec(SpawnSpec{Root: root, Task: "inspect", Mode: "auto", Tier: "strong", SessionID: "session-1", AgentID: "agent-1", ObjectiveID: "objective-1", SubgoalID: "subgoal-1", RunID: "run-1", ParentRunID: "parent-1", PolicyHash: "hash-1", ToolPolicy: ToolPolicy{Allowed: []string{"files"}}, ResourceGrant: ResourceGrant{IDs: []string{"resource-1"}}, Budgets: ExecutionBudgets{MaxSeconds: 30}, ReportBack: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if job.AgentID != "agent-1" || job.ObjectiveID != "objective-1" || job.SessionID != "session-1" || job.PolicyHash != "hash-1" {
+		t.Fatalf("job=%+v", job)
+	}
+	if job.Status != StatusRunning || len(job.ExecutionEnvelope) == 0 {
+		t.Fatalf("job=%+v", job)
+	}
+}
+
+func TestLegacySpawnWrapper(t *testing.T) {
+	job, err := Spawn(t.TempDir(), "inspect", "auto", "", false, false, "legacy-session")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if job.SessionID != "legacy-session" || job.Task != "inspect" {
+		t.Fatalf("job=%+v", job)
+	}
+}
+
 func TestMetaRoundTripListFinish(t *testing.T) {
 	root := t.TempDir()
 	job := Job{ID: "job_test", Task: "do a thing", Mode: "auto", PID: os.Getpid(),

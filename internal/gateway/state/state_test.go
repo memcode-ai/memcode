@@ -20,6 +20,20 @@ func item(channel, id string) Item {
 	return Item{Channel: channel, MessageID: id, Conversation: "c", Principal: "p", Text: "hi"}
 }
 
+func TestInboxWaitingTransitions(t *testing.T) {
+	s := openTemp(t)
+	ctx := context.Background()
+	if _, err := s.Accept(ctx, item("personal", "m1"), time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	for _, tr := range [][2]string{{"pending", "running"}, {"running", "waiting"}, {"waiting", "resumable"}, {"resumable", "replied"}, {"replied", "done"}} {
+		ok, err := s.SetInboxStatus(ctx, "personal", "m1", tr[0], tr[1])
+		if err != nil || !ok {
+			t.Fatalf("%s→%s ok=%v err=%v", tr[0], tr[1], ok, err)
+		}
+	}
+}
+
 func TestAcceptDedup(t *testing.T) {
 	s := openTemp(t)
 	ctx := context.Background()
