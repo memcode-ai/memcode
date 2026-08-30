@@ -1,4 +1,4 @@
-package personal
+package autonomy
 
 import (
 	"context"
@@ -16,7 +16,7 @@ import (
 	"github.com/memcode-ai/memcode/internal/wire"
 )
 
-// Executive is one Personal Agent's bounded decision loop. Each RunOnce is a
+// Executive is one bounded decision loop for an agent running unattended. Each RunOnce is a
 // single bounded wake: read durable state, run one LLM turn with domain-neutral
 // tools, journal consequential actions, then complete, schedule the next wake,
 // or suspend for human input. It never holds an open loop.

@@ -177,7 +177,7 @@ func SpawnWithSpec(spec SpawnSpec) (Job, error) {
 	// ToolPolicy is a REAL restriction on the child, not just recorded metadata:
 	// --allow-tools/--deny-tools bind the same SetToolPolicy enforcement an
 	// ordinary gateway-bound agent gets from its config. A caller (e.g. a
-	// Personal Agent's delegate tool) that hands this spec a narrower toolset
+	// autonomous agent's delegate tool) that hands this spec a narrower toolset
 	// than the parent policy allows gets an actually narrower child, not just an
 	// audited claim of one.
 	if len(spec.ToolPolicy.Allowed) > 0 {

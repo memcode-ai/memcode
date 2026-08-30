@@ -82,7 +82,7 @@ type runtime struct {
 
 	// browserBroker arbitrates exclusive mutation rights over the user's
 	// existing (already-running, already-logged-in) Chrome, so at most one
-	// delegated Personal Agent worker drives it at a time. It is a SINGLE
+	// delegated autonomous agent worker drives it at a time. It is a SINGLE
 	// object for the gateway's whole lifetime — that persistence is the point:
 	// a worker on wake N and a different worker on wake N+1 reach the SAME
 	// broker, not a fresh one, so ownership/leasing state survives across
@@ -167,9 +167,9 @@ func Run(ctx context.Context, root string, mainStore store.Store, settings gwcon
 		browserBroker: broker.New(),
 	}
 	// Existing-Chrome coordination socket: started unconditionally (cheap — a
-	// local listener) so it's there the moment a Personal Agent's delegate
-	// call needs it, without requiring a gateway restart after `memcode
-	// personal browser setup`. Its failure is non-fatal to the gateway as a
+	// local listener) so it's there the moment an autonomous agent's delegate
+	// call needs it, without requiring a gateway restart after existing-Chrome
+	// is set up. Its failure is non-fatal to the gateway as a
 	// whole — a delegated worker that needs it fails closed on its own when
 	// it can't reach the socket, per design; it never silently falls back to
 	// ephemeral Chrome.

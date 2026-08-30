@@ -1,4 +1,4 @@
-package personal
+package autonomy
 
 import (
 	"math/rand"

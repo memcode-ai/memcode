@@ -1,4 +1,4 @@
-package personal
+package autonomy
 
 import (
 	"context"
@@ -94,27 +94,42 @@ func TestPersistentTriggerClaim(t *testing.T) {
 	defer s.Close()
 	now := time.Now().UTC().Truncate(time.Second)
 	due := now.Add(-time.Minute)
-	if err := s.CreateTrigger(ctx, Trigger{ID: "t1", ObjectiveID: "o1", Kind: "interval", Spec: "5m", NextDueAt: &due}); err != nil {
+	// A self-scheduled wake: one instant, set by the agent from inside a run.
+	if err := s.CreateTrigger(ctx, Trigger{ID: "t1", ObjectiveID: "o1", Kind: "next_wake", Spec: due.Format(time.RFC3339), NextDueAt: &due}); err != nil {
 		t.Fatal(err)
 	}
 	got, ok, err := s.ClaimDueTrigger(ctx, "t1", now)
 	if err != nil || !ok || got.LastFiredAt == nil {
 		t.Fatalf("trigger=%+v ok=%v err=%v", got, ok, err)
 	}
+	// The claim is atomic — a second gateway process racing on the same row
+	// must lose rather than double-firing the wake.
 	if _, ok, err := s.ClaimDueTrigger(ctx, "t1", now); err != nil || ok {
 		t.Fatalf("duplicate claim ok=%v err=%v", ok, err)
 	}
 	triggers, err := s.ListTriggers(ctx)
-	if err != nil || len(triggers) != 1 || triggers[0].NextDueAt == nil || !triggers[0].NextDueAt.After(now) {
+	if err != nil || len(triggers) != 1 {
 		t.Fatalf("triggers=%+v err=%v", triggers, err)
+	}
+	// Firing completes it: a one-instant wake never reschedules itself.
+	if triggers[0].Status != "completed" || triggers[0].NextDueAt != nil {
+		t.Fatalf("expected a completed wake with no next due, got %+v", triggers[0])
 	}
 }
 
 func TestNextDueKinds(t *testing.T) {
 	now := time.Date(2026, time.August, 30, 12, 0, 0, 0, time.UTC)
-	for _, tc := range []struct{ kind, spec string }{{"manual", ""}, {"interval", "5m"}, {"cron", "0 * * * *"}, {"one_shot", "2026-08-30T13:00:00Z"}, {"next_wake", "2026-08-30T13:00:00Z"}} {
+	for _, tc := range []struct{ kind, spec string }{{"manual", ""}, {"one_shot", "2026-08-30T13:00:00Z"}, {"next_wake", "2026-08-30T13:00:00Z"}} {
 		if _, err := NextDue(tc.kind, tc.spec, now); err != nil {
 			t.Errorf("%s: %v", tc.kind, err)
+		}
+	}
+	// Recurring kinds are deliberately NOT understood here: a second cron
+	// parser in this package is what let the two schedulers drift. Human
+	// cadence is a gateway schedule (gw_schedule), not a trigger row.
+	for _, kind := range []string{"interval", "cron"} {
+		if _, err := NextDue(kind, "5m", now); err == nil {
+			t.Errorf("%s accepted — recurring cadence must go through gwconfig, not a second parser here", kind)
 		}
 	}
 }

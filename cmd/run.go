@@ -132,7 +132,7 @@ for local gateway development. Never store keys in .memcode.`,
 			sess.SetBrowserEnabled(true)
 			defer sess.CloseBrowser() // tear down Chrome when the one-shot session ends
 		}
-		// --browser-session existing_chrome: this run is a Personal Agent's
+		// --browser-session existing_chrome: this run is a autonomous agent's
 		// delegated worker that needs the USER'S OWN already-running,
 		// already-logged-in Chrome (Gmail, LinkedIn, an ATS, whatever the user
 		// is signed into) — NOT a fresh ephemeral profile with no session. It

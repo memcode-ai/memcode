@@ -1,4 +1,4 @@
-package personal
+package autonomy
 
 import (
 	"context"
@@ -25,7 +25,7 @@ import (
 // This file is a MIRROR, not the source of truth — the DB stays authoritative
 // for two reasons that are correctness, not habit:
 //   - Policy approval is a deliberate hash-gated ceremony (see
-//     ApprovePolicy): a Personal Agent runs unsupervised, so "the document a
+//     ApprovePolicy): a autonomous agent runs unsupervised, so "the document a
 //     human actually reviewed" must be pinned by hash, not re-derived from
 //     whatever the file happens to say at wake time. Editing config.yaml's
 //     policy section and having it silently take effect would defeat that.

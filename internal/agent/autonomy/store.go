@@ -1,4 +1,4 @@
-package personal
+package autonomy
 
 import (
 	"context"
@@ -39,7 +39,7 @@ func InitializeHome(home string) error {
 
 func Open(ctx context.Context, home string) (*Store, error) {
 	if err := InitializeHome(home); err != nil {
-		return nil, fmt.Errorf("initialize Personal Agent home: %w", err)
+		return nil, fmt.Errorf("initialize agent home: %w", err)
 	}
 	path := filepath.Join(home, "personal.db")
 	db, err := sql.Open("sqlite", path)
@@ -77,7 +77,7 @@ func migrate(ctx context.Context, db *sql.DB) error {
 		}
 		if err != nil {
 			tx.Rollback()
-			return fmt.Errorf("applying Personal Agent migration %d: %w", i+1, err)
+			return fmt.Errorf("applying autonomous agent migration %d: %w", i+1, err)
 		}
 		if err := tx.Commit(); err != nil {
 			return err

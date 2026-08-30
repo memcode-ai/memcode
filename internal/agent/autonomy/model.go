@@ -1,6 +1,6 @@
 // Package personal implements the domain-general durable state and runtime
-// primitives for Personal Agents.
-package personal
+// primitives for autonomous agents.
+package autonomy
 
 import (
 	"encoding/json"

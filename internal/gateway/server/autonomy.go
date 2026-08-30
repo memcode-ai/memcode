@@ -6,10 +6,10 @@ import (
 	"io"
 	"time"
 
+	"github.com/memcode-ai/memcode/internal/agent/autonomy"
 	"github.com/memcode-ai/memcode/internal/channels"
 	gwconfig "github.com/memcode-ai/memcode/internal/gateway/config"
 	"github.com/memcode-ai/memcode/internal/llm"
-	"github.com/memcode-ai/memcode/internal/personal"
 	"github.com/memcode-ai/memcode/internal/provider"
 )
 
@@ -44,14 +44,14 @@ func hasAutonomousAgents(settings gwconfig.Settings) bool {
 // Claims are atomic (ClaimDueTrigger), so a fired wake advances its next_due
 // and cannot double-fire across restarts or across two gateway processes.
 //
-// It keeps one open *personal.Store per agent for the life of the loop instead
+// It keeps one open *autonomy.Store per agent for the life of the loop instead
 // of opening and closing a connection (full PRAGMA setup + migration check) on
 // every tick — that per-tick churn scaled with agent count and could make a
 // tick's own wall time approach its own period. Only this goroutine touches the
 // cache, so it needs no locking; stores are closed when ctx is done or an agent
 // stops being autonomous.
 func (r *runtime) autonomousWakeLoop(ctx context.Context) {
-	stores := map[string]*personal.Store{}
+	stores := map[string]*autonomy.Store{}
 	defer func() {
 		for _, st := range stores {
 			st.Close()
@@ -69,7 +69,7 @@ func (r *runtime) autonomousWakeLoop(ctx context.Context) {
 	}
 }
 
-func (r *runtime) fireDueSelfWakes(ctx context.Context, stores map[string]*personal.Store) {
+func (r *runtime) fireDueSelfWakes(ctx context.Context, stores map[string]*autonomy.Store) {
 	settings := r.cfg()
 	now := time.Now().UTC()
 	live := map[string]bool{}
@@ -89,7 +89,7 @@ func (r *runtime) fireDueSelfWakes(ctx context.Context, stores map[string]*perso
 			if err != nil {
 				continue
 			}
-			st, err = personal.Open(ctx, home)
+			st, err = autonomy.Open(ctx, home)
 			if err != nil {
 				continue
 			}
@@ -155,7 +155,7 @@ func (r *runtime) runAutonomousWake(ctx context.Context, agentID string) string 
 	if err != nil {
 		return "error: " + err.Error()
 	}
-	st, err := personal.Open(ctx, home)
+	st, err := autonomy.Open(ctx, home)
 	if err != nil {
 		return "error: " + err.Error()
 	}
@@ -172,7 +172,7 @@ func (r *runtime) runAutonomousWake(ctx context.Context, agentID string) string 
 	if err != nil {
 		return "error: no model configured: " + err.Error()
 	}
-	ex := &personal.Executive{Store: st, Home: home, AgentID: agentID, Runner: llm.NewRunner(prov)}
+	ex := &autonomy.Executive{Store: st, Home: home, AgentID: agentID, Objective: a.Objective, Runner: llm.NewRunner(prov)}
 	out, err := ex.RunOnce(ctx)
 	if err != nil {
 		return "error: " + err.Error()

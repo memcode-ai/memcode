@@ -20,19 +20,19 @@ import (
 	"strings"
 	"time"
 
+	"github.com/memcode-ai/memcode/internal/agent/autonomy"
 	"github.com/memcode-ai/memcode/internal/atomicfile"
 	"github.com/memcode-ai/memcode/internal/browser"
 	"github.com/memcode-ai/memcode/internal/browser/broker"
 	gwconfig "github.com/memcode-ai/memcode/internal/gateway/config"
 	"github.com/memcode-ai/memcode/internal/llm"
 	"github.com/memcode-ai/memcode/internal/mcp"
-	"github.com/memcode-ai/memcode/internal/personal"
 	"github.com/memcode-ai/memcode/internal/provider"
 )
 
 // agentStore opens the autonomy store for a configured agent. The store is
 // created lazily, so an ordinary conversational agent never gets one.
-func agentStore(ctx context.Context, agent string) (*personal.Store, string, gwconfig.Agent, error) {
+func agentStore(ctx context.Context, agent string) (*autonomy.Store, string, gwconfig.Agent, error) {
 	s, err := gwconfig.Load()
 	if err != nil {
 		return nil, "", gwconfig.Agent{}, err
@@ -45,14 +45,14 @@ func agentStore(ctx context.Context, agent string) (*personal.Store, string, gwc
 	if err != nil {
 		return nil, "", gwconfig.Agent{}, err
 	}
-	st, err := personal.Open(ctx, home)
+	st, err := autonomy.Open(ctx, home)
 	if err != nil {
 		return nil, "", gwconfig.Agent{}, err
 	}
 	return st, home, a, nil
 }
 
-func gwPolicy(ctx context.Context, st *personal.Store, home, agent, action, document, hash string) (string, error) {
+func gwPolicy(ctx context.Context, st *autonomy.Store, home, agent, action, document, hash string) (string, error) {
 	switch strings.ToLower(action) {
 	case "show":
 		p, ok, err := st.ApprovedPolicy(ctx, "primary")
@@ -64,11 +64,11 @@ func gwPolicy(ctx context.Context, st *personal.Store, home, agent, action, docu
 		}
 		return fmt.Sprintf("approved policy v%d hash=%s\n%s", p.Version, p.Hash, string(p.Document)), nil
 	case "stage":
-		var doc personal.DelegationPolicy
+		var doc autonomy.DelegationPolicy
 		if err := json.Unmarshal([]byte(document), &doc); err != nil {
 			return "", fmt.Errorf("document is not valid DelegationPolicy JSON: %w", err)
 		}
-		canon, h, err := personal.CanonicalPolicy(doc)
+		canon, h, err := autonomy.CanonicalPolicy(doc)
 		if err != nil {
 			return "", err
 		}
@@ -76,14 +76,14 @@ func gwPolicy(ctx context.Context, st *personal.Store, home, agent, action, docu
 		if err != nil {
 			return "", err
 		}
-		if err := st.InsertPolicy(ctx, personal.Policy{ID: "policy-" + h[:8], ObjectiveID: "primary", Version: ver, Document: canon, Hash: h, Status: "draft"}); err != nil {
+		if err := st.InsertPolicy(ctx, autonomy.Policy{ID: "policy-" + h[:8], ObjectiveID: "primary", Version: ver, Document: canon, Hash: h, Status: "draft"}); err != nil {
 			return "", err
 		}
 		// The canonical bytes are kept beside the agent so the exact document a
 		// human reviewed stays inspectable, keyed by the hash they approve.
 		_ = os.MkdirAll(filepath.Join(home, "policies"), 0o700)
 		_ = atomicfile.WriteFile(filepath.Join(home, "policies", h+".json"), canon, 0o600)
-		_ = personal.WriteConfigMirror(ctx, home, st)
+		_ = autonomy.WriteConfigMirror(ctx, home, st)
 		return fmt.Sprintf("Draft policy v%d staged (hash %s). Show the user what it allows in plain language, then approve with gw_policy action=approve hash=%s.", ver, h[:12], h), nil
 	case "approve":
 		pols, err := st.ListPolicies(ctx, "primary")
@@ -103,13 +103,13 @@ func gwPolicy(ctx context.Context, st *personal.Store, home, agent, action, docu
 		if err := st.ApprovePolicy(ctx, match); err != nil {
 			return "", err
 		}
-		_ = personal.WriteConfigMirror(ctx, home, st)
+		_ = autonomy.WriteConfigMirror(ctx, home, st)
 		return fmt.Sprintf("Approved policy %s for %s. It may now do consequential work within those bounds.", match[:12], agent), nil
 	}
 	return "", fmt.Errorf("action must be show, stage, or approve")
 }
 
-func gwGrant(ctx context.Context, st *personal.Store, home, action, rtype, locator, mode, id string) (string, error) {
+func gwGrant(ctx context.Context, st *autonomy.Store, home, action, rtype, locator, mode, id string) (string, error) {
 	switch strings.ToLower(action) {
 	case "grant":
 		if rtype == "" {
@@ -119,17 +119,17 @@ func gwGrant(ctx context.Context, st *personal.Store, home, action, rtype, locat
 			mode = "read"
 		}
 		if rtype == "filesystem" {
-			canon, err := personal.CanonicalFilesystemGrant(locator)
+			canon, err := autonomy.CanonicalFilesystemGrant(locator)
 			if err != nil {
 				return "", fmt.Errorf("cannot grant: %w", err)
 			}
 			locator = canon
 		}
 		rid := fmt.Sprintf("res-%s-%d", rtype, time.Now().UnixNano())
-		if err := st.InsertResource(ctx, personal.Resource{ID: rid, ObjectiveID: "primary", Type: rtype, Locator: locator, AccessMode: mode, AuthorizationSource: "admin", Status: "active"}); err != nil {
+		if err := st.InsertResource(ctx, autonomy.Resource{ID: rid, ObjectiveID: "primary", Type: rtype, Locator: locator, AccessMode: mode, AuthorizationSource: "admin", Status: "active"}); err != nil {
 			return "", err
 		}
-		_ = personal.WriteConfigMirror(ctx, home, st)
+		_ = autonomy.WriteConfigMirror(ctx, home, st)
 		return fmt.Sprintf("Granted %s %s (%s) as %s.", rtype, locator, mode, rid), nil
 	case "list":
 		res, err := st.ListResources(ctx, "primary")
@@ -148,7 +148,7 @@ func gwGrant(ctx context.Context, st *personal.Store, home, action, rtype, locat
 		if err := st.SetResourceStatus(ctx, id, "revoked"); err != nil {
 			return "", err
 		}
-		_ = personal.WriteConfigMirror(ctx, home, st)
+		_ = autonomy.WriteConfigMirror(ctx, home, st)
 		return "revoked " + id + " (effective at the next dispatch)", nil
 	}
 	return "", fmt.Errorf("action must be grant, list, or revoke")
@@ -157,7 +157,7 @@ func gwGrant(ctx context.Context, st *personal.Store, home, action, rtype, locat
 // gwWake runs one bounded wake on demand. Autonomy is NOT required here —
 // being autonomous governs whether an agent wakes on its own, not whether a
 // human may ask it to work now.
-func gwWake(ctx context.Context, st *personal.Store, home, agent string, cfg gwconfig.Agent) (string, error) {
+func gwWake(ctx context.Context, st *autonomy.Store, home, agent string, cfg gwconfig.Agent) (string, error) {
 	if strings.TrimSpace(cfg.Objective) == "" {
 		return "", fmt.Errorf("agent %q has no objective to advance — set one with gw_agent action=objective", agent)
 	}
@@ -171,7 +171,7 @@ func gwWake(ctx context.Context, st *personal.Store, home, agent string, cfg gwc
 	if err != nil {
 		return "", fmt.Errorf("no model configured: %w", err)
 	}
-	ex := &personal.Executive{Store: st, Home: home, AgentID: agent, Objective: cfg.Objective, Runner: llm.NewRunner(prov)}
+	ex := &autonomy.Executive{Store: st, Home: home, AgentID: agent, Objective: cfg.Objective, Runner: llm.NewRunner(prov)}
 	out, err := ex.RunOnce(ctx)
 	if err != nil {
 		return "", err
@@ -187,7 +187,7 @@ func gwWake(ctx context.Context, st *personal.Store, home, agent string, cfg gwc
 	return b.String(), nil
 }
 
-func gwInbox(ctx context.Context, st *personal.Store, agent string) (string, error) {
+func gwInbox(ctx context.Context, st *autonomy.Store, agent string) (string, error) {
 	inter, err := st.PendingInteractions(ctx, agent)
 	if err != nil {
 		return "", err
@@ -202,7 +202,7 @@ func gwInbox(ctx context.Context, st *personal.Store, agent string) (string, err
 	return b.String(), nil
 }
 
-func gwAnswer(ctx context.Context, st *personal.Store, home, agent, id, answer string, cfg gwconfig.Agent) (string, error) {
+func gwAnswer(ctx context.Context, st *autonomy.Store, home, agent, id, answer string, cfg gwconfig.Agent) (string, error) {
 	in, ok, err := st.GetInteraction(ctx, id)
 	if err != nil || !ok {
 		return "", fmt.Errorf("no interaction %q", id)
@@ -218,7 +218,7 @@ func gwAnswer(ctx context.Context, st *personal.Store, home, agent, id, answer s
 	if err != nil {
 		return "", fmt.Errorf("no model configured: %w", err)
 	}
-	ex := &personal.Executive{Store: st, Home: home, AgentID: agent, Objective: cfg.Objective, Runner: llm.NewRunner(prov)}
+	ex := &autonomy.Executive{Store: st, Home: home, AgentID: agent, Objective: cfg.Objective, Runner: llm.NewRunner(prov)}
 	// Resume FIRST, mark answered only after: a failed resume must stay
 	// retryable rather than swallowing the answer.
 	out, err := ex.ResumeSuspended(ctx, in, answer)
@@ -231,7 +231,7 @@ func gwAnswer(ctx context.Context, st *personal.Store, home, agent, id, answer s
 	return fmt.Sprintf("answered %s; run %s → %s. %s", id, in.RunID, out.Status, out.Report), nil
 }
 
-func gwJournal(ctx context.Context, st *personal.Store) (string, error) {
+func gwJournal(ctx context.Context, st *autonomy.Store) (string, error) {
 	runs, err := st.ListRuns(ctx, "primary", 10)
 	if err != nil {
 		return "", err
@@ -249,7 +249,7 @@ func gwJournal(ctx context.Context, st *personal.Store) (string, error) {
 	return b.String(), nil
 }
 
-func gwDoctor(ctx context.Context, st *personal.Store, home, agent string, cfg gwconfig.Agent) (string, error) {
+func gwDoctor(ctx context.Context, st *autonomy.Store, home, agent string, cfg gwconfig.Agent) (string, error) {
 	var b strings.Builder
 	check := func(label string, good bool, detail string) {
 		mark := "ok"
@@ -277,7 +277,7 @@ func gwDoctor(ctx context.Context, st *personal.Store, home, agent string, cfg g
 		}
 		return "none — consequential work blocked"
 	}())
-	if _, err := personal.InitializeGeneratedWorkspace(home); err != nil {
+	if _, err := autonomy.InitializeGeneratedWorkspace(home); err != nil {
 		check("generated workspace", false, err.Error())
 	} else {
 		check("generated workspace", true, "git initialized")
@@ -349,7 +349,7 @@ func shortHash(h string) string {
 }
 
 func sandboxNote() string {
-	if personal.SandboxAvailable() {
+	if autonomy.SandboxAvailable() {
 		return "hardened (bwrap)"
 	}
 	return "no bwrap — generated code runs fail-closed unless explicitly approved"
