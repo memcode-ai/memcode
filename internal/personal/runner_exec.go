@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/memcode-ai/memcode/internal/atomicfile"
+	"github.com/memcode-ai/memcode/internal/agent/continuation"
 	"github.com/memcode-ai/memcode/internal/browser/broker"
 	"github.com/memcode-ai/memcode/internal/jobs"
 	"github.com/memcode-ai/memcode/internal/llm"
@@ -736,24 +736,23 @@ func (e *Executive) writeGranted(path, content string) error {
 	return fmt.Errorf("path %s is not within a writable approved filesystem grant", path)
 }
 
+// suspensionDir is where this run's continuations live. The executive keeps no
+// transcript between wakes, so its continuations sit beside the run rather than
+// under a session directory (see continuation.SessionDir for the interactive
+// layout).
+func suspensionDir(home, runID string) string {
+	return filepath.Join(home, "runs", runID)
+}
+
 // writeSuspension persists the exact continuation for an ask_user suspension.
-// It stores the full message transcript so resume replays nothing already done.
+// It stores the full message transcript (Messages) because a wake rebuilds its
+// context from durable state and has no transcript to append to on resume.
 func writeSuspension(home, runID, interactionID string, call wire.Block, assistant wire.Message, msgs []wire.Message) error {
-	dir := filepath.Join(home, "runs", runID)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return err
-	}
-	s := map[string]any{
-		"version": 1, "interaction_id": interactionID, "run_id": runID,
-		"tool_use_id": call.ID, "tool_name": call.Name, "tool_input": json.RawMessage(call.Input),
-		"assistant": assistant, "messages": msgs,
-		"created_at": time.Now().UTC().Format(time.RFC3339Nano), "resolved": false,
-	}
-	b, err := json.Marshal(s)
-	if err != nil {
-		return err
-	}
-	return atomicfile.WriteFile(filepath.Join(dir, "suspension-"+interactionID+".json"), b, 0o600)
+	return continuation.Save(suspensionDir(home, runID), continuation.Suspension{
+		RunID: runID, InteractionID: interactionID,
+		ToolUseID: call.ID, ToolName: call.Name, ToolInput: json.RawMessage(call.Input),
+		Assistant: assistant, Messages: msgs,
+	})
 }
 
 // ResumeSuspended continues a suspended run after its interaction is answered.
@@ -763,21 +762,10 @@ func writeSuspension(home, runID, interactionID string, call wire.Block, assista
 // continuation resolved ONLY after the resumed run finishes, so a failure leaves
 // the interaction retryable.
 func (e *Executive) ResumeSuspended(ctx context.Context, in Interaction, answer string) (RunOutcome, error) {
-	path := filepath.Join(e.Home, "runs", in.RunID, "suspension-"+in.ID+".json")
-	b, err := os.ReadFile(path)
+	dir := suspensionDir(e.Home, in.RunID)
+	s, err := continuation.Load(dir, in.ID)
 	if err != nil {
-		return RunOutcome{}, fmt.Errorf("no continuation for interaction %q: %w", in.ID, err)
-	}
-	var s struct {
-		Resolved  bool           `json:"resolved"`
-		ToolUseID string         `json:"tool_use_id"`
-		Messages  []wire.Message `json:"messages"`
-	}
-	if err := json.Unmarshal(b, &s); err != nil {
-		return RunOutcome{}, err
-	}
-	if s.Resolved {
-		return RunOutcome{}, fmt.Errorf("interaction %q continuation already resolved", in.ID)
+		return RunOutcome{}, fmt.Errorf("no resumable continuation for interaction %q: %w", in.ID, err)
 	}
 	// Re-load the approved policy (it may have narrowed since suspension).
 	pol, hasPol, err := e.Store.ApprovedPolicy(ctx, "primary")
@@ -793,26 +781,21 @@ func (e *Executive) ResumeSuspended(ctx context.Context, in Interaction, answer 
 	}
 	tools := e.allowedTools(policyDoc)
 
-	// Append the exact tool result matching the suspended tool_use_id.
-	msgs := append([]wire.Message{}, s.Messages...)
-	msgs = append(msgs, wire.Message{Role: "user", Blocks: []wire.Block{{
-		Type: "tool_result", ToolUseID: s.ToolUseID, Content: answer,
-	}}})
+	// Rebuild the transcript with the exact tool result matching the suspended
+	// tool_use_id. Not marked resolved yet — see below.
+	msgs, err := s.ResumeMessages(wire.Block{Type: "tool_result", ToolUseID: s.ToolUseID, Content: answer})
+	if err != nil {
+		return RunOutcome{}, err
+	}
 
 	out := e.loop(ctx, in.RunID, policyDoc, pol.Hash, msgs, tools)
 
-	// Mark continuation resolved once the answer has been consumed: either the run
-	// reached a terminal state, or it re-suspended on a new interaction (whose own
-	// continuation file already carries the appended answer forward). Only a hard
-	// resume error (returned above) leaves this continuation retryable.
+	// Mark the continuation resolved once the answer has been consumed: either the
+	// run reached a terminal state, or it re-suspended on a new interaction (whose
+	// own continuation carries the appended answer forward). A hard resume error
+	// leaves it unresolved on purpose, so the answer can be given again.
 	if out.Status == "completed" || out.Status == "failed" || out.Status == "suspended" {
-		var raw map[string]any
-		if json.Unmarshal(b, &raw) == nil {
-			raw["resolved"] = true
-			if rb, err := json.Marshal(raw); err == nil {
-				_ = atomicfile.WriteFile(path, rb, 0o600)
-			}
-		}
+		_ = continuation.MarkResolved(dir, in.ID)
 		_ = e.Store.UpdateRunStatus(ctx, in.RunID, out.Status, json.RawMessage(fmt.Sprintf(`{"report":%q}`, out.Report)))
 	}
 	return out, nil

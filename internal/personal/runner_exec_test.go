@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/memcode-ai/memcode/internal/agent/continuation"
 	"github.com/memcode-ai/memcode/internal/browser/broker"
 	"github.com/memcode-ai/memcode/internal/jobs"
 	"github.com/memcode-ai/memcode/internal/llm"
@@ -147,9 +148,10 @@ func TestExecutiveSuspendsAndResumes(t *testing.T) {
 	if len(pend) != 1 || pend[0].Question != "proceed with upgrade?" {
 		t.Fatalf("inbox=%v", pend)
 	}
-	// Continuation file exists.
-	if _, err := os.Stat(filepath.Join(home, "runs", out.RunID, "suspension-"+out.InteractionID+".json")); err != nil {
-		t.Fatalf("continuation missing: %v", err)
+	// A loadable continuation exists (shared continuation package, not a
+	// bespoke file layout — assert through its API, not the filename).
+	if _, err := continuation.Load(suspensionDir(home, out.RunID), out.InteractionID); err != nil {
+		t.Fatalf("continuation missing or unloadable: %v", err)
 	}
 	// Resume actually re-runs the model with the answer; the resumed run then
 	// completes (fake provider returns report on the next turn).

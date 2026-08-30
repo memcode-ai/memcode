@@ -76,23 +76,25 @@ type Job struct {
 	FinishedAt time.Time `json:"finished_at,omitempty"`
 	// Live readout, heartbeated by the running child (~1s) so frontends can show
 	// what a detached agent is doing right now. Additive; absent in old metas.
-	Activity            string          `json:"activity,omitempty"`   // latest tool label, e.g. "bash(go test ./...)"
-	TokensIn            int64           `json:"tokens_in,omitempty"`  // child session input tokens so far
-	TokensOut           int64           `json:"tokens_out,omitempty"` // child session output tokens so far
-	HeartbeatAt         time.Time       `json:"heartbeat_at,omitempty"`
-	AgentID             string          `json:"agent_id,omitempty"`
-	ObjectiveID         string          `json:"objective_id,omitempty"`
-	SubgoalID           string          `json:"subgoal_id,omitempty"`
-	RunID               string          `json:"run_id,omitempty"`
-	ParentRunID         string          `json:"parent_run_id,omitempty"`
-	SessionID           string          `json:"session_id,omitempty"`
-	PolicyHash          string          `json:"policy_hash,omitempty"`
-	ExecutionEnvelope   json.RawMessage `json:"execution_envelope,omitempty"`
-	InteractionID       string          `json:"interaction_id,omitempty"`
-	WaitingReason       string          `json:"waiting_reason,omitempty"`
-	ContinuationVersion int             `json:"continuation_version,omitempty"`
-	WaitingAt           time.Time       `json:"waiting_at,omitempty"`
-	ResumedAt           time.Time       `json:"resumed_at,omitempty"`
+	Activity          string          `json:"activity,omitempty"`   // latest tool label, e.g. "bash(go test ./...)"
+	TokensIn          int64           `json:"tokens_in,omitempty"`  // child session input tokens so far
+	TokensOut         int64           `json:"tokens_out,omitempty"` // child session output tokens so far
+	HeartbeatAt       time.Time       `json:"heartbeat_at,omitempty"`
+	AgentID           string          `json:"agent_id,omitempty"`
+	ObjectiveID       string          `json:"objective_id,omitempty"`
+	SubgoalID         string          `json:"subgoal_id,omitempty"`
+	RunID             string          `json:"run_id,omitempty"`
+	ParentRunID       string          `json:"parent_run_id,omitempty"`
+	SessionID         string          `json:"session_id,omitempty"`
+	PolicyHash        string          `json:"policy_hash,omitempty"`
+	ExecutionEnvelope json.RawMessage `json:"execution_envelope,omitempty"`
+	// NOTE: this struct deliberately carries no suspension/continuation fields.
+	// It used to declare InteractionID/WaitingReason/ContinuationVersion/
+	// WaitingAt/ResumedAt, which nothing ever wrote — a third half-built
+	// suspend/resume design alongside two others. Durable suspension lives in
+	// internal/agent/continuation, once. A detached job child runs with
+	// SetNoApprover and cannot ask a human mid-run today; if that changes, wire
+	// it to that package rather than re-adding fields here.
 }
 
 // processMatches reports whether the job's recorded pid is alive AND still the same process
