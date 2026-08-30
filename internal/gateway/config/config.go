@@ -96,6 +96,43 @@ type Settings struct {
 // a project and NOT the `memcode run` CLI command — the agent's context is
 // composed and handed to the coding engine as generic supplemental context.
 type Agent struct {
+	// LegacyKind captures a removed `kind:` field so an old config fails LOUDLY
+	// instead of silently. `kind: personal` used to mean "this agent runs on its
+	// own"; autonomy is now an explicit setting. YAML ignores unknown fields, so
+	// without this the agent would quietly load as an ordinary one — still
+	// configured, apparently fine, and never waking again. Validate rejects it
+	// with the one-line fix. Never read this for behavior.
+	LegacyKind string `yaml:"kind,omitempty"`
+	// Objective is the durable outcome this agent works toward — the thing it
+	// is still pursuing between conversations. Empty for an ordinary
+	// conversational agent.
+	//
+	// Objective and Autonomous are deliberately ORTHOGONAL, because they answer
+	// different questions and conflating them was the original design mistake:
+	//   - Objective  — what am I trying to accomplish?
+	//   - Autonomous — may I act on it without being prompted?
+	// An agent may hold an objective you only ever work on together (wakes on
+	// demand, never on its own), and an agent may run unattended on a schedule
+	// with no standing objective at all (see Autonomous).
+	Objective string `yaml:"objective,omitempty"`
+	// Autonomous marks this agent as permitted to run with nobody watching. It
+	// gates GOVERNANCE, not capability: an unattended run requires an approved
+	// delegation policy, journals its consequential actions, and suspends
+	// durably on a question instead of prompting a human who isn't there.
+	//
+	// This is what a plain cron-fired agent has always been missing — it runs
+	// unattended today with none of those protections — so the flag applies to
+	// any run of the agent, with or without an Objective.
+	Autonomous bool `yaml:"autonomous,omitempty"`
+	// Browser selects the backend for this agent's browser tools: "ephemeral"
+	// (default) launches a fresh, logged-out profile; "existing_chrome"
+	// attaches to the user's own already-running, already-signed-in Chrome
+	// through the gateway-owned broker. An agent acting on the user's behalf
+	// across their real accounts needs the latter; see internal/browser/broker.
+	Browser string `yaml:"browser,omitempty"`
+	// Paused stops future unattended wakes without deleting anything. On-demand
+	// runs still work.
+	Paused bool `yaml:"paused,omitempty"`
 	// Model pins the model that drives this agent (an id from the catalog,
 	// e.g. "claude-sonnet-5"). Empty = automatic routing. Wherever the agent
 	// answers — any channel, any schedule — this is the model that serves it.
@@ -392,12 +429,49 @@ func Load() (Settings, error) {
 	if err := yaml.Unmarshal(b, &s); err != nil {
 		return Settings{}, fmt.Errorf("parsing %s: %w", p, err)
 	}
+	if err := s.Validate(); err != nil {
+		return Settings{}, fmt.Errorf("validating %s: %w", p, err)
+	}
 	return s, nil
 }
+
+// Validate checks additive configuration discriminators while preserving
+// legacy zero values.
+func (s Settings) Validate() error {
+	for id, agent := range s.Agents {
+		if agent.LegacyKind != "" {
+			return fmt.Errorf("agent %q still uses the removed `kind: %s` setting. Autonomy is now explicit: replace it with `autonomous: true` (and an `objective:` describing what it works toward) if this agent should keep running on its own, or just delete the `kind:` line if it should not. Its home under ~/.memcode/agents/%s is untouched either way", id, agent.LegacyKind, id)
+		}
+		if agent.Browser != "" && agent.Browser != BrowserEphemeral && agent.Browser != BrowserExistingChrome {
+			return fmt.Errorf("agent %q has unknown browser %q (want %s or %s)", id, agent.Browser, BrowserEphemeral, BrowserExistingChrome)
+		}
+	}
+	return nil
+}
+
+// Browser backends for Agent.Browser.
+const (
+	// BrowserEphemeral is a fresh, logged-out Chrome profile per run — the
+	// default, and the right choice for anonymous browsing.
+	BrowserEphemeral = "ephemeral"
+	// BrowserExistingChrome attaches to the user's own running Chrome via the
+	// gateway-owned broker, inheriting their live sessions. Required for any
+	// task that acts inside accounts the user is signed into.
+	BrowserExistingChrome = "existing_chrome"
+)
+
+// Unattended reports whether a run of this agent must be governed as
+// unattended: policy-gated, action-journaled, and suspending durably rather
+// than prompting. True whenever the agent is marked Autonomous — independent
+// of whether it carries an Objective.
+func (a Agent) Unattended() bool { return a.Autonomous }
 
 // Save writes gateway.yaml atomically. 0600 — it holds no secrets, but the
 // allow-list of user ids is sensitive on a shared host, so keep it owner-only.
 func Save(s Settings) error {
+	if err := s.Validate(); err != nil {
+		return err
+	}
 	p, err := Path()
 	if err != nil {
 		return err

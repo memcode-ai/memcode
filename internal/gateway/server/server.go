@@ -24,6 +24,7 @@ import (
 	"github.com/robfig/cron/v3"
 
 	"github.com/memcode-ai/memcode/internal/agent/permissions"
+	"github.com/memcode-ai/memcode/internal/browser/broker"
 	"github.com/memcode-ai/memcode/internal/channels"
 	"github.com/memcode-ai/memcode/internal/channels/discord"
 	"github.com/memcode-ai/memcode/internal/channels/email"
@@ -78,6 +79,17 @@ type runtime struct {
 	disp      *dispatcher
 	out       io.Writer
 	notify    chan struct{} // wakes the worker when a message is accepted
+
+	// browserBroker arbitrates exclusive mutation rights over the user's
+	// existing (already-running, already-logged-in) Chrome, so at most one
+	// delegated autonomous agent worker drives it at a time. It is a SINGLE
+	// object for the gateway's whole lifetime — that persistence is the point:
+	// a worker on wake N and a different worker on wake N+1 reach the SAME
+	// broker, not a fresh one, so ownership/leasing state survives across
+	// wakes. brokerServer exposes it over a local socket so a worker (a
+	// separate OS process, see jobs.SpawnWithSpec) can reach it too.
+	browserBroker *broker.Broker
+	brokerServer  *broker.Server
 
 	// sched is the live schedule runner (recurring entries), timers the pending
 	// one-shots, and schedList the schedules both were built from (for change
@@ -141,17 +153,33 @@ func Run(ctx context.Context, root string, mainStore store.Store, settings gwcon
 	}()
 
 	rt := &runtime{
-		root:      root,
-		gw:        gw,
-		mainStore: mainStore,
-		settings:  settings,
-		mediaDir:  mediaDir,
-		stt:       newTranscriber(),
-		tts:       newSpeaker(),
-		byName:    make(map[string]replySender, 4),
-		disp:      newDispatcher(),
-		out:       out,
-		notify:    make(chan struct{}, 1),
+		root:          root,
+		gw:            gw,
+		mainStore:     mainStore,
+		settings:      settings,
+		mediaDir:      mediaDir,
+		stt:           newTranscriber(),
+		tts:           newSpeaker(),
+		byName:        make(map[string]replySender, 4),
+		disp:          newDispatcher(),
+		out:           out,
+		notify:        make(chan struct{}, 1),
+		browserBroker: broker.New(),
+	}
+	// Existing-Chrome coordination socket: started unconditionally (cheap — a
+	// local listener) so it's there the moment an autonomous agent's delegate
+	// call needs it, without requiring a gateway restart after existing-Chrome
+	// is set up. Its failure is non-fatal to the gateway as a
+	// whole — a delegated worker that needs it fails closed on its own when
+	// it can't reach the socket, per design; it never silently falls back to
+	// ephemeral Chrome.
+	if sock, err := broker.SocketPath(); err == nil {
+		if srv, err := broker.Serve(rt.browserBroker, sock); err == nil {
+			rt.brokerServer = srv
+			defer srv.Close()
+		} else {
+			fmt.Fprintf(out, "gateway: browser broker socket unavailable: %v (existing-Chrome delegation will fail closed)\n", err)
+		}
 	}
 
 	// Register EVERY sender in byName before any goroutine that reads it exists: the channel
@@ -162,9 +190,19 @@ func Run(ctx context.Context, root string, mainStore store.Store, settings gwcon
 	for _, ch := range chs {
 		rt.byName[ch.Name()] = ch
 	}
+	// An unattended agent wake has an internal route: no external sender, output
+	// is journaled to the agent home, so register a discard sink so Deliver can
+	// route it. Registered unconditionally (not gated on hasAutonomousAgents at
+	// boot) because byName is built once here and never mutated again — an agent
+	// made autonomous later via a hot-reloaded config must still have somewhere
+	// for its wakes to go without requiring a gateway restart.
+	rt.byName[agentChannelName] = agentSink{out: out}
 	webhooks := startWebhooks(ctx, settings, rt, out)
+	if len(chs) == 0 && !webhooks && !hasAutonomousAgents(settings) {
+		return fmt.Errorf("no channels or autonomous agents configured — run `memcode gateway setup`, or `memcode admin` to set an agent up to run on its own")
+	}
 	if len(chs) == 0 && !webhooks {
-		return fmt.Errorf("no channels configured — run `memcode gateway setup` to add one")
+		fmt.Fprintln(out, "gateway: running locally for autonomous agents (no external channels configured)")
 	}
 	for _, ch := range chs {
 		ch := ch
@@ -177,6 +215,10 @@ func Run(ctx context.Context, root string, mainStore store.Store, settings gwcon
 	}
 
 	rt.applySchedules(ctx) // time-triggered tasks feed the same inbox
+	// Always run the self-wake loop, even with no autonomous agents at boot: it
+	// re-reads settings via r.cfg() every tick, so an agent made autonomous
+	// later through a hot-reloaded config is picked up without a restart.
+	go rt.autonomousWakeLoop(ctx) // agent-authored next-wakes feed the same inbox
 
 	rt.runWorker(ctx) // blocks until ctx is cancelled
 	if rt.sched != nil {
@@ -529,6 +571,17 @@ func (r *runtime) runJob(ctx context.Context, it state.Item) {
 	ch := r.byName[it.Channel]
 	if ch == nil {
 		_ = r.gw.MarkDone(ctx, it.Channel, it.MessageID)
+		return
+	}
+	// An unattended wake runs the bounded executive inline (not a detached coding
+	// job): the executive owns its policy gate, journal, and continuation state.
+	if it.Channel == agentChannelName {
+		report := r.runAutonomousWake(ctx, it.Conversation) // conversation = agent id
+		if err := r.gw.SetReplied(ctx, it.Channel, it.MessageID, report, ""); err != nil {
+			fmt.Fprintf(r.out, "gateway: recording agent wake for %s failed: %v\n", it.Conversation, err)
+			return
+		}
+		r.deliverReply(ctx, it, report) // agentSink discards to the log
 		return
 	}
 	// A gateway-triggered job has no TTY to answer approval prompts → Auto mode.

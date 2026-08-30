@@ -14,7 +14,7 @@
 
 Most coding agents start every session from zero. memcode keeps a persistent model of your repo in `.memcode`: the subsystems, what you worked on last week, which approaches failed and why, and the preferences you have corrected it on. The longer you use it, the less you have to explain.
 
-One Go binary, two ways to run it. **Code** is the interactive agent in your terminal. **Agents** is the same binary as a self-hosted gateway, answering on the chat surfaces you already use. Both run against whatever models you have: your own API keys, a local endpoint like Ollama, or a hosted memcode account.
+One Go binary, two ways to run it. **Code** is the interactive agent in your terminal. **Agents** is the same binary as a self-hosted gateway, answering on the chat surfaces you already use — and running agents you have given a standing objective and permission to work on it unattended. Both run against whatever models you have: your own API keys, a local endpoint like Ollama, or a hosted memcode account.
 
 ## Screenshots
 
@@ -55,6 +55,25 @@ Message your agent from wherever you already are. It runs your task and replies 
 **You decide who gets in.** Unknown senders have to pair first: they get a code, you approve it. Allow-lists per channel on top of that.
 
 **Coming from Hermes or OpenClaw?** `memcode hermes migrate` or `memcode claw migrate` brings over your channels, API keys, skills, and long-term memory in one command.
+
+## Agents that run on their own
+
+An agent can be given a durable **objective** and permission to run
+**autonomously** — then it works on that objective on a schedule, with nobody
+watching. It is the same agent either way; autonomy is a setting, not a
+separate kind. You set it up by talking to `memcode admin`.
+
+Objective and autonomy are separate grants on purpose: an agent may hold a goal
+you only ever work on together, and an agent may run unattended on a schedule
+with no standing objective at all. The second case is why this matters — an
+unattended run is policy-gated (authority approved in advance, by hash),
+journals every consequential action, confines file access to explicit grants,
+and can suspend durably to ask you something rather than guessing. Plain
+scheduled agents never had any of that.
+
+It can also delegate real work to a scoped worker with browser, MCP, shell and
+filesystem access, and drive your own signed-in Chrome rather than a
+logged-out profile. See `docs/autonomous-agents.md`.
 
 ## Install
 

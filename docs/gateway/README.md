@@ -95,7 +95,10 @@ projects:                                # written by `memcode project add`
     enabled: true
 default_project: memcode
 agents:                                  # durable agents; identity + state in ~/.memcode/agents/<id>
-  personal:
+  jobhunt:
+    objective: "Find backend roles and keep a shortlist"  # what it works toward
+    autonomous: true           # ...and may work on it unprompted (separate grant)
+    browser: existing_chrome   # drive the user's own signed-in Chrome
     model: claude-haiku-4-5    # omit model to let routing pick per task
   coder:
     model: claude-sonnet-5
@@ -133,6 +136,20 @@ onto the run as supplemental context and an extra skill root, above whatever the
 project itself provides. A channel binds to a agent with `channels.<name>.agent`,
 and a conversation switches with `/agent <id>`. Each agent gets its own session
 transcript per conversation.
+
+`objective` and `autonomous` turn an ordinary agent into one that works on its
+own. They are SEPARATE grants: an objective says what the agent is for,
+`autonomous: true` says it may act on that without being asked, and either is
+useful without the other. An unattended run is policy-gated, journals its
+consequential actions, and suspends durably rather than prompting a human who
+is not there. `browser: existing_chrome` points its browser work at the user's
+own signed-in Chrome instead of a fresh logged-out profile; `paused: true`
+stops future unattended wakes without deleting anything.
+
+Its policy, resource grants, and run state live in the agent home rather than
+`gateway.yaml`. Manage all of it by conversation in `memcode admin`. Removing
+the configuration entry does not delete the home. See
+`docs/autonomous-agents.md`.
 
 ## Authorization and triggering
 

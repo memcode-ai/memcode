@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS inbox (
     principal    TEXT NOT NULL,
     text         TEXT NOT NULL,
     trusted      INTEGER NOT NULL,
-    status       TEXT NOT NULL,          -- 'pending' | 'replied' | 'done'
+    status       TEXT NOT NULL,          -- pending | running | waiting | resumable | replied | done
     reply        TEXT NOT NULL DEFAULT '', -- the job's result, held durably until delivered
     agent        TEXT NOT NULL DEFAULT '', -- agent snapshot at receipt (immutable for this task)
     project      TEXT NOT NULL DEFAULT '', -- project id snapshot at receipt (immutable for this task)
@@ -238,6 +238,15 @@ func (s *Store) Accept(ctx context.Context, it Item, now time.Time) (bool, error
 
 // Pending returns the still-to-process items, oldest first. Used to feed the
 // worker and, on startup, to replay anything a prior crash left unprocessed.
+func (s *Store) SetInboxStatus(ctx context.Context, channel, messageID, from, to string) (bool, error) {
+	res, err := s.db.ExecContext(ctx, `UPDATE inbox SET status=? WHERE channel=? AND message_id=? AND status=?`, to, channel, messageID, from)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n == 1, err
+}
+
 func (s *Store) Pending(ctx context.Context) ([]Item, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT channel, message_id, conversation, principal, text, trusted, agent, project, attachments

@@ -371,7 +371,8 @@ func (s *Session) dispatch(ctx context.Context, u wire.Block) toolResult {
 		return s.mcpResourceTool(ctx, u.Input)
 	case tools.MCPPrompt:
 		return s.mcpPromptTool(ctx, u.Input)
-	case tools.GwOverview, tools.GwChannel, tools.GwPairing, tools.GwProject, tools.GwAgent, tools.GwSchedule, tools.GwService:
+	case tools.GwOverview, tools.GwChannel, tools.GwPairing, tools.GwProject, tools.GwAgent, tools.GwSchedule, tools.GwService,
+		tools.GwPolicy, tools.GwGrant, tools.GwWake, tools.GwInbox, tools.GwAnswer, tools.GwJournal, tools.GwDoctor, tools.GwBrowser:
 		return s.adminTool(ctx, u.Name, u.Input)
 	case tools.GitHub:
 		return s.githubTool(ctx, u.Input)

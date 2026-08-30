@@ -28,12 +28,34 @@ import (
 // Status values for a job.
 const (
 	StatusRunning = "running"
+	StatusWaiting = "waiting"
 	StatusDone    = "done"
 	StatusFailed  = "failed"
 	StatusStopped = "stopped" // process gone but never recorded a finish
 )
 
 // Job is one background agent session.
+type ToolPolicy struct {
+	Allowed  []string `json:"allowed,omitempty"`
+	Disabled []string `json:"disabled,omitempty"`
+}
+type ResourceGrant struct {
+	IDs []string `json:"ids,omitempty"`
+}
+type ExecutionBudgets struct {
+	MaxSeconds         int `json:"max_seconds,omitempty"`
+	MaxToolCalls       int `json:"max_tool_calls,omitempty"`
+	MaxDelegationDepth int `json:"max_delegation_depth,omitempty"`
+}
+
+type SpawnSpec struct {
+	Root, Task, Mode, Tier, SessionID, AgentID, ObjectiveID, SubgoalID, RunID, ParentRunID, PolicyHash, BrowserMode string
+	ToolPolicy                                                                                                      ToolPolicy
+	ResourceGrant                                                                                                   ResourceGrant
+	Budgets                                                                                                         ExecutionBudgets
+	ReportBack                                                                                                      bool
+}
+
 type Job struct {
 	ID         string `json:"id"`
 	Task       string `json:"task"`
@@ -54,10 +76,25 @@ type Job struct {
 	FinishedAt time.Time `json:"finished_at,omitempty"`
 	// Live readout, heartbeated by the running child (~1s) so frontends can show
 	// what a detached agent is doing right now. Additive; absent in old metas.
-	Activity    string    `json:"activity,omitempty"`   // latest tool label, e.g. "bash(go test ./...)"
-	TokensIn    int64     `json:"tokens_in,omitempty"`  // child session input tokens so far
-	TokensOut   int64     `json:"tokens_out,omitempty"` // child session output tokens so far
-	HeartbeatAt time.Time `json:"heartbeat_at,omitempty"`
+	Activity          string          `json:"activity,omitempty"`   // latest tool label, e.g. "bash(go test ./...)"
+	TokensIn          int64           `json:"tokens_in,omitempty"`  // child session input tokens so far
+	TokensOut         int64           `json:"tokens_out,omitempty"` // child session output tokens so far
+	HeartbeatAt       time.Time       `json:"heartbeat_at,omitempty"`
+	AgentID           string          `json:"agent_id,omitempty"`
+	ObjectiveID       string          `json:"objective_id,omitempty"`
+	SubgoalID         string          `json:"subgoal_id,omitempty"`
+	RunID             string          `json:"run_id,omitempty"`
+	ParentRunID       string          `json:"parent_run_id,omitempty"`
+	SessionID         string          `json:"session_id,omitempty"`
+	PolicyHash        string          `json:"policy_hash,omitempty"`
+	ExecutionEnvelope json.RawMessage `json:"execution_envelope,omitempty"`
+	// NOTE: this struct deliberately carries no suspension/continuation fields.
+	// It used to declare InteractionID/WaitingReason/ContinuationVersion/
+	// WaitingAt/ResumedAt, which nothing ever wrote — a third half-built
+	// suspend/resume design alongside two others. Durable suspension lives in
+	// internal/agent/continuation, once. A detached job child runs with
+	// SetNoApprover and cannot ask a human mid-run today; if that changes, wire
+	// it to that package rather than re-adding fields here.
 }
 
 // processMatches reports whether the job's recorded pid is alive AND still the same process
@@ -92,6 +129,17 @@ func LogPath(root, id string) string { return filepath.Join(jobDir(root, id), "l
 // When chrome is true, --chrome is forwarded so backgrounded browser jobs keep
 // the capability (Chrome always launches with a visible window).
 func Spawn(root, task, mode, tier string, chrome, reportBack bool, session string) (Job, error) {
+	browserMode := ""
+	if chrome {
+		browserMode = "ephemeral"
+	}
+	return SpawnWithSpec(SpawnSpec{Root: root, Task: task, Mode: mode, Tier: tier, SessionID: session, BrowserMode: browserMode, ReportBack: reportBack})
+}
+
+func SpawnWithSpec(spec SpawnSpec) (Job, error) {
+	root, task, mode, tier, reportBack, session := spec.Root, spec.Task, spec.Mode, spec.Tier, spec.ReportBack, spec.SessionID
+	chrome := spec.BrowserMode == "ephemeral"
+	existingChrome := spec.BrowserMode == "existing_chrome"
 	self, err := os.Executable()
 	if err != nil {
 		return Job{}, fmt.Errorf("locating memcode binary: %w", err)
@@ -116,8 +164,27 @@ func Spawn(root, task, mode, tier string, chrome, reportBack bool, session strin
 	if chrome {
 		argv = append(argv, "--chrome")
 	}
+	if existingChrome {
+		// The child dials the gateway-owned browser broker itself (socket path
+		// is well-known, see internal/browser/broker.SocketPath), authenticating
+		// the lease request as (AgentID, this job's own id) — a job id is unique
+		// per delegate call, so it doubles as the lease's RunID.
+		argv = append(argv, "--browser-session", "existing_chrome", "--browser-agent", spec.AgentID, "--browser-run", id)
+	}
 	if session != "" {
 		argv = append(argv, "--session", session) // continue this conversation's session (resume-or-create)
+	}
+	// ToolPolicy is a REAL restriction on the child, not just recorded metadata:
+	// --allow-tools/--deny-tools bind the same SetToolPolicy enforcement an
+	// ordinary gateway-bound agent gets from its config. A caller (e.g. a
+	// autonomous agent's delegate tool) that hands this spec a narrower toolset
+	// than the parent policy allows gets an actually narrower child, not just an
+	// audited claim of one.
+	if len(spec.ToolPolicy.Allowed) > 0 {
+		argv = append(argv, "--allow-tools", strings.Join(spec.ToolPolicy.Allowed, ","))
+	}
+	if len(spec.ToolPolicy.Disabled) > 0 {
+		argv = append(argv, "--deny-tools", strings.Join(spec.ToolPolicy.Disabled, ","))
 	}
 	if isTestBinary(self) {
 		// Under `go test`, os.Executable() is the package's TEST binary, not memcode.
@@ -144,6 +211,7 @@ func Spawn(root, task, mode, tier string, chrome, reportBack bool, session strin
 	// Detach: release the child so it keeps running after we return.
 	_ = cmd.Process.Release()
 
+	envelope, _ := json.Marshal(spec)
 	job := Job{
 		ID:         id,
 		Task:       task,
@@ -154,6 +222,9 @@ func Spawn(root, task, mode, tier string, chrome, reportBack bool, session strin
 		StartSig:   sig,
 		Status:     StatusRunning,
 		StartedAt:  time.Now().UTC(),
+		AgentID:    spec.AgentID, ObjectiveID: spec.ObjectiveID, SubgoalID: spec.SubgoalID,
+		RunID: spec.RunID, ParentRunID: spec.ParentRunID, SessionID: spec.SessionID,
+		PolicyHash: spec.PolicyHash, ExecutionEnvelope: envelope,
 	}
 	if err := writeMeta(root, job); err != nil {
 		return Job{}, err

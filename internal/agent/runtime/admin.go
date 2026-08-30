@@ -23,15 +23,22 @@ type AdminExecutor func(ctx context.Context, name string, input json.RawMessage)
 
 // adminReadOnly reports whether an admin call needs no approval: pure reads.
 func adminReadOnly(name string, input json.RawMessage) bool {
-	if name == tools.GwOverview {
+	switch name {
+	case tools.GwOverview, tools.GwInbox, tools.GwJournal, tools.GwDoctor, tools.GwBrowser:
 		return true
 	}
-	if name == tools.GwService {
-		var in struct {
-			Action string `json:"action"`
-		}
-		_ = json.Unmarshal(input, &in)
-		return strings.EqualFold(strings.TrimSpace(in.Action), "status")
+	var in struct {
+		Action string `json:"action"`
+	}
+	_ = json.Unmarshal(input, &in)
+	a := strings.ToLower(strings.TrimSpace(in.Action))
+	switch name {
+	case tools.GwService:
+		return a == "status"
+	case tools.GwPolicy:
+		return a == "show"
+	case tools.GwGrant:
+		return a == "list"
 	}
 	return false
 }

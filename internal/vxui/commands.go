@@ -38,7 +38,7 @@ func (s *appState) runSlash(line string) (quit bool) {
 	case "/quit":
 		return true
 	case "/help":
-		s.sysln(slashHelp(s.w.sess.Admin()))
+		s.sysln(slashHelp(s.w.sess.Restricted()))
 	case "/login":
 		s.loginSlash()
 	case "/logout":

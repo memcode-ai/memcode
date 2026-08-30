@@ -51,8 +51,57 @@ func adminExecute(ctx context.Context, name string, input json.RawMessage) (stri
 			return "", err
 		}
 		return adminServiceAction(ctx, strings.ToLower(strings.TrimSpace(in.Action)))
+	case tools.GwBrowser:
+		return gwBrowser(ctx) // gateway-wide, not per-agent
+	case tools.GwPolicy, tools.GwGrant, tools.GwWake, tools.GwInbox, tools.GwAnswer, tools.GwJournal, tools.GwDoctor:
+		return adminAutonomy(ctx, name, input)
 	}
 	return "", fmt.Errorf("unknown admin tool %q", name)
+}
+
+// adminAutonomy dispatches the per-agent autonomy tools. They all need the
+// agent's store and its configuration, so opening those is done once here.
+func adminAutonomy(ctx context.Context, name string, input json.RawMessage) (string, error) {
+	var in struct {
+		Agent    string `json:"agent"`
+		Action   string `json:"action"`
+		Document string `json:"document"`
+		Hash     string `json:"hash"`
+		Type     string `json:"type"`
+		Locator  string `json:"locator"`
+		Mode     string `json:"mode"`
+		ID       string `json:"id"`
+		Answer   string `json:"answer"`
+	}
+	if err := json.Unmarshal(input, &in); err != nil {
+		return "", err
+	}
+	agent := strings.TrimSpace(in.Agent)
+	if agent == "" {
+		return "", fmt.Errorf("an agent name is required")
+	}
+	st, home, cfg, err := agentStore(ctx, agent)
+	if err != nil {
+		return "", err
+	}
+	defer st.Close()
+	switch name {
+	case tools.GwPolicy:
+		return gwPolicy(ctx, st, home, agent, in.Action, in.Document, in.Hash)
+	case tools.GwGrant:
+		return gwGrant(ctx, st, home, in.Action, in.Type, in.Locator, in.Mode, in.ID)
+	case tools.GwWake:
+		return gwWake(ctx, st, home, agent, cfg)
+	case tools.GwInbox:
+		return gwInbox(ctx, st, agent)
+	case tools.GwAnswer:
+		return gwAnswer(ctx, st, home, agent, in.ID, in.Answer, cfg)
+	case tools.GwJournal:
+		return gwJournal(ctx, st)
+	case tools.GwDoctor:
+		return gwDoctor(ctx, st, home, agent, cfg)
+	}
+	return "", fmt.Errorf("unknown autonomy tool %q", name)
 }
 
 func adminOverview(ctx context.Context) (string, error) {
@@ -130,6 +179,18 @@ func adminOverview(ctx context.Context) (string, error) {
 	for _, name := range agentNames {
 		a := settings.Agents[name]
 		extra := ""
+		if a.Autonomous {
+			extra += " autonomous"
+			if a.Paused {
+				extra += "(paused)"
+			}
+		}
+		if a.Objective != "" {
+			extra += fmt.Sprintf(" objective=%q", trunc(a.Objective, 60))
+		}
+		if a.Browser != "" {
+			extra += " browser=" + a.Browser
+		}
 		if a.Model != "" {
 			extra += " model=" + a.Model
 		}
@@ -390,6 +451,9 @@ func adminAgent(input json.RawMessage) (string, error) {
 		Reasoning        string `json:"reasoning"`
 		Toolsets         string `json:"toolsets"`
 		DisabledToolsets string `json:"disabled_toolsets"`
+		Objective        string `json:"objective"`
+		Autonomous       string `json:"autonomous"`
+		Browser          string `json:"browser"`
 	}
 	if err := json.Unmarshal(input, &in); err != nil {
 		return "", err
@@ -411,11 +475,89 @@ func adminAgent(input json.RawMessage) (string, error) {
 		if r := strings.TrimSpace(in.Reasoning); r != "" && r != "off" && r != "medium" && r != "high" {
 			return "", fmt.Errorf("reasoning must be off, medium, or high")
 		}
-		settings.Agents[name] = gwconfig.Agent{Model: strings.TrimSpace(in.Model), Reasoning: strings.TrimSpace(in.Reasoning)}
+		if _, ok := settings.Agents[name]; ok {
+			return "", fmt.Errorf("agent %q already exists", name)
+		}
+		br, err := parseBrowser(in.Browser)
+		if err != nil {
+			return "", err
+		}
+		settings.Agents[name] = gwconfig.Agent{
+			Model: strings.TrimSpace(in.Model), Reasoning: strings.TrimSpace(in.Reasoning),
+			Objective: strings.TrimSpace(in.Objective), Browser: br,
+		}
 		if err := gwconfig.Save(settings); err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("Created agent %s. Bind a channel to it with gw_channel field=agent; its identity lives at ~/.memcode/agents/%s/SOUL.md.", name, name), nil
+		msg := fmt.Sprintf("Created agent %s. Bind a channel to it with gw_channel field=agent; its identity lives at ~/.memcode/agents/%s/SOUL.md.", name, name)
+		if strings.TrimSpace(in.Objective) != "" {
+			// Deliberately NOT autonomous yet: holding an objective and being
+			// allowed to act on it unprompted are separate grants, and the second
+			// one deserves its own explicit confirmation.
+			msg = fmt.Sprintf("Created agent %s with an objective. It is NOT yet autonomous — it will only run when you ask (gw_wake). To let it run on its own: gw_agent action=autonomous, then approve a policy with gw_policy, then give it a cadence with gw_schedule.", name)
+		}
+		return msg, nil
+	case "objective":
+		p, ok := settings.Agents[name]
+		if !ok {
+			return "", fmt.Errorf("no agent %q", name)
+		}
+		p.Objective = strings.TrimSpace(in.Objective)
+		settings.Agents[name] = p
+		if err := gwconfig.Save(settings); err != nil {
+			return "", err
+		}
+		if p.Objective == "" {
+			return fmt.Sprintf("Cleared %s's objective; it stays an ordinary agent.", name), nil
+		}
+		return fmt.Sprintf("Objective for %s: %s", name, p.Objective), nil
+	case "autonomous":
+		p, ok := settings.Agents[name]
+		if !ok {
+			return "", fmt.Errorf("no agent %q", name)
+		}
+		on := isTrue(in.Autonomous)
+		p.Autonomous = on
+		settings.Agents[name] = p
+		if err := gwconfig.Save(settings); err != nil {
+			return "", err
+		}
+		if !on {
+			return fmt.Sprintf("%s will no longer run unattended. Scheduled wakes stop; it still answers on demand.", name), nil
+		}
+		return fmt.Sprintf("%s may now run unattended: every run is policy-gated, journals consequential actions, and suspends durably on a question instead of prompting. It still needs an approved policy (gw_policy) before it can do anything consequential.", name), nil
+	case "browser":
+		p, ok := settings.Agents[name]
+		if !ok {
+			return "", fmt.Errorf("no agent %q", name)
+		}
+		br, err := parseBrowser(in.Browser)
+		if err != nil {
+			return "", err
+		}
+		p.Browser = br
+		settings.Agents[name] = p
+		if err := gwconfig.Save(settings); err != nil {
+			return "", err
+		}
+		if br == gwconfig.BrowserExistingChrome {
+			return fmt.Sprintf("%s will drive your OWN running Chrome, inheriting your signed-in sessions. Check it works with gw_browser; if the broker isn't reachable, browser work fails closed rather than falling back to a logged-out profile.", name), nil
+		}
+		return fmt.Sprintf("%s uses a fresh, logged-out browser profile per run.", name), nil
+	case "pause", "resume":
+		p, ok := settings.Agents[name]
+		if !ok {
+			return "", fmt.Errorf("no agent %q", name)
+		}
+		p.Paused = action == "pause"
+		settings.Agents[name] = p
+		if err := gwconfig.Save(settings); err != nil {
+			return "", err
+		}
+		if p.Paused {
+			return fmt.Sprintf("%s paused — no further unattended wakes. Nothing deleted; resume any time.", name), nil
+		}
+		return fmt.Sprintf("%s resumed.", name), nil
 	case "tools":
 		p, ok := settings.Agents[name]
 		if !ok {
@@ -487,7 +629,30 @@ func adminAgent(input json.RawMessage) (string, error) {
 		}
 		return fmt.Sprintf("Removed agent %s. Its home under ~/.memcode/agents is kept; delete it yourself if you want the memory gone.", name), nil
 	}
-	return "", fmt.Errorf("action must be add, tools, reasoning, model, or remove")
+	return "", fmt.Errorf("action must be add, objective, autonomous, browser, pause, resume, tools, reasoning, model, or remove")
+}
+
+// parseBrowser validates the browser backend name, defaulting to ephemeral.
+func parseBrowser(s string) (string, error) {
+	switch v := strings.TrimSpace(s); v {
+	case "", gwconfig.BrowserEphemeral:
+		return "", nil // empty == ephemeral; don't write the default into config
+	case gwconfig.BrowserExistingChrome:
+		return v, nil
+	default:
+		return "", fmt.Errorf("browser must be %s or %s", gwconfig.BrowserEphemeral, gwconfig.BrowserExistingChrome)
+	}
+}
+
+// isTrue reads a boolean carried as a string through a tool call. Anything but
+// an explicit yes is false — granting unattended authority must never happen by
+// typo.
+func isTrue(s string) bool {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "true", "yes", "on", "1":
+		return true
+	}
+	return false
 }
 
 func adminSchedule(input json.RawMessage) (string, error) {
@@ -515,9 +680,20 @@ func adminSchedule(input json.RawMessage) (string, error) {
 	}
 	switch action {
 	case "add":
+		// A schedule aimed at an agent with no explicit destination delivers to
+		// the agent itself: its report is journaled in its home rather than sent
+		// to a chat. This is what lets ONE scheduler drive both channel replies
+		// and unattended agent wakes, instead of a second cron implementation
+		// just for autonomous agents.
+		deliverTo := strings.TrimSpace(in.DeliverTo)
+		if deliverTo == "" && strings.TrimSpace(in.Agent) != "" {
+			if a, ok := settings.Agents[strings.TrimSpace(in.Agent)]; ok && a.Autonomous {
+				deliverTo = "agent:" + strings.TrimSpace(in.Agent)
+			}
+		}
 		// The SAME validated construction the CLI uses (cron/every/at parsing,
 		// deliver_to shape, duplicate names) — the surfaces cannot drift.
-		sc, err := gwconfig.BuildSchedule(name, in.Cron, in.Every, in.At, "", in.Task, in.DeliverTo, in.Agent, time.Now())
+		sc, err := gwconfig.BuildSchedule(name, in.Cron, in.Every, in.At, "", in.Task, deliverTo, in.Agent, time.Now())
 		if err != nil {
 			return "", err
 		}

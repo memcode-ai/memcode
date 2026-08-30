@@ -11,6 +11,22 @@ import (
 	"github.com/memcode-ai/memcode/internal/gateway/state"
 )
 
+func TestHasAutonomousAgents(t *testing.T) {
+	if hasAutonomousAgents(gwconfig.Settings{}) {
+		t.Fatal("empty settings reported autonomous agents")
+	}
+	if hasAutonomousAgents(gwconfig.Settings{Agents: map[string]gwconfig.Agent{"ordinary": {}}}) {
+		t.Fatal("ordinary agent reported as autonomous")
+	}
+	// An objective alone is NOT autonomy — the wake loop must not pick this up.
+	if hasAutonomousAgents(gwconfig.Settings{Agents: map[string]gwconfig.Agent{"goal": {Objective: "do a thing"}}}) {
+		t.Fatal("an objective alone made an agent autonomous")
+	}
+	if !hasAutonomousAgents(gwconfig.Settings{Agents: map[string]gwconfig.Agent{"executive": {Autonomous: true}}}) {
+		t.Fatal("autonomous agent not discovered")
+	}
+}
+
 type fakeSender struct{}
 
 func (fakeSender) Send(context.Context, string, channels.Outbound) error { return nil }

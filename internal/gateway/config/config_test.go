@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -92,6 +93,42 @@ func TestAllowed(t *testing.T) {
 	}
 }
 
+func TestAgentAutonomyFieldsAndValidation(t *testing.T) {
+	// An ordinary agent stays valid and stays non-autonomous by default —
+	// autonomy is never acquired implicitly.
+	ordinary := Settings{Agents: map[string]Agent{"ordinary": {Model: "m"}}}
+	if err := ordinary.Validate(); err != nil {
+		t.Fatalf("ordinary agent must remain valid: %v", err)
+	}
+	if a := ordinary.Agents["ordinary"]; a.Autonomous || a.Unattended() || a.Objective != "" {
+		t.Fatalf("ordinary agent defaulted to autonomy: %+v", a)
+	}
+
+	// Objective and Autonomous are independent: holding a goal is not
+	// permission to pursue it unprompted.
+	goalOnly := Agent{Objective: "find backend roles"}
+	if goalOnly.Unattended() {
+		t.Fatal("an objective alone must not make an agent unattended")
+	}
+	// ...and an agent may run unattended with no standing objective (scheduled
+	// work under governance), which is the case a single overloaded switch
+	// could not express.
+	scheduled := Agent{Autonomous: true}
+	if !scheduled.Unattended() {
+		t.Fatal("autonomous with no objective must still be governed as unattended")
+	}
+
+	for _, br := range []string{"", BrowserEphemeral, BrowserExistingChrome} {
+		s := Settings{Agents: map[string]Agent{"a": {Browser: br}}}
+		if err := s.Validate(); err != nil {
+			t.Fatalf("browser %q rejected: %v", br, err)
+		}
+	}
+	bad := Settings{Agents: map[string]Agent{"a": {Browser: "safari"}}}
+	if err := bad.Validate(); err == nil {
+		t.Fatal("unknown browser backend accepted")
+	}
+}
 func TestGetZeroValue(t *testing.T) {
 	var s Settings // nil Channels map
 	if got := s.Get("telegram"); !reflect.DeepEqual(got, Channel{}) {
@@ -117,5 +154,21 @@ func TestPairingEnabledDefaults(t *testing.T) {
 	}
 	if s.PairingEnabled("telegram") {
 		t.Error("explicit telegram pairing:false ignored")
+	}
+}
+
+// A removed setting must fail loudly, not vanish. `kind: personal` used to mean
+// "runs on its own"; YAML would silently ignore it now, leaving an agent that
+// looks configured but never wakes again.
+func TestLegacyKindIsRejectedWithAFix(t *testing.T) {
+	s := Settings{Agents: map[string]Agent{"demo": {LegacyKind: "personal"}}}
+	err := s.Validate()
+	if err == nil {
+		t.Fatal("legacy kind silently accepted — an agent would quietly stop running")
+	}
+	for _, want := range []string{"autonomous: true", "objective:", "demo"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error should tell the user how to fix it; missing %q in: %v", want, err)
+		}
 	}
 }
