@@ -7,6 +7,7 @@ import "github.com/memcode-ai/memcode/internal/wire"
 // objectives, policies, resources, triggers, wakes, and pending interactions.
 const (
 	PaOverview  = "pa_overview"  // list all Personal Agents with status
+	PaCreate    = "pa_create"    // create a new Personal Agent (name + objective)
 	PaObjective = "pa_objective" // show/set an agent's objective
 	PaPolicy    = "pa_policy"    // stage/show/approve delegation policies
 	PaResource  = "pa_resource"  // grant/list/revoke resources
@@ -27,8 +28,16 @@ func PersonalDefs() []wire.ToolDef {
 			InputSchema: obj(map[string]any{}),
 		},
 		{
+			Name:        PaCreate,
+			Description: "Create a new Personal Agent: a name and its objective (the durable desired outcome). This is the FIRST call for a brand-new agent — pa_objective/pa_resource/pa_policy all require the agent to already exist. Fails if the name is already taken. The agent starts inert (consequential work blocked) until a policy is staged and approved.",
+			InputSchema: obj(map[string]any{
+				"agent":     str("new agent name — short, stable, used everywhere else to refer to it"),
+				"objective": str("the durable desired outcome, e.g. \"Find and track backend engineering roles, keep a shortlist\""),
+			}, "agent", "objective"),
+		},
+		{
 			Name:        PaObjective,
-			Description: "Show or change an agent's objective (the durable desired outcome + success criteria). action=show or action=set with text.",
+			Description: "Show or change an EXISTING agent's objective (the durable desired outcome + success criteria). action=show or action=set with text. Use pa_create instead for a brand-new agent.",
 			InputSchema: obj(map[string]any{
 				"agent":  str("agent name"),
 				"action": str("show or set"),
@@ -47,13 +56,13 @@ func PersonalDefs() []wire.ToolDef {
 		},
 		{
 			Name:        PaResource,
-			Description: "Grant or revoke a resource. action=grant (type, locator, mode), action=list, action=revoke (id). Filesystem paths are canonicalized and symlink-resolved.",
+			Description: "Grant or revoke a resource. action=grant (locator, optionally type and mode), action=list, action=revoke (id). type defaults to filesystem (mode defaults to read) when omitted — the common case is just a path. Filesystem paths are canonicalized and symlink-resolved.",
 			InputSchema: obj(map[string]any{
 				"agent":   str("agent name"),
 				"action":  str("grant, list, or revoke"),
-				"type":    str("grant only: filesystem, mcp, command, channel, repository"),
+				"type":    str("grant only: filesystem (default), mcp, command, channel, repository"),
 				"locator": str("grant only: the path or identifier"),
-				"mode":    str("grant only: read, write, or admin"),
+				"mode":    str("grant only: read (default), write, or admin"),
 				"id":      str("revoke only: the resource id"),
 			}, "agent", "action"),
 		},

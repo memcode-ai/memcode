@@ -47,6 +47,7 @@ func personalExecute(ctx context.Context, name string, input json.RawMessage) (s
 		Agent      string `json:"agent"`
 		Action     string `json:"action"`
 		Text       string `json:"text"`
+		Objective  string `json:"objective"`
 		Document   string `json:"document"`
 		Hash       string `json:"hash"`
 		Type       string `json:"type"`
@@ -64,6 +65,12 @@ func personalExecute(ctx context.Context, name string, input json.RawMessage) (s
 	if name == tools.PaOverview {
 		return paOverview(ctx)
 	}
+	if name == tools.PaCreate {
+		// The agent doesn't exist yet, so it can't go through paStore below
+		// (which requires it to already be registered) — this is the one
+		// operation that runs before that gate.
+		return paCreate(ctx, in.Agent, in.Objective)
+	}
 	if strings.TrimSpace(in.Agent) == "" {
 		return "", fmt.Errorf("an agent name is required")
 	}
@@ -78,7 +85,7 @@ func personalExecute(ctx context.Context, name string, input json.RawMessage) (s
 	case tools.PaPolicy:
 		return paPolicy(ctx, st, home, in.Agent, in.Action, in.Document, in.Hash)
 	case tools.PaResource:
-		return paResource(ctx, st, in.Action, in.Type, in.Locator, in.Mode, in.ID)
+		return paResource(ctx, st, home, in.Action, in.Type, in.Locator, in.Mode, in.ID)
 	case tools.PaTrigger:
 		return paTrigger(ctx, st, in.Action, in.Kind, in.Spec, in.ID)
 	case tools.PaWake:
@@ -108,7 +115,7 @@ func paOverview(ctx context.Context) (string, error) {
 		}
 	}
 	if len(names) == 0 {
-		return "No Personal Agents. Create one with `memcode personal create <name> \"<objective>\"`.", nil
+		return "No Personal Agents yet. Ask what the user wants one to do, then call pa_create.", nil
 	}
 	sortStrings(names)
 	for _, n := range names {
@@ -134,6 +141,45 @@ func paOverview(ctx context.Context) (string, error) {
 	return b.String(), nil
 }
 
+// paCreate registers a new Personal Agent and its objective. Mirrors
+// personalCreate (the CLI's `personal create`) — same steps, same order —
+// since both are legitimate entry points to the same operation; this is the
+// one the cockpit conversation actually uses.
+func paCreate(ctx context.Context, name, objective string) (string, error) {
+	name, objective = strings.TrimSpace(name), strings.TrimSpace(objective)
+	if name == "" || objective == "" {
+		return "", fmt.Errorf("agent name and objective are both required")
+	}
+	s, err := gwconfig.Load()
+	if err != nil {
+		return "", err
+	}
+	if s.Agents == nil {
+		s.Agents = map[string]gwconfig.Agent{}
+	}
+	if _, ok := s.Agents[name]; ok {
+		return "", fmt.Errorf("agent %q already exists", name)
+	}
+	s.Agents[name] = gwconfig.Agent{Kind: "personal"}
+	if err := gwconfig.Save(s); err != nil {
+		return "", err
+	}
+	home, err := gwconfig.AgentHome(name)
+	if err != nil {
+		return "", err
+	}
+	st, err := personal.Open(ctx, home)
+	if err != nil {
+		return "", err
+	}
+	defer st.Close()
+	if err := st.CreateObjective(ctx, personal.Objective{ID: "primary", Description: objective, Status: "draft"}); err != nil {
+		return "", err
+	}
+	_ = personal.WriteConfigMirror(ctx, home, st)
+	return fmt.Sprintf("Created %s. Consequential work is blocked until a policy is staged and approved — gather what it needs (resources, toolsets, consequence classes, wake cadence), present the plan, then pa_policy stage + approve.", name), nil
+}
+
 func paObjective(ctx context.Context, st *personal.Store, action, text string) (string, error) {
 	switch strings.ToLower(action) {
 	case "show":
@@ -148,7 +194,7 @@ func paObjective(ctx context.Context, st *personal.Store, action, text string) (
 			return "", err
 		}
 		if !ok {
-			return "", fmt.Errorf("no primary objective; create the agent with one")
+			return "", fmt.Errorf("no primary objective — this agent doesn't exist yet; use pa_create, not pa_objective, for a brand-new one")
 		}
 		if err := st.SetObjectiveText(ctx, "primary", text); err != nil {
 			return "", err
@@ -188,6 +234,7 @@ func paPolicy(ctx context.Context, st *personal.Store, home, agent, action, docu
 		// Persist the canonical doc to policies/<hash>.json (parity with the CLI).
 		_ = os.MkdirAll(filepath.Join(home, "policies"), 0o700)
 		_ = atomicfile.WriteFile(filepath.Join(home, "policies", h+".json"), canon, 0o600)
+		_ = personal.WriteConfigMirror(ctx, home, st)
 		return fmt.Sprintf("Draft policy v%d staged (hash %s). Approve with pa_policy action=approve hash=%s.", ver, h[:12], h), nil
 	case "approve":
 		pols, err := st.ListPolicies(ctx, "primary")
@@ -208,14 +255,21 @@ func paPolicy(ctx context.Context, st *personal.Store, home, agent, action, docu
 			return "", err
 		}
 		_ = st.SetObjectiveStatus(ctx, "primary", "active")
+		_ = personal.WriteConfigMirror(ctx, home, st)
 		return fmt.Sprintf("Approved policy %s; %s is now active.", match[:12], agent), nil
 	}
 	return "", fmt.Errorf("action must be show, stage, or approve")
 }
 
-func paResource(ctx context.Context, st *personal.Store, action, rtype, locator, mode, id string) (string, error) {
+func paResource(ctx context.Context, st *personal.Store, home, action, rtype, locator, mode, id string) (string, error) {
 	switch strings.ToLower(action) {
 	case "grant":
+		if rtype == "" {
+			rtype = "filesystem" // the common case — same inference the CLI's `resources add` uses
+		}
+		if mode == "" {
+			mode = "read"
+		}
 		if rtype == "filesystem" {
 			canon, err := personal.CanonicalFilesystemGrant(locator)
 			if err != nil {
@@ -227,6 +281,7 @@ func paResource(ctx context.Context, st *personal.Store, action, rtype, locator,
 		if err := st.InsertResource(ctx, personal.Resource{ID: rid, ObjectiveID: "primary", Type: rtype, Locator: locator, AccessMode: mode, AuthorizationSource: "cockpit", Status: "active"}); err != nil {
 			return "", err
 		}
+		_ = personal.WriteConfigMirror(ctx, home, st)
 		return fmt.Sprintf("Granted %s %s (%s) as %s.", rtype, locator, mode, rid), nil
 	case "list":
 		res, err := st.ListResources(ctx, "primary")
@@ -245,6 +300,7 @@ func paResource(ctx context.Context, st *personal.Store, action, rtype, locator,
 		if err := st.SetResourceStatus(ctx, id, "revoked"); err != nil {
 			return "", err
 		}
+		_ = personal.WriteConfigMirror(ctx, home, st)
 		return "revoked " + id, nil
 	}
 	return "", fmt.Errorf("action must be grant, list, or revoke")

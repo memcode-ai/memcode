@@ -350,6 +350,19 @@ func init() {
 	answer := &cobra.Command{Use: "answer <name> <interaction-id> <answer...>", Args: cobra.MinimumNArgs(3), RunE: personalAnswer}
 	deleteCmd := &cobra.Command{Use: "delete <name>", Args: cobra.ExactArgs(1), RunE: personalDelete}
 	deleteCmd.Flags().Bool("delete-home", false, "also permanently delete the agent home")
+	// EVERY subcommand here is scripting/automation plumbing — the real
+	// interface is `memcode personal` with no args, which drops you straight
+	// into the interactive cockpit and you just say what you want. These stay
+	// fully callable (a script, a CI job, a habit from muscle memory), but
+	// Hidden so `memcode personal --help` doesn't read like a CLI to
+	// memorize — the whole point of the cockpit is that you never need to.
+	for _, c := range []*cobra.Command{
+		create, list, show, run, inbox, answer, pause, resume, stop, deleteCmd,
+		personalPolicyCmd, personalApprovePolicyCmd, personalResourcesCmd, personalTriggersCmd,
+		personalHistoryCmd, personalDoctorCmd, personalBrowserCmd,
+	} {
+		c.Hidden = true
+	}
 	personalCmd.AddCommand(create, list, show, run, inbox, answer, pause, resume, stop, personalPolicyCmd, personalApprovePolicyCmd, personalResourcesCmd, personalTriggersCmd, deleteCmd)
 	rootCmd.AddCommand(personalCmd)
 }
