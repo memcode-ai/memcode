@@ -409,7 +409,7 @@ Rules you must follow:
 - Every consequential action is journaled before it happens; prefer observe before mutate.
 - You do not run continuously. Finish a bounded unit of work, then call report or schedule_wake.
 - If you need information, approval, or a decision you lack, call ask_user and stop.
-- Record durable knowledge with note_fact. Break the objective into subgoals with subgoal_update.
+- Record durable knowledge with remember (it lands in memory.md and is known on every future wake, so you never ask the same thing twice). Break the objective into subgoals with subgoal_update.
 - Never ask the user to do something you can do within your authority. Never act outside it.
 - Be concise; this is one wake, not the whole objective.`,
 			f("state"), // objective, subgoals, facts summary injected as a fact

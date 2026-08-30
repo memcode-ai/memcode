@@ -49,18 +49,13 @@ type Resource struct {
 	CreatedAt, UpdatedAt                                                                time.Time
 }
 
-type Fact struct {
-	ID, ObjectiveID, Key, Source, Scope, Sensitivity string
-	Value, Evidence                                  json.RawMessage
-	Confidence                                       float64
-	Confirmed                                        bool
-	CreatedAt, UpdatedAt                             time.Time
-}
-
 type Action struct {
 	ID, ObjectiveID, SubgoalID, RunID, Kind, Target, ConsequenceClass, PolicyHash, Status, IdempotencyKey string
-	Request, Result, Evidence                                                                             json.RawMessage
-	CreatedAt, UpdatedAt                                                                                  time.Time
+	// JobID links a delegate action to the detached job it spawned, so a later
+	// wake can find the action to close out (see Store.ActionForJob).
+	JobID                     string
+	Request, Result, Evidence json.RawMessage
+	CreatedAt, UpdatedAt      time.Time
 }
 
 type GeneratedItem struct {

@@ -81,6 +81,25 @@ func (s *Store) CompleteAction(ctx context.Context, id string, status ActionStat
 	}
 	return nil
 }
+
+// LinkActionJob records which detached job an action spawned, so a later wake
+// can find its way back from a job id to the action it must close out.
+func (s *Store) LinkActionJob(ctx context.Context, actionID, jobID string) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE actions SET job_id=?,updated_at=? WHERE id=?`, jobID, stamp(time.Now().UTC()), actionID)
+	return err
+}
+
+// ActionForJob returns the id of the action that spawned jobID, or "" when
+// there is none.
+func (s *Store) ActionForJob(ctx context.Context, jobID string) (string, error) {
+	var id string
+	err := s.db.QueryRowContext(ctx, `SELECT id FROM actions WHERE job_id=?`, jobID).Scan(&id)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	return id, err
+}
+
 func (s *Store) MarkActionRunning(ctx context.Context, id string) error {
 	res, err := s.db.ExecContext(ctx, `UPDATE actions SET status='running',updated_at=? WHERE id=? AND status='reserved'`, stamp(time.Now().UTC()), id)
 	if err != nil {

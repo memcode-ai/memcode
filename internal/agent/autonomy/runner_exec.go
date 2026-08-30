@@ -72,15 +72,11 @@ var executiveToolDefs = []wire.ToolDef{
 		}, "id", "description", "status"),
 	},
 	{
-		Name:        "note_fact",
-		Description: "Record a structured fact about the environment with evidence. Facts gate later external representation: only confirmed facts may be presented externally.",
+		Name:        "remember",
+		Description: "Append something durable to this agent's memory (memory.md in its home), so it is known on every future wake and never has to be asked again. Use it for what you learn about the user and their environment — a preference, a constraint, an answer they gave you. Write one short, self-contained sentence in plain language, including where it came from when that matters (\"Tim said ...\", \"the resume lists ...\").",
 		InputSchema: obj(map[string]any{
-			"key":         strProp("fact key, e.g. environment.deps.outdated_count"),
-			"value":       map[string]any{"type": "string", "description": "JSON-encoded value"},
-			"source":      strProp("where this was observed"),
-			"confirmed":   map[string]any{"type": "boolean", "description": "true only if directly verified"},
-			"sensitivity": strProp("public|private|secret"),
-		}, "key", "value", "source"),
+			"note": strProp("one durable sentence to remember, e.g. \"Tim is a US citizen and needs no visa sponsorship (he confirmed this directly).\""),
+		}, "note"),
 	},
 	{
 		Name:        "read_file",
@@ -342,10 +338,11 @@ func (e *Executive) stateSummary(p DelegationPolicy) string {
 			fmt.Fprintf(&b, "  - [%s] %s (%s)\n", g.Status, g.Description, g.ID)
 		}
 	}
-	if facts, err := e.Store.ListFacts(context.Background(), "primary"); err == nil && len(facts) > 0 {
-		b.WriteString("Known facts:\n")
-		for _, f := range facts {
-			fmt.Fprintf(&b, "  - %s = %s (source %s)\n", f.Key, string(f.Value), f.Source)
+	if mem := ReadMemory(e.Home); mem != "" {
+		b.WriteString("What you know (memory.md):\n")
+		b.WriteString(mem)
+		if !strings.HasSuffix(mem, "\n") {
+			b.WriteString("\n")
 		}
 	}
 	return b.String()
@@ -395,20 +392,17 @@ func (e *Executive) execTool(ctx context.Context, runID string, p DelegationPoli
 		}
 		return toolResult{content: "subgoal " + in.ID + " recorded"}, nil, nil
 
-	case "note_fact":
+	case "remember":
 		var in struct {
-			Key, Value, Source, Sensitivity string
-			Confirmed                       bool
+			Note string `json:"note"`
 		}
 		if err := json.Unmarshal(call.Input, &in); err != nil {
 			return toolResult{}, nil, err
 		}
-		f := Fact{ID: fmt.Sprintf("fact-%d", now.UnixNano()), ObjectiveID: "primary", Key: in.Key,
-			Value: json.RawMessage(in.Value), Source: in.Source, Confirmed: in.Confirmed, Sensitivity: in.Sensitivity}
-		if err := e.Store.InsertFact(ctx, f); err != nil {
+		if err := AppendMemory(e.Home, in.Note); err != nil {
 			return toolResult{}, nil, err
 		}
-		return toolResult{content: "fact recorded: " + in.Key}, nil, nil
+		return toolResult{content: "remembered"}, nil, nil
 
 	case "read_file":
 		var in struct{ Path string }
@@ -535,12 +529,10 @@ func (e *Executive) execTool(ctx context.Context, runID string, p DelegationPoli
 			_ = e.Store.CompleteAction(ctx, actID, ActionFailed, json.RawMessage(fmt.Sprintf(`{%q:%q}`, "error", err.Error())), nil)
 			return toolResult{}, nil, err
 		}
-		// Record the job↔action mapping as a fact so check_delegate can find the
-		// action to complete later; RunOnce is one bounded wake, so the result
-		// necessarily arrives on a subsequent wake, not this one.
-		mapping, _ := json.Marshal(map[string]any{"action_id": actID, "task": in.Task, "status": "running"})
-		_ = e.Store.InsertFact(ctx, Fact{ID: fmt.Sprintf("fact-%d", now.UnixNano()), ObjectiveID: "primary",
-			Key: "delegation." + job.ID, Value: mapping, Source: "delegate", Confirmed: true})
+		// Link the job to its action so check_delegate can close it out later:
+		// RunOnce is one bounded wake, so the worker's result necessarily
+		// arrives on a subsequent wake, not this one.
+		_ = e.Store.LinkActionJob(ctx, actID, job.ID)
 		return toolResult{content: fmt.Sprintf("delegated as job %s — call check_delegate on a later wake to collect the result", job.ID)}, nil, nil
 
 	case "check_delegate":
@@ -561,7 +553,7 @@ func (e *Executive) execTool(ctx context.Context, runID string, p DelegationPoli
 		if job.Status == jobs.StatusRunning || job.Status == jobs.StatusWaiting {
 			return toolResult{content: fmt.Sprintf("job %s still %s", job.ID, job.Status)}, nil, nil
 		}
-		actID := e.delegationActionID(ctx, in.JobID)
+		actID, _ := e.Store.ActionForJob(ctx, in.JobID)
 		status, result := ActionSucceeded, json.RawMessage(fmt.Sprintf(`{"result":%q}`, job.Result))
 		if job.Status != jobs.StatusDone || job.ExitCode != 0 {
 			status, result = ActionFailed, json.RawMessage(fmt.Sprintf(`{"status":%q,"exit_code":%d}`, job.Status, job.ExitCode))
@@ -614,29 +606,6 @@ func (e *Executive) delegateRoot() (string, error) {
 		return "", err
 	}
 	return dir, nil
-}
-
-// delegationActionID recovers the action id a delegate call recorded for jobID
-// (as a fact, since facts are the only durable log delegate can write to
-// without a schema migration), so check_delegate can close it out.
-func (e *Executive) delegationActionID(ctx context.Context, jobID string) string {
-	facts, err := e.Store.ListFacts(ctx, "primary")
-	if err != nil {
-		return ""
-	}
-	key := "delegation." + jobID
-	for i := len(facts) - 1; i >= 0; i-- {
-		if facts[i].Key != key {
-			continue
-		}
-		var v struct {
-			ActionID string `json:"action_id"`
-		}
-		if json.Unmarshal(facts[i].Value, &v) == nil {
-			return v.ActionID
-		}
-	}
-	return ""
 }
 
 // delegateConsequence reports the highest-stakes consequence class in a

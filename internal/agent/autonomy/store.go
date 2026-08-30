@@ -18,9 +18,12 @@ var schema string
 //go:embed migrations/002_interactions.sql
 var migration002 string
 
+//go:embed migrations/003_action_job_id.sql
+var migration003 string
+
 // migrations is the ordered schema history. Version 1 is the base schema; later
 // entries are additive ALTER/CREATE statements. Never edit a shipped entry.
-var migrations = []string{schema, migration002}
+var migrations = []string{schema, migration002, migration003}
 
 type Store struct{ db *sql.DB }
 
@@ -154,7 +157,7 @@ func (s *Store) SetObjectiveText(ctx context.Context, id, description string) er
 
 func (s *Store) StatusSummary(ctx context.Context) (map[string]int, error) {
 	out := map[string]int{}
-	for _, table := range []string{"objectives", "subgoals", "runs", "triggers", "policies", "resources", "facts", "actions", "generated_items", "notifications"} {
+	for _, table := range []string{"objectives", "subgoals", "runs", "triggers", "policies", "resources", "actions", "generated_items", "notifications"} {
 		var n int
 		if err := s.db.QueryRowContext(ctx, "SELECT count(*) FROM "+table).Scan(&n); err != nil {
 			return nil, err

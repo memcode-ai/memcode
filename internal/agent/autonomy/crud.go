@@ -262,52 +262,13 @@ func (s *Store) SetResourceStatus(ctx context.Context, id, status string) error 
 	return nil
 }
 
-// --- Facts ---
-
-func (s *Store) InsertFact(ctx context.Context, f Fact) error {
-	now := time.Now().UTC()
-	_, err := s.db.ExecContext(ctx, `INSERT INTO facts(id,objective_id,key,value_json,source,evidence_json,confidence,confirmed,scope,sensitivity,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`,
-		f.ID, f.ObjectiveID, f.Key, string(f.Value), f.Source, jsonOr(f.Evidence, "[]"), f.Confidence, boolInt(f.Confirmed), f.Scope, f.Sensitivity, stamp(now), stamp(now))
-	return err
-}
-
-func (s *Store) ListFacts(ctx context.Context, objectiveID string) ([]Fact, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id,objective_id,key,value_json,source,evidence_json,confidence,confirmed,scope,sensitivity,created_at,updated_at FROM facts WHERE objective_id=? ORDER BY created_at`, objectiveID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []Fact
-	for rows.Next() {
-		var f Fact
-		var value, evidence, created, updated string
-		var confirmed int
-		if err := rows.Scan(&f.ID, &f.ObjectiveID, &f.Key, &value, &f.Source, &evidence, &f.Confidence, &confirmed, &f.Scope, &f.Sensitivity, &created, &updated); err != nil {
-			return nil, err
-		}
-		f.Value, f.Evidence = json.RawMessage(value), json.RawMessage(evidence)
-		f.Confirmed = confirmed != 0
-		f.CreatedAt, _ = time.Parse(time.RFC3339Nano, created)
-		f.UpdatedAt, _ = time.Parse(time.RFC3339Nano, updated)
-		out = append(out, f)
-	}
-	return out, rows.Err()
-}
-
-func boolInt(b bool) int {
-	if b {
-		return 1
-	}
-	return 0
-}
-
 // --- Actions (list) ---
 
 func (s *Store) ListActions(ctx context.Context, objectiveID string, limit int) ([]Action, error) {
 	if limit <= 0 {
 		limit = 50
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT id,objective_id,COALESCE(subgoal_id,''),COALESCE(run_id,''),kind,target,consequence_class,policy_hash,request_json,COALESCE(idempotency_key,''),status,COALESCE(result_json,''),COALESCE(evidence_json,''),created_at,updated_at FROM actions WHERE objective_id=? ORDER BY created_at DESC LIMIT ?`, objectiveID, limit)
+	rows, err := s.db.QueryContext(ctx, `SELECT id,objective_id,COALESCE(subgoal_id,''),COALESCE(run_id,''),kind,target,consequence_class,policy_hash,request_json,COALESCE(idempotency_key,''),status,COALESCE(result_json,''),COALESCE(evidence_json,''),COALESCE(job_id,''),created_at,updated_at FROM actions WHERE objective_id=? ORDER BY created_at DESC LIMIT ?`, objectiveID, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -316,7 +277,7 @@ func (s *Store) ListActions(ctx context.Context, objectiveID string, limit int) 
 	for rows.Next() {
 		var a Action
 		var req, result, evidence, created, updated string
-		if err := rows.Scan(&a.ID, &a.ObjectiveID, &a.SubgoalID, &a.RunID, &a.Kind, &a.Target, &a.ConsequenceClass, &a.PolicyHash, &req, &a.IdempotencyKey, &a.Status, &result, &evidence, &created, &updated); err != nil {
+		if err := rows.Scan(&a.ID, &a.ObjectiveID, &a.SubgoalID, &a.RunID, &a.Kind, &a.Target, &a.ConsequenceClass, &a.PolicyHash, &req, &a.IdempotencyKey, &a.Status, &result, &evidence, &a.JobID, &created, &updated); err != nil {
 			return nil, err
 		}
 		a.Request, a.Result, a.Evidence = json.RawMessage(req), json.RawMessage(result), json.RawMessage(evidence)

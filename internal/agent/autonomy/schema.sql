@@ -29,12 +29,6 @@ CREATE TABLE IF NOT EXISTS resources (
   access_mode TEXT NOT NULL, constraints_json TEXT NOT NULL DEFAULT '{}', authorization_source TEXT NOT NULL,
   policy_hash TEXT NOT NULL, expires_at TEXT, status TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
 );
-CREATE TABLE IF NOT EXISTS facts (
-  id TEXT PRIMARY KEY, objective_id TEXT NOT NULL, key TEXT NOT NULL, value_json TEXT NOT NULL,
-  source TEXT NOT NULL, evidence_json TEXT NOT NULL DEFAULT '[]', confidence REAL NOT NULL DEFAULT 0,
-  confirmed INTEGER NOT NULL DEFAULT 0, scope TEXT NOT NULL DEFAULT '', sensitivity TEXT NOT NULL DEFAULT '',
-  created_at TEXT NOT NULL, updated_at TEXT NOT NULL
-);
 CREATE TABLE IF NOT EXISTS actions (
   id TEXT PRIMARY KEY, objective_id TEXT NOT NULL, subgoal_id TEXT, run_id TEXT, kind TEXT NOT NULL,
   target TEXT NOT NULL DEFAULT '', consequence_class TEXT NOT NULL, policy_hash TEXT NOT NULL,

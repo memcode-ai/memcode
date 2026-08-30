@@ -97,10 +97,10 @@ func TestExecutiveBlocksWithoutPolicy(t *testing.T) {
 func TestExecutiveRunsAndJournals(t *testing.T) {
 	prov := &fakeProv{steps: []wire.Response{
 		{StopReason: "tool_use", Blocks: []wire.Block{toolUse("t1", "subgoal_update", map[string]any{"id": "sg1", "description": "scan deps", "status": "active", "priority": 5})}},
-		{StopReason: "tool_use", Blocks: []wire.Block{toolUse("t2", "note_fact", map[string]any{"key": "deps.outdated", "value": "3", "source": "scan", "confirmed": true})}},
+		{StopReason: "tool_use", Blocks: []wire.Block{toolUse("t2", "remember", map[string]any{"note": "3 dependencies are outdated (observed by scanning)"})}},
 		{StopReason: "tool_use", Blocks: []wire.Block{toolUse("t3", "report", map[string]any{"summary": "found 3 outdated deps"})}},
 	}}
-	ex, st, _ := newTestExecutive(t, prov)
+	ex, st, home := newTestExecutive(t, prov)
 	approveTestPolicy(t, st)
 	out, err := ex.RunOnce(context.Background())
 	if err != nil {
@@ -112,14 +112,14 @@ func TestExecutiveRunsAndJournals(t *testing.T) {
 	if !strings.Contains(out.Report, "outdated") {
 		t.Fatalf("report=%q", out.Report)
 	}
-	// Subgoal + fact recorded.
+	// Subgoal recorded in the store; what it LEARNED went to memory.md, the
+	// same durable memory every memcode agent already has.
 	subs, _ := st.ListSubgoals(context.Background(), "primary")
 	if len(subs) != 1 || subs[0].Description != "scan deps" {
 		t.Fatalf("subgoals=%v", subs)
 	}
-	facts, _ := st.ListFacts(context.Background(), "primary")
-	if len(facts) != 1 || facts[0].Key != "deps.outdated" {
-		t.Fatalf("facts=%v", facts)
+	if mem := ReadMemory(home); !strings.Contains(mem, "3 dependencies are outdated") {
+		t.Fatalf("memory.md missing what the agent learned: %q", mem)
 	}
 	// Run recorded completed.
 	runs, _ := st.ListRuns(context.Background(), "primary", 10)
@@ -245,6 +245,34 @@ func TestPolicyApprovalMovesObjectiveActive(t *testing.T) {
 // requirement: delegating browser work when no gateway (and therefore no
 // broker socket) is running must be REJECTED, not silently downgraded to
 // ephemeral Chrome. No job may be spawned in this case at all.
+// delegatedJobID finds the job spawned by the single journaled delegate action.
+func delegatedJobID(t *testing.T, st *Store) string {
+	t.Helper()
+	ctx := context.Background()
+	actions, err := st.ListActions(ctx, "primary", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range actions {
+		if a.Kind != "delegate" {
+			continue
+		}
+		// Round-trip the link the way check_delegate does.
+		for _, j := range []string{a.JobID} {
+			if j == "" {
+				continue
+			}
+			got, err := st.ActionForJob(ctx, j)
+			if err != nil || got != a.ID {
+				t.Fatalf("ActionForJob(%q) = %q, %v; want %q", j, got, err, a.ID)
+			}
+			return j
+		}
+	}
+	t.Fatalf("no delegate action with a linked job: %+v", actions)
+	return ""
+}
+
 func TestExecutiveDelegateFailsClosedWithoutBroker(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir()) // guarantees no broker socket exists here
 	prov := &fakeProv{steps: []wire.Response{
@@ -272,16 +300,7 @@ func TestExecutiveDelegateFailsClosedWithoutBroker(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The delegate tool call must have failed (surfaced as a tool_result error,
-	// not a spawned job) — no delegation fact should exist.
-	facts, err := st.ListFacts(ctx, "primary")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, f := range facts {
-		if strings.HasPrefix(f.Key, "delegation.") {
-			t.Fatalf("expected no delegation to have been spawned without a broker, got fact %v", f)
-		}
-	}
+	// not a spawned job) — no delegate action should have been journaled.
 	actions, err := st.ListActions(ctx, "primary", 10)
 	if err != nil {
 		t.Fatal(err)
@@ -343,19 +362,9 @@ func TestExecutiveDelegateUsesExistingChromeWhenBrokerRunning(t *testing.T) {
 	if _, err := ex.RunOnce(ctx); err != nil {
 		t.Fatal(err)
 	}
-	facts, err := st.ListFacts(ctx, "primary")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var jobID string
-	for _, f := range facts {
-		if strings.HasPrefix(f.Key, "delegation.") {
-			jobID = strings.TrimPrefix(f.Key, "delegation.")
-		}
-	}
-	if jobID == "" {
-		t.Fatalf("no delegation fact recorded: %v", facts)
-	}
+	// The job id comes back through the ACTION that spawned it — the journal
+	// owns that link now, rather than a key smuggled into semantic memory.
+	jobID := delegatedJobID(t, st)
 	root, err := ex.delegateRoot()
 	if err != nil {
 		t.Fatal(err)
@@ -403,19 +412,9 @@ func TestExecutiveDelegatesToWorker(t *testing.T) {
 		t.Fatalf("status=%s report=%s", out.Status, out.Report)
 	}
 
-	facts, err := st.ListFacts(ctx, "primary")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var jobID string
-	for _, f := range facts {
-		if strings.HasPrefix(f.Key, "delegation.") {
-			jobID = strings.TrimPrefix(f.Key, "delegation.")
-		}
-	}
-	if jobID == "" {
-		t.Fatalf("no delegation fact recorded: %v", facts)
-	}
+	// The job id comes back through the ACTION that spawned it — the journal
+	// owns that link now, rather than a key smuggled into semantic memory.
+	jobID := delegatedJobID(t, st)
 
 	actions, err := st.ListActions(ctx, "primary", 10)
 	if err != nil {

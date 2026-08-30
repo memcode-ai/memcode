@@ -24,7 +24,7 @@ func TestOpenInitializesHomeAndSchema(t *testing.T) {
 			t.Errorf("missing %s: %v", path, err)
 		}
 	}
-	for _, table := range []string{"objectives", "subgoals", "runs", "triggers", "policies", "resources", "facts", "actions", "generated_items", "notifications"} {
+	for _, table := range []string{"objectives", "subgoals", "runs", "triggers", "policies", "resources", "actions", "generated_items", "notifications"} {
 		var name string
 		if err := s.db.QueryRowContext(ctx, `SELECT name FROM sqlite_master WHERE type='table' AND name=?`, table).Scan(&name); err != nil {
 			t.Errorf("table %s: %v", table, err)
@@ -65,9 +65,6 @@ func TestObjectiveAndDomainNeutralRecordsPersist(t *testing.T) {
 	if err := s.InsertResource(ctx, Resource{ID: "res1", ObjectiveID: "o1", Type: "filesystem", Locator: "/tmp/x", AccessMode: "read", AuthorizationSource: "user", PolicyHash: "h"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.InsertFact(ctx, Fact{ID: "f1", ObjectiveID: "o1", Key: "environment.state", Value: json.RawMessage(`{}`), Source: "observation"}); err != nil {
-		t.Fatal(err)
-	}
 	if err := s.InsertNotification(ctx, Notification{ID: "n1", ObjectiveID: "o1", Kind: "info"}); err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +74,7 @@ func TestObjectiveAndDomainNeutralRecordsPersist(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s.Close()
-	for _, table := range []string{"subgoals", "runs", "triggers", "policies", "resources", "facts", "notifications"} {
+	for _, table := range []string{"subgoals", "runs", "triggers", "policies", "resources", "notifications"} {
 		var n int
 		if err := s.db.QueryRowContext(ctx, "SELECT count(*) FROM "+table).Scan(&n); err != nil || n != 1 {
 			t.Errorf("%s count=%d err=%v", table, n, err)

@@ -31,17 +31,6 @@ func TestResourceGrantCanonicalBoundaryAndExpiration(t *testing.T) {
 		t.Fatal("expired grant allowed")
 	}
 }
-func TestConfirmedFactsGateExternalRepresentation(t *testing.T) {
-	if (StructuredFact{}).UsableForExternalRepresentation(false) {
-		t.Fatal("unconfirmed fact allowed")
-	}
-	if !(StructuredFact{Confirmed: true}).UsableForExternalRepresentation(false) {
-		t.Fatal("confirmed fact denied")
-	}
-	if !(StructuredFact{}).UsableForExternalRepresentation(true) {
-		t.Fatal("policy-authorized inferred fact denied")
-	}
-}
 
 // Regression: a symlink inside a granted dir pointing outside must NOT satisfy
 // the grant (Codex P0). PathWithinGrant resolves the requested path's symlinks.
