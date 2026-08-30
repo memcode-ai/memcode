@@ -44,7 +44,10 @@ func Open(ctx context.Context, home string) (*Store, error) {
 	if err := InitializeHome(home); err != nil {
 		return nil, fmt.Errorf("initialize agent home: %w", err)
 	}
-	path := filepath.Join(home, "personal.db")
+	// agent.db, not personal.db: this is state for any agent running
+	// unattended, not a separate species of agent. Opened lazily, so an
+	// ordinary conversational agent never grows one.
+	path := filepath.Join(home, "agent.db")
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		return nil, fmt.Errorf("opening %s: %w", path, err)

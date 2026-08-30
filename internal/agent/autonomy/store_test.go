@@ -19,7 +19,7 @@ func TestOpenInitializesHomeAndSchema(t *testing.T) {
 	}
 	defer s.Close()
 
-	for _, path := range []string{"personal.db", "policies", "workspace/generated", "workspace/scratch", "runs", "workers", ".memcode/jobs", ".memcode/sessions"} {
+	for _, path := range []string{"agent.db", "policies", "workspace/generated", "workspace/scratch", "runs", "workers", ".memcode/jobs", ".memcode/sessions"} {
 		if _, err := os.Stat(filepath.Join(home, path)); err != nil {
 			t.Errorf("missing %s: %v", path, err)
 		}

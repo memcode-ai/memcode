@@ -244,3 +244,37 @@ func TestDoctorAndInbox(t *testing.T) {
 		t.Fatalf("inbox=%q", out)
 	}
 }
+
+// The fourth combination: an ordinary agent — no objective, not autonomous —
+// stays exactly as it was. In particular it grows no autonomy store, so the
+// governance machinery costs nothing until someone asks for it.
+func TestOrdinaryAgentGetsNoAutonomyStore(t *testing.T) {
+	home := setupAgentHome(t)
+	admin(t, tools.GwAgent, map[string]any{"action": "add", "name": "plain"})
+	admin(t, tools.GwOverview, nil)
+
+	cfg, _ := gwconfig.Load()
+	a := cfg.Agents["plain"]
+	if a.Autonomous || a.Objective != "" || a.Paused {
+		t.Fatalf("ordinary agent picked up autonomy settings: %+v", a)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".memcode", "agents", "plain", "agent.db")); !os.IsNotExist(err) {
+		t.Fatalf("ordinary agent grew an autonomy store (err=%v)", err)
+	}
+}
+
+// An agent with an objective but WITHOUT autonomy still works on demand — the
+// grant governs unprompted action, not whether a human may ask.
+func TestObjectiveWithoutAutonomyStillWakesOnDemand(t *testing.T) {
+	setupAgentHome(t)
+	admin(t, tools.GwAgent, map[string]any{"action": "add", "name": "ondemand", "objective": "Tidy notes"})
+	cfg, _ := gwconfig.Load()
+	if cfg.Agents["ondemand"].Autonomous {
+		t.Fatal("became autonomous")
+	}
+	// Reaches the policy gate rather than being refused for lacking autonomy.
+	out := admin(t, tools.GwWake, map[string]any{"agent": "ondemand"})
+	if !strings.Contains(out, "blocked") || !strings.Contains(out, "policy") {
+		t.Fatalf("expected the policy gate, not an autonomy refusal: %q", out)
+	}
+}
