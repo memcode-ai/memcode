@@ -127,6 +127,16 @@ for local gateway development. Never store keys in .memcode.`,
 			sess.SetBrowserEnabled(true)
 			defer sess.CloseBrowser() // tear down Chrome when the one-shot session ends
 		}
+		// --allow-tools/--deny-tools: a delegated job's actual toolset restriction
+		// (see jobs.SpawnSpec.ToolPolicy). Applied here — before the --job branch —
+		// so it binds regardless of whether the child also carries --session.
+		allowTools, _ := cmd.Flags().GetString("allow-tools")
+		denyTools, _ := cmd.Flags().GetString("deny-tools")
+		if allowTools != "" || denyTools != "" {
+			if unknown := sess.SetToolPolicy(splitCSV(allowTools), splitCSV(denyTools)); len(unknown) > 0 {
+				fmt.Printf("note: tool policy entries not recognized (see memcode.ai/docs/agents/tools): %s\n", strings.Join(unknown, ", "))
+			}
+		}
 
 		// --job: this process IS a detached job's child. Serialize behind the
 		// writer lock (one writer at a time) and record completion.
@@ -228,6 +238,17 @@ for local gateway development. Never store keys in .memcode.`,
 	},
 }
 
+// splitCSV parses a comma-separated flag value into trimmed, non-empty parts.
+func splitCSV(s string) []string {
+	var out []string
+	for _, p := range strings.Split(s, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
 // resumeRef reads the session-resume intent from flags: --resume <id/prefix>
 // wins; --continue/-c means "the most recent saved session"; "" = fresh.
 func resumeRef(cmd *cobra.Command) string {
@@ -289,6 +310,10 @@ func init() {
 	_ = runCmd.Flags().MarkHidden("tier")
 	runCmd.Flags().Bool("report-back", false, "internal: persist the agent's final result so the caller can report it back")
 	_ = runCmd.Flags().MarkHidden("report-back")
+	runCmd.Flags().String("allow-tools", "", "internal: comma-separated toolset/tool allow-list for a delegated job (empty = all)")
+	_ = runCmd.Flags().MarkHidden("allow-tools")
+	runCmd.Flags().String("deny-tools", "", "internal: comma-separated toolset/tool deny-list for a delegated job (deny wins)")
+	_ = runCmd.Flags().MarkHidden("deny-tools")
 	runCmd.Flags().String("protocol", "", "machine control protocol: stream-json (newline-delimited JSON on stdio, for SDK wrappers)")
 	runCmd.Flags().BoolP("continue", "c", false, "resume the most recent session with its full conversation")
 	runCmd.Flags().String("resume", "", "resume a session by id or prefix (see `memcode session recent`)")

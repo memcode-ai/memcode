@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/memcode-ai/memcode/internal/atomicfile"
+	"github.com/memcode-ai/memcode/internal/jobs"
 	"github.com/memcode-ai/memcode/internal/llm"
 	"github.com/memcode-ai/memcode/internal/wire"
 )
@@ -25,6 +26,12 @@ type Executive struct {
 	Runner   *llm.Runner
 	Now      func() time.Time
 	MaxSteps int
+	// DelegationDepth is this wake's own depth in a delegation chain — 0 for a
+	// top-level RunOnce/ResumeSuspended wake. A worker spawned via delegate is
+	// itself a plain `memcode run` job, not another Executive, so depth never
+	// grows past 1 today; the field exists so ValidateDelegation's depth check
+	// means something even before nested Personal-Agent delegation exists.
+	DelegationDepth int
 }
 
 type RunOutcome struct {
@@ -103,6 +110,23 @@ var executiveToolDefs = []wire.ToolDef{
 		Name:        "report",
 		Description: "End this wake with a status report and mark the run completed. Include what was done and the next planned step.",
 		InputSchema: obj(map[string]any{"summary": strProp("concise status report")}, "summary"),
+	},
+	{
+		Name:        "delegate",
+		Description: "Delegate a bounded task to a scoped worker — a full memcode agent (browser, MCP, shell, filesystem, skills — whatever toolsets you name) running as a detached job, NOT another executive. Use this whenever the objective needs a real capability outside this executive's own 7 tools (browsing a site, calling an MCP tool, running a shell command, editing code). The worker's toolset/consequences must be a subset of this agent's own approved policy — expanding authority is rejected. This wake ends without the result; call check_delegate on a later wake (schedule_wake first) to collect it.",
+		InputSchema: obj(map[string]any{
+			"task":                 strProp("the bounded task for the worker, self-contained (the worker has no access to this conversation)"),
+			"expected_output":      strProp("what a successful result looks like"),
+			"completion_condition": strProp("how the worker knows it's done"),
+			"toolsets":             map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "toolsets/tools the worker may use, e.g. [\"browser\"], [\"mcp:gmail\"] — must be a subset of this agent's approved allowed_tools"},
+			"consequences":         map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "consequence classes this task may incur, e.g. [\"observe\"], [\"external_effect\"] — must be a subset of this agent's approved consequence classes"},
+			"max_seconds":          map[string]any{"type": "integer", "description": "wall-clock budget for the worker"},
+		}, "task", "expected_output", "completion_condition"),
+	},
+	{
+		Name:        "check_delegate",
+		Description: "Check on a job started by delegate. Returns its status (running, done, failed, stopped) and, once finished, its result text. Call this on the wake after you delegated, not the same wake.",
+		InputSchema: obj(map[string]any{"job_id": strProp("the job id returned by delegate")}, "job_id"),
 	},
 }
 
@@ -445,6 +469,98 @@ func (e *Executive) execTool(ctx context.Context, runID string, p DelegationPoli
 		}
 		return toolResult{content: "next wake at " + next.Format(time.RFC3339), nextWake: &next}, nil, nil
 
+	case "delegate":
+		var in struct {
+			Task                string   `json:"task"`
+			ExpectedOutput      string   `json:"expected_output"`
+			CompletionCondition string   `json:"completion_condition"`
+			Toolsets            []string `json:"toolsets"`
+			Consequences        []string `json:"consequences"`
+			MaxSeconds          int      `json:"max_seconds"`
+		}
+		if err := json.Unmarshal(call.Input, &in); err != nil {
+			return toolResult{}, nil, err
+		}
+		var consequences []ConsequenceClass
+		for _, c := range in.Consequences {
+			cls := ConsequenceClass(c)
+			if !p.AllowsConsequence(cls, now) {
+				return toolResult{}, nil, fmt.Errorf("policy does not allow delegating consequence %q", c)
+			}
+			consequences = append(consequences, cls)
+		}
+		env := ExecutionEnvelope{
+			Task: in.Task, ExpectedOutput: in.ExpectedOutput, CompletionCondition: in.CompletionCondition,
+			Toolsets: in.Toolsets, Consequences: consequences, ParentRunID: runID,
+			Budgets:         jobs.ExecutionBudgets{MaxSeconds: in.MaxSeconds},
+			DelegationDepth: e.DelegationDepth + 1,
+			AllowDelegation: false, // the worker is a plain memcode run, not another executive — it cannot delegate further
+		}
+		if err := ValidateDelegation(p, env); err != nil {
+			return toolResult{}, nil, err
+		}
+		actID, err := journaling("delegate", in.Task, delegateConsequence(consequences), call.Input)
+		if err != nil {
+			return toolResult{}, nil, err
+		}
+		workDir, err := e.delegateRoot()
+		if err != nil {
+			_ = e.Store.CompleteAction(ctx, actID, ActionFailed, json.RawMessage(fmt.Sprintf(`{%q:%q}`, "error", err.Error())), nil)
+			return toolResult{}, nil, err
+		}
+		if _, err := PrepareRunDirectory(e.Home, runID, env); err != nil {
+			_ = e.Store.CompleteAction(ctx, actID, ActionFailed, json.RawMessage(fmt.Sprintf(`{%q:%q}`, "error", err.Error())), nil)
+			return toolResult{}, nil, err
+		}
+		job, err := jobs.SpawnWithSpec(jobs.SpawnSpec{
+			Root:       workDir,
+			Task:       fmt.Sprintf("%s\n\nExpected output: %s\nDone when: %s", in.Task, in.ExpectedOutput, in.CompletionCondition),
+			Mode:       delegateMode(consequences),
+			ToolPolicy: jobs.ToolPolicy{Allowed: in.Toolsets},
+			Budgets:    env.Budgets,
+			AgentID:    e.AgentID, ObjectiveID: "primary", RunID: runID, ParentRunID: runID,
+			PolicyHash: policyHash, BrowserMode: browserModeFor(in.Toolsets), ReportBack: true,
+		})
+		if err != nil {
+			_ = e.Store.CompleteAction(ctx, actID, ActionFailed, json.RawMessage(fmt.Sprintf(`{%q:%q}`, "error", err.Error())), nil)
+			return toolResult{}, nil, err
+		}
+		// Record the job↔action mapping as a fact so check_delegate can find the
+		// action to complete later; RunOnce is one bounded wake, so the result
+		// necessarily arrives on a subsequent wake, not this one.
+		mapping, _ := json.Marshal(map[string]any{"action_id": actID, "task": in.Task, "status": "running"})
+		_ = e.Store.InsertFact(ctx, Fact{ID: fmt.Sprintf("fact-%d", now.UnixNano()), ObjectiveID: "primary",
+			Key: "delegation." + job.ID, Value: mapping, Source: "delegate", Confirmed: true})
+		return toolResult{content: fmt.Sprintf("delegated as job %s — call check_delegate on a later wake to collect the result", job.ID)}, nil, nil
+
+	case "check_delegate":
+		var in struct {
+			JobID string `json:"job_id"`
+		}
+		if err := json.Unmarshal(call.Input, &in); err != nil {
+			return toolResult{}, nil, err
+		}
+		workDir, err := e.delegateRoot()
+		if err != nil {
+			return toolResult{}, nil, err
+		}
+		job, err := jobs.Get(workDir, in.JobID)
+		if err != nil {
+			return toolResult{}, nil, fmt.Errorf("no delegated job %q: %w", in.JobID, err)
+		}
+		if job.Status == jobs.StatusRunning || job.Status == jobs.StatusWaiting {
+			return toolResult{content: fmt.Sprintf("job %s still %s", job.ID, job.Status)}, nil, nil
+		}
+		actID := e.delegationActionID(ctx, in.JobID)
+		status, result := ActionSucceeded, json.RawMessage(fmt.Sprintf(`{"result":%q}`, job.Result))
+		if job.Status != jobs.StatusDone || job.ExitCode != 0 {
+			status, result = ActionFailed, json.RawMessage(fmt.Sprintf(`{"status":%q,"exit_code":%d}`, job.Status, job.ExitCode))
+		}
+		if actID != "" {
+			_ = e.Store.CompleteAction(ctx, actID, status, result, nil)
+		}
+		return toolResult{content: fmt.Sprintf("job %s %s: %s", job.ID, job.Status, job.Result)}, nil, nil
+
 	case "ask_user":
 		var in struct{ Question, Context string }
 		if err := json.Unmarshal(call.Input, &in); err != nil {
@@ -475,6 +591,90 @@ func (e *Executive) execTool(ctx context.Context, runID string, p DelegationPoli
 	default:
 		return toolResult{}, nil, fmt.Errorf("unknown executive tool %q", call.Name)
 	}
+}
+
+// delegateRoot is the project root a delegated worker runs in: the agent's own
+// workspace (the same directory write_file treats as always-writable). A
+// worker that needs a different project is future work — for now every
+// delegated job is rooted here, and jobs.Get must be called against the same
+// root to find it again.
+func (e *Executive) delegateRoot() (string, error) {
+	dir := filepath.Join(e.Home, "workspace")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	return dir, nil
+}
+
+// delegationActionID recovers the action id a delegate call recorded for jobID
+// (as a fact, since facts are the only durable log delegate can write to
+// without a schema migration), so check_delegate can close it out.
+func (e *Executive) delegationActionID(ctx context.Context, jobID string) string {
+	facts, err := e.Store.ListFacts(ctx, "primary")
+	if err != nil {
+		return ""
+	}
+	key := "delegation." + jobID
+	for i := len(facts) - 1; i >= 0; i-- {
+		if facts[i].Key != key {
+			continue
+		}
+		var v struct {
+			ActionID string `json:"action_id"`
+		}
+		if json.Unmarshal(facts[i].Value, &v) == nil {
+			return v.ActionID
+		}
+	}
+	return ""
+}
+
+// delegateConsequence reports the highest-stakes consequence class in a
+// delegated task, for the action journal entry (ReserveAction needs exactly
+// one). Order matches the severity ExecutionEnvelope.Consequences is checked
+// in: an empty request journals as pure observation.
+func delegateConsequence(cs []ConsequenceClass) ConsequenceClass {
+	order := []ConsequenceClass{Destructive, LegalAttestation, Financial, ExternalRepresentation, ExternalEffect, LocalMutation, Observe}
+	have := map[ConsequenceClass]bool{}
+	for _, c := range cs {
+		have[c] = true
+	}
+	for _, c := range order {
+		if have[c] {
+			return c
+		}
+	}
+	return Observe
+}
+
+// delegateMode picks the worker's permission mode from what it's authorized to
+// do. Detached jobs have no human to answer approval prompts (SetNoApprover),
+// so --ask is the fail-closed choice for anything beyond safe local mutation:
+// the worker simply can't perform an action requiring approval, rather than
+// silently getting more authority than the policy actually granted it.
+func delegateMode(cs []ConsequenceClass) string {
+	for _, c := range cs {
+		if c != Observe && c != LocalMutation {
+			return "ask"
+		}
+	}
+	return "auto"
+}
+
+// browserModeFor reports the jobs.SpawnSpec.BrowserMode for a requested
+// toolset list. "browser" here reuses memcode's existing ephemeral Chrome
+// session (the same one --chrome already drives for ordinary agents) — NOT
+// the user's own already-running Chrome. Attaching a delegated worker to the
+// user's real browser needs the broker/remote-controller wiring in
+// internal/browser/broker and internal/browser/remote.go, which is declared
+// but has no implementation yet.
+func browserModeFor(toolsets []string) string {
+	for _, t := range toolsets {
+		if t == "browser" {
+			return "ephemeral"
+		}
+	}
+	return ""
 }
 
 // readGranted reads a file only if it lies within an approved filesystem grant.

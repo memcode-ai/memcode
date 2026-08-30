@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/memcode-ai/memcode/internal/jobs"
 	"github.com/memcode-ai/memcode/internal/llm"
 	"github.com/memcode-ai/memcode/internal/provider"
 	"github.com/memcode-ai/memcode/internal/wire"
@@ -222,6 +223,119 @@ func TestPolicyApprovalMovesObjectiveActive(t *testing.T) {
 	p, _, _ = st.ApprovedPolicy(ctx, "primary")
 	if p.Version != 2 {
 		t.Fatalf("expected v2 approved, got v%d", p.Version)
+	}
+}
+
+// TestExecutiveDelegatesToWorker exercises delegate → check_delegate against a
+// real (detached) jobs.SpawnWithSpec call. Under `go test`, the spawned "worker"
+// is the test binary itself re-exec'd with flags that run zero tests (see
+// jobs.isTestBinary), so it never calls jobs.Finish — the job settles at
+// StatusStopped once the process exits, not StatusDone. That's enough to prove
+// the wiring: an executive whose policy allows delegation actually launches a
+// real, tracked, policy-scoped child process and can read its outcome back on
+// a later wake, instead of failing closed or silently no-op'ing.
+func TestExecutiveDelegatesToWorker(t *testing.T) {
+	prov1 := &fakeProv{steps: []wire.Response{
+		{StopReason: "tool_use", Blocks: []wire.Block{toolUse("t1", "delegate", map[string]any{
+			"task": "look something up", "expected_output": "a fact", "completion_condition": "found it",
+			"consequences": []string{"observe"},
+		})}},
+		{StopReason: "tool_use", Blocks: []wire.Block{toolUse("t2", "report", map[string]any{"summary": "delegated"})}},
+	}}
+	ex, st, home := newTestExecutive(t, prov1)
+	ctx := context.Background()
+	doc := DelegationPolicy{ObjectiveScope: "primary", ConsequenceClasses: []ConsequenceClass{Observe, LocalMutation}, MaxDelegationDepth: 1, MaxSeconds: 300, MaxActionsPerPeriod: 8}
+	canon, hash, err := CanonicalPolicy(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.InsertPolicy(ctx, Policy{ID: "p1", ObjectiveID: "primary", Version: 1, Document: canon, Hash: hash, Status: "draft"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.ApprovePolicy(ctx, hash); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := ex.RunOnce(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Status != "completed" {
+		t.Fatalf("status=%s report=%s", out.Status, out.Report)
+	}
+
+	facts, err := st.ListFacts(ctx, "primary")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var jobID string
+	for _, f := range facts {
+		if strings.HasPrefix(f.Key, "delegation.") {
+			jobID = strings.TrimPrefix(f.Key, "delegation.")
+		}
+	}
+	if jobID == "" {
+		t.Fatalf("no delegation fact recorded: %v", facts)
+	}
+
+	actions, err := st.ListActions(ctx, "primary", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var delegateAction Action
+	for _, a := range actions {
+		if a.Kind == "delegate" {
+			delegateAction = a
+		}
+	}
+	if delegateAction.ID == "" || delegateAction.Status != "running" {
+		t.Fatalf("expected a running delegate action, got %+v", actions)
+	}
+
+	// Wait for the detached (test-binary) child to exit before checking on it.
+	root, err := ex.delegateRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		job, err := jobs.Get(root, jobID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if job.Status != jobs.StatusRunning {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("delegated job %s still running after 10s", jobID)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	prov2 := &fakeProv{steps: []wire.Response{
+		{StopReason: "tool_use", Blocks: []wire.Block{toolUse("t3", "check_delegate", map[string]any{"job_id": jobID})}},
+		{StopReason: "tool_use", Blocks: []wire.Block{toolUse("t4", "report", map[string]any{"summary": "checked"})}},
+	}}
+	ex2 := &Executive{Store: st, Home: home, AgentID: "tester", Runner: llm.NewRunner(prov2)}
+	out2, err := ex2.RunOnce(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out2.Status != "completed" {
+		t.Fatalf("status=%s report=%s", out2.Status, out2.Report)
+	}
+
+	actions, err = st.ListActions(ctx, "primary", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range actions {
+		if a.Kind == "delegate" {
+			delegateAction = a
+		}
+	}
+	if delegateAction.Status == "running" {
+		t.Fatalf("delegate action still running after check_delegate: %+v", delegateAction)
 	}
 }
 

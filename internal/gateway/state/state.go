@@ -247,13 +247,6 @@ func (s *Store) SetInboxStatus(ctx context.Context, channel, messageID, from, to
 	return n == 1, err
 }
 
-func formatTime(t *time.Time) any {
-	if t == nil {
-		return nil
-	}
-	return t.UTC().Format(time.RFC3339Nano)
-}
-
 func (s *Store) Pending(ctx context.Context) ([]Item, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT channel, message_id, conversation, principal, text, trusted, agent, project, attachments

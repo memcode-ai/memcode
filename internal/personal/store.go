@@ -65,7 +65,7 @@ func migrate(ctx context.Context, db *sql.DB) error {
 		return err
 	}
 	if version > len(migrations) {
-		return fmt.Errorf("Personal Agent schema version %d is newer than supported version %d", version, len(migrations))
+		return fmt.Errorf("personal agent schema version %d is newer than supported version %d", version, len(migrations))
 	}
 	for i := version; i < len(migrations); i++ {
 		tx, err := db.BeginTx(ctx, nil)

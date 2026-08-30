@@ -164,6 +164,18 @@ func SpawnWithSpec(spec SpawnSpec) (Job, error) {
 	if session != "" {
 		argv = append(argv, "--session", session) // continue this conversation's session (resume-or-create)
 	}
+	// ToolPolicy is a REAL restriction on the child, not just recorded metadata:
+	// --allow-tools/--deny-tools bind the same SetToolPolicy enforcement an
+	// ordinary gateway-bound agent gets from its config. A caller (e.g. a
+	// Personal Agent's delegate tool) that hands this spec a narrower toolset
+	// than the parent policy allows gets an actually narrower child, not just an
+	// audited claim of one.
+	if len(spec.ToolPolicy.Allowed) > 0 {
+		argv = append(argv, "--allow-tools", strings.Join(spec.ToolPolicy.Allowed, ","))
+	}
+	if len(spec.ToolPolicy.Disabled) > 0 {
+		argv = append(argv, "--deny-tools", strings.Join(spec.ToolPolicy.Disabled, ","))
+	}
 	if isTestBinary(self) {
 		// Under `go test`, os.Executable() is the package's TEST binary, not memcode.
 		// Re-execing it as `agent …` runs the caller's whole test suite again: the
