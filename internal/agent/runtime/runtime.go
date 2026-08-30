@@ -106,7 +106,6 @@ type Session struct {
 	browserHeadless   bool                                          // gateway/service sessions run Chrome headless (no desktop)
 	noApprover        bool                                          // detached job: no human can answer approval prompts
 	adminMode         bool                                          // admin session (`memcode admin`): admin tools only, settings doctrine
-	personalMode      bool                                          // personal cockpit (`memcode personal`): pa_* tools only, personal doctrine
 	adminExec         AdminExecutor                                 // cmd-injected admin operations (engine never imports the gateway layer)
 	forceEscalate     bool                                          // strong-tier agent: pin every request to the strong vendor (balanced tier)
 	forceFrontier     bool                                          // long-running (background) agent: pin every request to the FRONTIER tier
@@ -368,19 +367,9 @@ func (s *Session) SetAdmin(exec AdminExecutor) {
 	s.adminExec = exec
 }
 
-// SetPersonal switches this session into the Personal Agents cockpit: pa_* tools
-// only (same injected-executor seam as admin), personal doctrine.
-func (s *Session) SetPersonal(exec AdminExecutor) {
-	s.personalMode = true
-	s.adminExec = exec
-}
-
-// Personal reports whether this is a personal-cockpit session.
-func (s *Session) Personal() bool { return s.personalMode }
-
 // Restricted reports whether the session is a restricted management console
-// (admin or personal cockpit): a limited slash whitelist, no repo/coding tools.
-func (s *Session) Restricted() bool { return s.adminMode || s.personalMode }
+// (admin): a limited slash whitelist, no repo/coding tools.
+func (s *Session) Restricted() bool { return s.adminMode }
 
 // Admin reports whether this is an admin session (the TUI swaps its slash set).
 func (s *Session) Admin() bool { return s.adminMode }

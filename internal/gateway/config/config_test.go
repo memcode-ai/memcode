@@ -92,26 +92,42 @@ func TestAllowed(t *testing.T) {
 	}
 }
 
-func TestAgentKindCompatibilityAndValidation(t *testing.T) {
-	legacy := Settings{Agents: map[string]Agent{"ordinary": {Model: "m"}}}
-	if err := legacy.Validate(); err != nil {
-		t.Fatalf("legacy empty kind must remain valid: %v", err)
+func TestAgentAutonomyFieldsAndValidation(t *testing.T) {
+	// An ordinary agent stays valid and stays non-autonomous by default —
+	// autonomy is never acquired implicitly.
+	ordinary := Settings{Agents: map[string]Agent{"ordinary": {Model: "m"}}}
+	if err := ordinary.Validate(); err != nil {
+		t.Fatalf("ordinary agent must remain valid: %v", err)
 	}
-	if got := legacy.Agents["ordinary"].Kind; got != "" {
-		t.Fatalf("legacy kind = %q, want empty", got)
-	}
-
-	personal := Settings{Agents: map[string]Agent{"executive": {Kind: "personal"}}}
-	if err := personal.Validate(); err != nil {
-		t.Fatalf("personal kind rejected: %v", err)
+	if a := ordinary.Agents["ordinary"]; a.Autonomous || a.Unattended() || a.Objective != "" {
+		t.Fatalf("ordinary agent defaulted to autonomy: %+v", a)
 	}
 
-	unknown := Settings{Agents: map[string]Agent{"bad": {Kind: "workflow"}}}
-	if err := unknown.Validate(); err == nil {
-		t.Fatal("unknown agent kind must be rejected")
+	// Objective and Autonomous are independent: holding a goal is not
+	// permission to pursue it unprompted.
+	goalOnly := Agent{Objective: "find backend roles"}
+	if goalOnly.Unattended() {
+		t.Fatal("an objective alone must not make an agent unattended")
+	}
+	// ...and an agent may run unattended with no standing objective (scheduled
+	// work under governance), which is the case a single overloaded switch
+	// could not express.
+	scheduled := Agent{Autonomous: true}
+	if !scheduled.Unattended() {
+		t.Fatal("autonomous with no objective must still be governed as unattended")
+	}
+
+	for _, br := range []string{"", BrowserEphemeral, BrowserExistingChrome} {
+		s := Settings{Agents: map[string]Agent{"a": {Browser: br}}}
+		if err := s.Validate(); err != nil {
+			t.Fatalf("browser %q rejected: %v", br, err)
+		}
+	}
+	bad := Settings{Agents: map[string]Agent{"a": {Browser: "safari"}}}
+	if err := bad.Validate(); err == nil {
+		t.Fatal("unknown browser backend accepted")
 	}
 }
-
 func TestGetZeroValue(t *testing.T) {
 	var s Settings // nil Channels map
 	if got := s.Get("telegram"); !reflect.DeepEqual(got, Channel{}) {

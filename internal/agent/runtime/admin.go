@@ -23,15 +23,22 @@ type AdminExecutor func(ctx context.Context, name string, input json.RawMessage)
 
 // adminReadOnly reports whether an admin call needs no approval: pure reads.
 func adminReadOnly(name string, input json.RawMessage) bool {
-	if name == tools.GwOverview {
+	switch name {
+	case tools.GwOverview, tools.GwInbox, tools.GwJournal, tools.GwDoctor, tools.GwBrowser:
 		return true
 	}
-	if name == tools.GwService {
-		var in struct {
-			Action string `json:"action"`
-		}
-		_ = json.Unmarshal(input, &in)
-		return strings.EqualFold(strings.TrimSpace(in.Action), "status")
+	var in struct {
+		Action string `json:"action"`
+	}
+	_ = json.Unmarshal(input, &in)
+	a := strings.ToLower(strings.TrimSpace(in.Action))
+	switch name {
+	case tools.GwService:
+		return a == "status"
+	case tools.GwPolicy:
+		return a == "show"
+	case tools.GwGrant:
+		return a == "list"
 	}
 	return false
 }
@@ -48,50 +55,6 @@ func (s *Session) adminTool(ctx context.Context, name string, input json.RawMess
 		}
 		if ok, reason := s.gate(ctx, permissions.Medium, false, ApprovalRequest{
 			Title: title, Label: "Gateway change", Risk: permissions.Medium.String(),
-		}); !ok {
-			return errResult("denied: " + reason)
-		}
-	}
-	out, err := s.adminExec(ctx, name, input)
-	if err != nil {
-		return errResult(err.Error())
-	}
-	return textResult(out)
-}
-
-// personalReadOnly reports whether a pa_* call is a pure read (no approval gate).
-func personalReadOnly(name string, input json.RawMessage) bool {
-	switch name {
-	case tools.PaOverview, tools.PaInbox, tools.PaHistory:
-		return true
-	}
-	// show/list sub-actions are reads.
-	var in struct {
-		Action string `json:"action"`
-	}
-	_ = json.Unmarshal(input, &in)
-	a := strings.ToLower(strings.TrimSpace(in.Action))
-	switch name {
-	case tools.PaObjective, tools.PaPolicy:
-		return a == "show"
-	case tools.PaResource, tools.PaTrigger:
-		return a == "list"
-	}
-	return false
-}
-
-// personalTool gates and dispatches a personal-cockpit tool call.
-func (s *Session) personalTool(ctx context.Context, name string, input json.RawMessage) toolResult {
-	if s.adminExec == nil {
-		return errResult("personal cockpit is unavailable in this session")
-	}
-	if !personalReadOnly(name, input) {
-		title := name
-		if compact := compactAdminInput(input); compact != "" {
-			title = fmt.Sprintf("%s %s", name, compact)
-		}
-		if ok, reason := s.gate(ctx, permissions.Medium, false, ApprovalRequest{
-			Title: title, Label: "Personal Agent change", Risk: permissions.Medium.String(),
 		}); !ok {
 			return errResult("denied: " + reason)
 		}

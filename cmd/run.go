@@ -150,7 +150,7 @@ for local gateway development. Never store keys in .memcode.`,
 			client := broker.NewClient(sock)
 			lease, err := client.Acquire(agentID, runID, 10*time.Minute)
 			if err != nil {
-				return fmt.Errorf("existing-Chrome unavailable: %w — run `memcode personal browser setup`; refusing to fall back to ephemeral Chrome", err)
+				return fmt.Errorf("existing-Chrome unavailable: %w — ask the user to run gw_browser in `memcode admin`; refusing to fall back to ephemeral Chrome", err)
 			}
 			defer client.Release(lease.Token)
 			sess.SetExtraMCPServers(map[string]mcp.ServerConfig{

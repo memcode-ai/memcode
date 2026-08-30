@@ -190,19 +190,19 @@ func Run(ctx context.Context, root string, mainStore store.Store, settings gwcon
 	for _, ch := range chs {
 		rt.byName[ch.Name()] = ch
 	}
-	// Personal Agents get an internal wake route: no external sender, output is
-	// journaled to the agent home, so register a discard sink so Deliver routes.
-	// Registered unconditionally (not gated on hasPersonalAgents at boot) because
-	// byName is built once here and never mutated again — a Personal Agent added
-	// later via a hot-reloaded config must still have somewhere for its wakes to
-	// route without requiring a gateway restart.
-	rt.byName[personalChannelName] = personalSink{out: out}
+	// An unattended agent wake has an internal route: no external sender, output
+	// is journaled to the agent home, so register a discard sink so Deliver can
+	// route it. Registered unconditionally (not gated on hasAutonomousAgents at
+	// boot) because byName is built once here and never mutated again — an agent
+	// made autonomous later via a hot-reloaded config must still have somewhere
+	// for its wakes to go without requiring a gateway restart.
+	rt.byName[agentChannelName] = agentSink{out: out}
 	webhooks := startWebhooks(ctx, settings, rt, out)
-	if len(chs) == 0 && !webhooks && !hasPersonalAgents(settings) {
-		return fmt.Errorf("no channels or Personal Agents configured — run `memcode gateway setup` or `memcode personal create`")
+	if len(chs) == 0 && !webhooks && !hasAutonomousAgents(settings) {
+		return fmt.Errorf("no channels or autonomous agents configured — run `memcode gateway setup`, or `memcode admin` to set an agent up to run on its own")
 	}
 	if len(chs) == 0 && !webhooks {
-		fmt.Fprintln(out, "gateway: running locally for Personal Agents (no external channels configured)")
+		fmt.Fprintln(out, "gateway: running locally for autonomous agents (no external channels configured)")
 	}
 	for _, ch := range chs {
 		ch := ch
@@ -215,10 +215,10 @@ func Run(ctx context.Context, root string, mainStore store.Store, settings gwcon
 	}
 
 	rt.applySchedules(ctx) // time-triggered tasks feed the same inbox
-	// Always run the wake loop, even if no Personal Agents exist at boot: it
-	// re-reads settings via r.cfg() every tick, so an agent (and trigger) added
+	// Always run the self-wake loop, even with no autonomous agents at boot: it
+	// re-reads settings via r.cfg() every tick, so an agent made autonomous
 	// later through a hot-reloaded config is picked up without a restart.
-	go rt.personalWakeLoop(ctx) // durable personal triggers feed the same inbox
+	go rt.autonomousWakeLoop(ctx) // agent-authored next-wakes feed the same inbox
 
 	rt.runWorker(ctx) // blocks until ctx is cancelled
 	if rt.sched != nil {
@@ -573,15 +573,15 @@ func (r *runtime) runJob(ctx context.Context, it state.Item) {
 		_ = r.gw.MarkDone(ctx, it.Channel, it.MessageID)
 		return
 	}
-	// Personal Agent wakes run the bounded executive inline (not a detached coding
+	// An unattended wake runs the bounded executive inline (not a detached coding
 	// job): the executive owns its policy gate, journal, and continuation state.
-	if it.Channel == personalChannelName {
-		report := r.runPersonalWake(ctx, it.Conversation) // conversation = agent id
+	if it.Channel == agentChannelName {
+		report := r.runAutonomousWake(ctx, it.Conversation) // conversation = agent id
 		if err := r.gw.SetReplied(ctx, it.Channel, it.MessageID, report, ""); err != nil {
-			fmt.Fprintf(r.out, "gateway: recording personal wake for %s failed: %v\n", it.Conversation, err)
+			fmt.Fprintf(r.out, "gateway: recording agent wake for %s failed: %v\n", it.Conversation, err)
 			return
 		}
-		r.deliverReply(ctx, it, report) // personalSink discards to the log
+		r.deliverReply(ctx, it, report) // agentSink discards to the log
 		return
 	}
 	// A gateway-triggered job has no TTY to answer approval prompts → Auto mode.

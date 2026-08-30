@@ -16,7 +16,7 @@ import (
 // SocketPath is the well-known location of the gateway-owned existing-Chrome
 // broker socket — shared between the gateway (which Serves it) and any
 // process that dials it as a Client, including a Personal Agent's delegated
-// worker running as a standalone `memcode personal run`, not just inside the
+// worker running as a standalone `memcode run` job, not just inside the
 // gateway. Its absence (no gateway running) is exactly the fail-closed signal
 // existing-Chrome delegation must respect — see ErrNotConnected.
 func SocketPath() (string, error) {

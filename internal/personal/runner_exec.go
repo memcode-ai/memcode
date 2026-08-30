@@ -21,12 +21,17 @@ import (
 // tools, journal consequential actions, then complete, schedule the next wake,
 // or suspend for human input. It never holds an open loop.
 type Executive struct {
-	Store    *Store
-	Home     string
-	AgentID  string
-	Runner   *llm.Runner
-	Now      func() time.Time
-	MaxSteps int
+	Store   *Store
+	Home    string
+	AgentID string
+	// Objective is the durable outcome this wake advances, read from the
+	// agent's configuration (gwconfig.Agent.Objective) rather than the store —
+	// a human edits it in one place and it hot-reloads. An empty Objective
+	// blocks the run rather than inventing one.
+	Objective string
+	Runner    *llm.Runner
+	Now       func() time.Time
+	MaxSteps  int
 	// DelegationDepth is this wake's own depth in a delegation chain — 0 for a
 	// top-level RunOnce/ResumeSuspended wake. A worker spawned via delegate is
 	// itself a plain `memcode run` job, not another Executive, so depth never
@@ -151,19 +156,18 @@ func (e *Executive) RunOnce(ctx context.Context) (RunOutcome, error) {
 	}
 	now := e.now().UTC()
 
-	obj, ok, err := e.Store.GetObjective(ctx, "primary")
-	if err != nil || !ok {
-		return RunOutcome{}, fmt.Errorf("no primary objective")
-	}
-	if obj.Status != "active" && obj.Status != "draft" {
-		return RunOutcome{Status: "blocked", Report: "objective is " + obj.Status}, nil
+	// The objective is configuration (gateway.yaml), not database state — one
+	// source, edited by a human, hot-reloaded. The store keeps only what accrues
+	// from running: subgoals, actions, policies, interactions.
+	if strings.TrimSpace(e.Objective) == "" {
+		return RunOutcome{Status: "blocked", Report: "no objective set for this agent"}, nil
 	}
 	pol, hasPol, err := e.Store.ApprovedPolicy(ctx, "primary")
 	if err != nil {
 		return RunOutcome{}, err
 	}
 	if !hasPol {
-		return RunOutcome{Status: "blocked", Report: "no approved policy — consequential work is blocked until you run `memcode personal approve-policy`"}, nil
+		return RunOutcome{Status: "blocked", Report: "no approved policy — consequential work is blocked until one is approved (gw_policy)"}, nil
 	}
 	var policyDoc DelegationPolicy
 	if err := json.Unmarshal(pol.Document, &policyDoc); err != nil {
@@ -208,7 +212,7 @@ func (e *Executive) loop(ctx context.Context, runID string, policyDoc Delegation
 	out.Status = "completed"
 	for step := 0; step < e.MaxSteps; step++ {
 		resp, err := e.Runner.Complete(ctx, llm.MainLoop, wire.Request{
-			Mode:     "personal",
+			Mode:     "autonomous",
 			Facts:    map[string]string{"state": e.stateSummary(policyDoc)},
 			Messages: msgs,
 			Tools:    tools,
@@ -329,23 +333,16 @@ func (e *Executive) allowedTools(p DelegationPolicy) []wire.ToolDef {
 // stateSummary renders the durable objective/subgoal/fact state as the doctrine
 // `state` fact for the personal mode. It is data, not prompt prose.
 func (e *Executive) stateSummary(p DelegationPolicy) string {
-	o, ok, err := e.Store.GetObjective(context.Background(), "primary")
-	if err != nil || !ok {
-		return ""
-	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "Objective: %s\n", o.Description)
-	if o.SuccessCriteria != "" {
-		fmt.Fprintf(&b, "Success criteria: %s\n", o.SuccessCriteria)
-	}
+	fmt.Fprintf(&b, "Objective: %s\n", e.Objective)
 	fmt.Fprintf(&b, "Policy consequence classes: %v; delegation depth %d.\n", p.ConsequenceClasses, p.MaxDelegationDepth)
-	if subs, err := e.Store.ListSubgoals(context.Background(), o.ID); err == nil && len(subs) > 0 {
+	if subs, err := e.Store.ListSubgoals(context.Background(), "primary"); err == nil && len(subs) > 0 {
 		b.WriteString("Current subgoals:\n")
 		for _, g := range subs {
 			fmt.Fprintf(&b, "  - [%s] %s (%s)\n", g.Status, g.Description, g.ID)
 		}
 	}
-	if facts, err := e.Store.ListFacts(context.Background(), o.ID); err == nil && len(facts) > 0 {
+	if facts, err := e.Store.ListFacts(context.Background(), "primary"); err == nil && len(facts) > 0 {
 		b.WriteString("Known facts:\n")
 		for _, f := range facts {
 			fmt.Fprintf(&b, "  - %s = %s (source %s)\n", f.Key, string(f.Value), f.Source)
@@ -509,7 +506,7 @@ func (e *Executive) execTool(ctx context.Context, runID string, p DelegationPoli
 			// something other than what was asked and authorized.
 			sock, err := broker.SocketPath()
 			if err != nil || !broker.NewClient(sock).Reachable() {
-				return toolResult{}, nil, fmt.Errorf("existing-Chrome is not available (gateway not running, or `memcode personal browser setup` not completed) — refusing to fall back to ephemeral Chrome")
+				return toolResult{}, nil, fmt.Errorf("existing-Chrome is not available (gateway not running, or existing-Chrome not set up — check with gw_browser) — refusing to fall back to ephemeral Chrome")
 			}
 		}
 		actID, err := journaling("delegate", in.Task, delegateConsequence(consequences), call.Input)

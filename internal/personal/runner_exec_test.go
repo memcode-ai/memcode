@@ -38,6 +38,10 @@ func toolUse(id, name string, input any) wire.Block {
 	return wire.Block{Type: "tool_use", ID: id, Name: name, Input: b}
 }
 
+// testObjective stands in for gwconfig.Agent.Objective — the executive now
+// reads its goal from configuration rather than the store.
+const testObjective = "Keep dependencies fresh"
+
 func newTestExecutive(t *testing.T, prov provider.ModelProvider) (*Executive, *Store, string) {
 	t.Helper()
 	ctx := context.Background()
@@ -50,7 +54,7 @@ func newTestExecutive(t *testing.T, prov provider.ModelProvider) (*Executive, *S
 	if err := st.CreateObjective(ctx, Objective{ID: "primary", Description: "Keep dependencies fresh", SuccessCriteria: "no outdated deps", Status: "active"}); err != nil {
 		t.Fatal(err)
 	}
-	ex := &Executive{Store: st, Home: home, AgentID: "tester", Runner: llm.NewRunner(prov)}
+	ex := &Executive{Store: st, Home: home, AgentID: "tester", Objective: testObjective, Runner: llm.NewRunner(prov)}
 	return ex, st, home
 }
 
@@ -158,7 +162,7 @@ func TestExecutiveSuspendsAndResumes(t *testing.T) {
 	prov2 := &fakeProv{steps: []wire.Response{
 		{StopReason: "tool_use", Blocks: []wire.Block{toolUse("t9", "report", map[string]any{"summary": "upgraded after approval"})}},
 	}}
-	ex2 := &Executive{Store: st, Home: home, AgentID: "tester", Runner: llm.NewRunner(prov2)}
+	ex2 := &Executive{Store: st, Home: home, AgentID: "tester", Objective: testObjective, Runner: llm.NewRunner(prov2)}
 	rout, err := ex2.ResumeSuspended(ctx, in, "yes, upgrade")
 	if err != nil {
 		t.Fatal(err)
@@ -451,7 +455,7 @@ func TestExecutiveDelegatesToWorker(t *testing.T) {
 		{StopReason: "tool_use", Blocks: []wire.Block{toolUse("t3", "check_delegate", map[string]any{"job_id": jobID})}},
 		{StopReason: "tool_use", Blocks: []wire.Block{toolUse("t4", "report", map[string]any{"summary": "checked"})}},
 	}}
-	ex2 := &Executive{Store: st, Home: home, AgentID: "tester", Runner: llm.NewRunner(prov2)}
+	ex2 := &Executive{Store: st, Home: home, AgentID: "tester", Objective: testObjective, Runner: llm.NewRunner(prov2)}
 	out2, err := ex2.RunOnce(ctx)
 	if err != nil {
 		t.Fatal(err)

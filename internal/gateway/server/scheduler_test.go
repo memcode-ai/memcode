@@ -11,15 +11,19 @@ import (
 	"github.com/memcode-ai/memcode/internal/gateway/state"
 )
 
-func TestHasPersonalAgents(t *testing.T) {
-	if hasPersonalAgents(gwconfig.Settings{}) {
-		t.Fatal("empty settings reported Personal Agents")
+func TestHasAutonomousAgents(t *testing.T) {
+	if hasAutonomousAgents(gwconfig.Settings{}) {
+		t.Fatal("empty settings reported autonomous agents")
 	}
-	if hasPersonalAgents(gwconfig.Settings{Agents: map[string]gwconfig.Agent{"ordinary": {}}}) {
-		t.Fatal("ordinary agent reported as personal")
+	if hasAutonomousAgents(gwconfig.Settings{Agents: map[string]gwconfig.Agent{"ordinary": {}}}) {
+		t.Fatal("ordinary agent reported as autonomous")
 	}
-	if !hasPersonalAgents(gwconfig.Settings{Agents: map[string]gwconfig.Agent{"executive": {Kind: "personal"}}}) {
-		t.Fatal("Personal Agent not discovered")
+	// An objective alone is NOT autonomy — the wake loop must not pick this up.
+	if hasAutonomousAgents(gwconfig.Settings{Agents: map[string]gwconfig.Agent{"goal": {Objective: "do a thing"}}}) {
+		t.Fatal("an objective alone made an agent autonomous")
+	}
+	if !hasAutonomousAgents(gwconfig.Settings{Agents: map[string]gwconfig.Agent{"executive": {Autonomous: true}}}) {
+		t.Fatal("autonomous agent not discovered")
 	}
 }
 

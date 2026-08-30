@@ -10,14 +10,17 @@ import (
 	"github.com/memcode-ai/memcode/internal/atomicfile"
 )
 
-// WriteConfigMirror regenerates config.yaml — ONE file in the agent's home
-// with everything a human decided (objective, policies, resource grants) —
-// from the current DB state. This is what makes `ls ~/.memcode/agents/<name>/`
-// show something a person can actually read, diff, and grep, instead of only
-// a personal.db blob reachable through bespoke operations — every OTHER
-// piece of memcode config (gateway.yaml, .mcp.json, CLAUDE.md, skills) is a
-// plain file; Personal Agents' setup/config surface should be too, and it
-// should be ONE file, not several scattered by table.
+// WriteConfigMirror regenerates config.yaml — ONE readable file in the agent's
+// home holding the authority state that lives in the database: its policies
+// (draft and approved) and its resource grants. This is what makes
+// `ls ~/.memcode/agents/<name>/` show something a person can read, diff, and
+// grep instead of only an opaque SQLite file, matching every other piece of
+// memcode config (gateway.yaml, .mcp.json, MEMCODE.md, skills).
+//
+// The agent's objective, autonomy, browser mode, and pause state are NOT here:
+// they are ordinary configuration in gateway.yaml, which is already a readable
+// file. Mirroring them too would mean two places to look and two chances to
+// disagree.
 //
 // This file is a MIRROR, not the source of truth — the DB stays authoritative
 // for two reasons that are correctness, not habit:
@@ -27,16 +30,16 @@ import (
 //     whatever the file happens to say at wake time. Editing config.yaml's
 //     policy section and having it silently take effect would defeat that.
 //   - The action/trigger/interaction journal needs atomic claim/complete
-//     semantics under concurrent access (the gateway wake loop and the
-//     cockpit can both touch the same agent) — a SQL transaction gives that
+//     semantics under concurrent access (the gateway wake loop and an admin
+//     session can both touch the same agent) — a SQL transaction gives that
 //     almost for free; a flat file would need to reinvent it (see the
 //     atomicfile-write fix elsewhere in this package for how easily a plain
 //     file write loses that property). So the run journal stays out of this
-//     file entirely — use pa_history for that.
+//     file entirely — read it with gw_journal.
 //
-// Called after every mutation to objective/policy/resources (paCreate,
-// paResource grant/revoke, paPolicy stage/approve) — best-effort: a mirror
-// failure never blocks the underlying DB write, which already succeeded.
+// Called after every mutation to policies/resources (gw_policy, gw_grant),
+// best-effort: a mirror failure never blocks the underlying write, which has
+// already succeeded.
 func WriteConfigMirror(ctx context.Context, home string, s *Store) error {
 	type policyView struct {
 		Hash     string         `yaml:"hash"`
@@ -52,22 +55,10 @@ func WriteConfigMirror(ctx context.Context, home string, s *Store) error {
 		AccessMode string `yaml:"access_mode"`
 		Status     string `yaml:"status"`
 	}
-	type objectiveView struct {
-		Description     string `yaml:"description"`
-		SuccessCriteria string `yaml:"success_criteria,omitempty"`
-		Status          string `yaml:"status"`
-	}
 	cfg := struct {
-		Objective *objectiveView `yaml:"objective,omitempty"`
 		Policies  []policyView   `yaml:"policies,omitempty"`
 		Resources []resourceView `yaml:"resources,omitempty"`
 	}{}
-
-	if obj, hasObj, err := s.GetObjective(ctx, "primary"); err != nil {
-		return err
-	} else if hasObj {
-		cfg.Objective = &objectiveView{Description: obj.Description, SuccessCriteria: obj.SuccessCriteria, Status: obj.Status}
-	}
 
 	policies, err := s.ListPolicies(ctx, "primary")
 	if err != nil {
