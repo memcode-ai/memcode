@@ -109,6 +109,38 @@ func TestTodoFinalDoneRequiresVerification(t *testing.T) {
 	}
 }
 
+func TestTodoDoneRejectsUnresolvedPRCreateFailure(t *testing.T) {
+	s := newTodoSession(t)
+	s.todo(t, `{"action":"create","items":[{"title":"draft PR"}]}`)
+
+	u := wire.Block{
+		Type:  "tool_use",
+		Name:  tools.GitHub,
+		Input: []byte(`{"action":"pr_create","title":"Draft PR"}`),
+	}
+	if r := s.execute(context.Background(), u); !r.isError {
+		t.Fatal("malformed pr_create should fail and record a completion blocker")
+	}
+
+	r := s.todo(t, `{"action":"done"}`)
+	if !r.isError {
+		t.Fatal("todo done should be rejected while PR creation failed")
+	}
+	if !strings.Contains(r.text(), "GitHub create PR failed") || !strings.Contains(r.text(), "Retry it successfully") {
+		t.Fatalf("todo done error should name the failed deliverable and remediation, got %q", r.text())
+	}
+	if s.todos[0].Status == todos.StatusDone {
+		t.Fatal("the todo must not be marked done while the PR blocker is unresolved")
+	}
+
+	if r := s.todo(t, `{"action":"block"}`); r.isError {
+		t.Fatalf("blocking the todo should acknowledge the unresolved PR failure: %q", r.text())
+	}
+	if s.todos[0].Status != todos.StatusBlocked {
+		t.Fatalf("todo should be blocked after explicit acknowledgement, got %+v", s.todos[0])
+	}
+}
+
 func TestTodoDoneBeforeCreateErrors(t *testing.T) {
 	s := newTodoSession(t)
 	if r := s.todo(t, `{"action":"done"}`); !r.isError {

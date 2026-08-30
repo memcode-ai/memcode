@@ -42,6 +42,9 @@ func TestFails(t *testing.T) { t.Fatal("boom-marker") }
 
 	in, _ := json.Marshal(tools.RunTestsInput{})
 	r := s.runTestsTool(context.Background(), in)
+	if !r.isError {
+		t.Fatal("failing test run should be an error tool result")
+	}
 	out := r.text()
 	if !strings.Contains(out, "1 passed, 1 failed") {
 		t.Fatalf("summary wrong: %q", out)
@@ -55,6 +58,9 @@ func TestFails(t *testing.T) { t.Fatal("boom-marker") }
 	// A run with no failures marks verify OK and reports clean.
 	in2, _ := json.Marshal(tools.RunTestsInput{Run: "TestPasses"})
 	r2 := s.runTestsTool(context.Background(), in2)
+	if r2.isError {
+		t.Fatalf("passing test run should not be an error: %q", r2.text())
+	}
 	if !strings.Contains(r2.text(), "1 passed, 0 failed") {
 		t.Fatalf("filtered run wrong: %q", r2.text())
 	}

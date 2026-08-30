@@ -12,6 +12,9 @@ type metricsState struct {
 	didVerify       bool              // any build/test command run this session
 	lastEditSeq     int               // tool-call seq of the most recent edit
 	lastVerifyOKSeq int               // tool-call seq of the most recent passing verification
+	blockerSeq      int               // failed deliverable tool that must be resolved before a todo is done
+	blockerLabel    string            // user-facing name of the blocked deliverable (e.g. GitHub create PR)
+	blockerDetail   string            // first useful error line to feed back on refused todo completion
 	readHashes      map[string]string // path → content hash when last read/wrote (stale-edit guard; lazily inited)
 	reportsSpilled  int               // sub-agent reports written to .memcode/sessions/<id>/reports/ (names the files)
 }

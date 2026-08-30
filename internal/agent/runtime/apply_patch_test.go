@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -16,12 +17,17 @@ import (
 
 func applyPatchSess(t *testing.T, root string) *Session {
 	t.Helper()
+	return applyPatchSessWithOut(t, root, io.Discard)
+}
+
+func applyPatchSessWithOut(t *testing.T, root string, out io.Writer) *Session {
+	t.Helper()
 	st, err := store.Open(context.Background(), filepath.Join(t.TempDir(), "state.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { st.Close() })
-	return newSess(st, captureProviderNil{}, root, "allow-all", permissions.ModeAllowAll, io.Discard)
+	return newSess(st, captureProviderNil{}, root, "allow-all", permissions.ModeAllowAll, out)
 }
 
 // A multi-file patch where every edit is valid applies them ALL.
@@ -87,5 +93,47 @@ func TestApplyPatchRollbackDeletesCreated(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(root, "new.go")); !os.IsNotExist(err) {
 		t.Fatal("a file created by a rolled-back patch must be deleted")
+	}
+}
+
+func TestEditFileWriteRendersCreatedFilePreview(t *testing.T) {
+	root := t.TempDir()
+	var out bytes.Buffer
+	s := applyPatchSessWithOut(t, root, &out)
+
+	in, _ := json.Marshal(tools.EditFileInput{
+		Path:      "new.go",
+		OldString: "",
+		NewString: "package p\n\nfunc Answer() int {\n\treturn 42\n}\n",
+	})
+	if r := s.editFile(context.Background(), in); r.isError {
+		t.Fatalf("write should apply: %q", r.text())
+	}
+	got := ansiSeq.ReplaceAllString(out.String(), "")
+	for _, want := range []string{"Write(", "new.go", "Created file (5 lines)", "func Answer() int", "return 42"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("write preview missing %q in:\n%s", want, got)
+		}
+	}
+}
+
+func TestApplyPatchWriteRendersCreatedFilePreview(t *testing.T) {
+	root := t.TempDir()
+	var out bytes.Buffer
+	s := applyPatchSessWithOut(t, root, &out)
+
+	in, _ := json.Marshal(tools.ApplyPatchInput{Edits: []tools.EditFileInput{{
+		Path:      "new.go",
+		OldString: "",
+		NewString: "package p\n\nfunc Answer() int {\n\treturn 42\n}\n",
+	}}})
+	if r := s.applyPatch(context.Background(), in); r.isError {
+		t.Fatalf("patch should apply: %q", r.text())
+	}
+	got := ansiSeq.ReplaceAllString(out.String(), "")
+	for _, want := range []string{"Write(", "new.go", "Created file (5 lines)", "func Answer() int", "return 42"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("apply_patch write preview missing %q in:\n%s", want, got)
+		}
 	}
 }

@@ -154,16 +154,18 @@ func isParallelSafe(name string) bool {
 func (s *Session) execute(ctx context.Context, u wire.Block) toolResult {
 	s.mu.Lock()
 	s.metrics.toolCalls++
+	seq := s.metrics.toolCalls
 	s.mu.Unlock()
 	// Redact the tool input before it is persisted — the model may pass a secret
 	// (e.g. a bearer token in a command).
 	s.emit(ctx, events.KindToolCalled, map[string]any{"tool": u.Name, "input": s.redactor.Redact(string(u.Input))})
 	tr := s.dispatch(ctx, u)
+	s.mu.Lock()
 	if tr.isError {
-		s.mu.Lock()
 		s.metrics.toolErrors++
-		s.mu.Unlock()
 	}
+	s.noteCompletionBlockerLocked(seq, u, tr)
+	s.mu.Unlock()
 	// Central guarantee: no known secret value ever reaches the model — redact
 	// the text of every block (images carry no text).
 	for i := range tr.blocks {
@@ -172,6 +174,62 @@ func (s *Session) execute(ctx context.Context, u wire.Block) toolResult {
 		}
 	}
 	return tr
+}
+
+// noteCompletionBlockerLocked records failed tools that are themselves a
+// deliverable the user can inspect (PR creation, artifact publish, etc.). The
+// todo tracker refuses to mark work done while one is unresolved, so a model
+// cannot paper over "GitHub(create PR) · failed" with "Task(done)".
+func (s *Session) noteCompletionBlockerLocked(seq int, u wire.Block, tr toolResult) {
+	label, ok := completionBlockerLabel(u)
+	if !ok {
+		return
+	}
+	if tr.isError {
+		s.metrics.blockerSeq = seq
+		s.metrics.blockerLabel = label
+		s.metrics.blockerDetail = s.redactor.Redact(firstLine(tr.text()))
+		return
+	}
+	if s.metrics.blockerLabel == label {
+		s.metrics.blockerSeq = 0
+		s.metrics.blockerLabel = ""
+		s.metrics.blockerDetail = ""
+	}
+}
+
+func completionBlockerLabel(u wire.Block) (string, bool) {
+	switch u.Name {
+	case tools.RunTests:
+		return "test run", true
+	case tools.Diagnostics:
+		return "diagnostics check", true
+	case tools.GitHub:
+		var in tools.GitHubInput
+		if json.Unmarshal(u.Input, &in) != nil {
+			return "", false
+		}
+		switch in.Action {
+		case "pr_create":
+			return "GitHub create PR", true
+		case "comment":
+			return "GitHub comment", true
+		}
+	case tools.Artifact:
+		var in tools.ArtifactInput
+		if json.Unmarshal(u.Input, &in) != nil {
+			return "", false
+		}
+		switch in.Action {
+		case "publish":
+			return "artifact publish", true
+		case "update":
+			return "artifact update", true
+		case "delete":
+			return "artifact delete", true
+		}
+	}
+	return "", false
 }
 
 func (s *Session) dispatch(ctx context.Context, u wire.Block) toolResult {
@@ -1375,7 +1433,7 @@ func (s *Session) editFile(ctx context.Context, input json.RawMessage) toolResul
 		verb = "Write"
 	}
 	safeDiff := s.redactor.Redact(res.Diff)
-	newContent := s.redactor.Redact(in.NewString)
+	newContent := s.newFilePreviewContent(res.Path, in.NewString)
 	if secrets.IsSecretPath(in.Path) {
 		// Editing a credential file: mask values in both the diff and new content.
 		safeDiff = secrets.RedactSecretFile(safeDiff)
@@ -1536,13 +1594,19 @@ func (s *Session) applyPatch(ctx context.Context, input json.RawMessage) toolRes
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "OK, applied %d edits across %d file(s) atomically:\n", len(applied), len(dedupePaths(paths)))
-	for _, res := range applied {
+	for i, res := range applied {
 		verb := "Update"
 		if res.Created {
 			verb = "Write"
 		}
 		s.toolLine(true, verb, res.Path, "", false)
-		if d := s.redactor.Redact(res.Diff); d != "" {
+		if res.Created {
+			newContent := s.newFilePreviewContent(res.Path, in.Edits[i].NewString)
+			if secrets.IsSecretPath(res.Path) {
+				newContent = secrets.RedactSecretFile(newContent)
+			}
+			renderNewFile(s.out, newContent, res.Path, s.diffWidth())
+		} else if d := s.redactor.Redact(res.Diff); d != "" {
 			renderDiff(s.out, d, res.Path, s.diffWidth())
 		}
 		fmt.Fprintf(&b, "  %s %s\n", verb, res.Path)
@@ -1553,6 +1617,15 @@ func (s *Session) applyPatch(ctx context.Context, input json.RawMessage) toolRes
 		out += s.editDiagnostics(ctx, p)
 	}
 	return textResult(out)
+}
+
+func (s *Session) newFilePreviewContent(path, fallback string) string {
+	if abs, err := safeJoin(s.root, path); err == nil {
+		if b, err := os.ReadFile(abs); err == nil {
+			return s.redactor.Redact(string(b))
+		}
+	}
+	return s.redactor.Redact(fallback)
 }
 
 // dedupePaths returns the unique paths in first-seen order.

@@ -123,6 +123,7 @@ func (s *Session) runGoTests(ctx context.Context, in tools.RunTestsInput) toolRe
 	// A build failure (no JSON test events) — surface the raw compiler error.
 	if pass+fail+skip == 0 {
 		raw := strings.TrimSpace(string(out))
+		s.markVerified(false)
 		s.toolLine(true, "RunTests", "go", "build failed", true)
 		return errResult("go test produced no results (likely a build error):\n" + truncate(raw, 4000))
 	}
@@ -152,6 +153,9 @@ func (s *Session) runGoTests(ctx context.Context, in tools.RunTestsInput) toolRe
 	}
 	status := fmt.Sprintf("%d/%d pass", pass, pass+fail)
 	s.toolLine(true, "RunTests", "go", status, fail > 0)
+	if fail > 0 {
+		return errResult(strings.TrimRight(b.String(), "\n"))
+	}
 	return textResult(strings.TrimRight(b.String(), "\n"))
 }
 
@@ -170,6 +174,9 @@ func (s *Session) runGenericTests(ctx context.Context, bin string, args []string
 	// naming a failure, so the model sees the counts and what broke without the whole log.
 	summary := lastLines(text, 40)
 	s.toolLine(true, "RunTests", bin, map[bool]string{true: "pass", false: "fail"}[err == nil], err != nil)
+	if err != nil {
+		return errResult(s.redactor.Redact(truncate(summary, maxToolOutput)))
+	}
 	return textResult(s.redactor.Redact(truncate(summary, maxToolOutput)))
 }
 

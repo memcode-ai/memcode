@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/memcode-ai/memcode/internal/agent/permissions"
 	"github.com/memcode-ai/memcode/internal/agent/tools"
@@ -51,6 +52,10 @@ func (s *Session) githubTool(ctx context.Context, input json.RawMessage) toolRes
 		if strings.TrimSpace(in.Title) == "" || strings.TrimSpace(in.Body) == "" {
 			return errResult("pr_create needs a `title` and `body`.")
 		}
+		if msg := s.prCreatePreflight(ctx, in.Base); msg != "" {
+			s.toolLine(true, "GitHub", "create PR", "blocked: "+clip(msg, 160), true)
+			return errResult(msg)
+		}
 		if ok, reason := s.gate(ctx, permissions.Medium, false, ApprovalRequest{
 			Title: in.Title, Label: "Open a GitHub PR", Detail: "gh pr create", Risk: permissions.Medium.String(),
 		}); !ok {
@@ -78,6 +83,56 @@ func (s *Session) githubTool(ctx context.Context, input json.RawMessage) toolRes
 	}
 }
 
+// prCreatePreflight keeps PR creation at the end of the work: a PR without
+// committed, pushed branch work is at best a noisy gh prompt and at worst a
+// false "done" marker. Return "" when ready, else a user/model-facing reason.
+func (s *Session) prCreatePreflight(ctx context.Context, base string) string {
+	run := func(args ...string) (string, error) {
+		cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+		cmd := exec.CommandContext(cctx, "git", args...)
+		cmd.Dir = s.root
+		out, err := cmd.CombinedOutput()
+		return strings.TrimSpace(string(out)), err
+	}
+	if out, err := run("status", "--porcelain"); err != nil {
+		return "pr_create preflight failed: git status failed: " + firstLine(out)
+	} else if strings.TrimSpace(out) != "" {
+		return "pr_create is a final step: the worktree still has uncommitted changes. Commit the branch work and push it before creating the PR."
+	}
+	branch, err := run("branch", "--show-current")
+	if err != nil || branch == "" {
+		return "pr_create needs a named feature branch; commit on a branch before creating the PR."
+	}
+	if branch == "main" || branch == "master" {
+		return "pr_create needs a feature branch, not " + branch + ". Create and push a branch before opening the PR."
+	}
+	if strings.TrimSpace(base) == "" {
+		base = "origin/main"
+	} else if !strings.Contains(base, "/") {
+		base = "origin/" + strings.TrimSpace(base)
+	}
+	ahead, err := run("rev-list", "--count", base+"..HEAD")
+	if err != nil {
+		return "pr_create preflight failed: cannot compare against " + base + " — fetch the base branch or pass a valid base."
+	}
+	if ahead == "0" {
+		return "pr_create has nothing to open: this branch has no commits ahead of " + base + ". Commit the completed work first."
+	}
+	upstream, err := run("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
+	if err != nil || upstream == "" {
+		return "pr_create needs the current branch pushed upstream. Run git push -u origin " + branch + " after committing, then create the PR."
+	}
+	unpushed, err := run("rev-list", "--count", upstream+"..HEAD")
+	if err != nil {
+		return "pr_create preflight failed: cannot compare against upstream " + upstream + ". Push the branch again, then create the PR."
+	}
+	if unpushed != "0" {
+		return "pr_create needs the latest commits pushed first (" + unpushed + " local commit(s) are not on " + upstream + ")."
+	}
+	return ""
+}
+
 // ghRun invokes gh with the given args in the repo root, returns its output (redacted,
 // truncated), and surfaces a tool line. A non-zero exit returns the error text.
 func (s *Session) ghRun(ctx context.Context, label string, args ...string) toolResult {
@@ -91,7 +146,11 @@ func (s *Session) ghRun(ctx context.Context, label string, args ...string) toolR
 	out, err := cmd.CombinedOutput()
 	text := strings.TrimSpace(string(out))
 	if err != nil {
-		s.toolLine(true, "GitHub", label, "failed", true)
+		reason := strings.TrimSpace(firstLine(text))
+		if reason == "" {
+			reason = err.Error()
+		}
+		s.toolLine(true, "GitHub", label, "failed: "+clip(s.redactor.Redact(reason), 160), true)
 		return errResult(fmt.Sprintf("gh %s failed: %v\n%s", args[0], err, truncate(text, 2000)))
 	}
 	s.toolLine(true, "GitHub", label, "", false)

@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -53,4 +55,59 @@ func TestGitHubToolAdvertised(t *testing.T) {
 	if !hasTool(s.toolDefs(), tools.GitHub) {
 		t.Fatal("github tool should be advertised in normal chat")
 	}
+}
+
+func TestGitHubPRCreatePreflightBlocksDirtyWorktree(t *testing.T) {
+	root := t.TempDir()
+	git(t, root, "init", "-b", "feat/pr")
+	if err := os.WriteFile(filepath.Join(root, "draft.txt"), []byte("uncommitted\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	s := githubSess(t)
+	s.root = root
+	in, _ := json.Marshal(tools.GitHubInput{Action: "pr_create", Title: "Draft PR", Body: "Body"})
+	r := s.githubTool(context.Background(), in)
+	if !r.isError {
+		t.Fatal("pr_create should fail before gh when the worktree is dirty")
+	}
+	if !strings.Contains(r.text(), "worktree still has uncommitted changes") {
+		t.Fatalf("dirty-worktree reason missing: %q", r.text())
+	}
+}
+
+func TestGitHubPRCreatePreflightBlocksBranchWithNoCommitsAhead(t *testing.T) {
+	root := t.TempDir()
+	git(t, root, "init", "-b", "main")
+	git(t, root, "config", "user.email", "test@example.com")
+	git(t, root, "config", "user.name", "Test User")
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("# test\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git(t, root, "add", "README.md")
+	git(t, root, "commit", "-m", "initial")
+	git(t, root, "update-ref", "refs/remotes/origin/main", "HEAD")
+	git(t, root, "switch", "-c", "feat/noop")
+
+	s := githubSess(t)
+	s.root = root
+	in, _ := json.Marshal(tools.GitHubInput{Action: "pr_create", Title: "Draft PR", Body: "Body"})
+	r := s.githubTool(context.Background(), in)
+	if !r.isError {
+		t.Fatal("pr_create should fail before gh when the branch has no commits")
+	}
+	if !strings.Contains(r.text(), "no commits ahead of origin/main") {
+		t.Fatalf("no-ahead reason missing: %q", r.text())
+	}
+}
+
+func git(t *testing.T, root string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = root
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %s failed: %v\n%s", strings.Join(args, " "), err, out)
+	}
+	return strings.TrimSpace(string(out))
 }

@@ -82,6 +82,9 @@ func (s *Session) applyTodoAction(action string, items todos.List, in tools.Todo
 		if len(s.todos) == 0 {
 			return nil, "no todo list yet — create one first."
 		}
+		if msg := s.unresolvedCompletionBlocker(); msg != "" {
+			return nil, msg
+		}
 		// Apply to a copy first so we can reject before committing. `indices` marks
 		// several at once (a holistic sweep → one call); else `index`/active item.
 		next := append(todos.List(nil), s.todos...)
@@ -106,11 +109,13 @@ func (s *Session) applyTodoAction(action string, items todos.List, in tools.Todo
 		if len(s.todos) == 0 {
 			return nil, "no todo list yet — create one first."
 		}
+		s.clearCompletionBlocker()
 		s.todos = todos.MarkBlockedAt(s.todos, in.Index)
 	case "skip":
 		if len(s.todos) == 0 {
 			return nil, "no todo list yet — create one first."
 		}
+		s.clearCompletionBlocker()
 		if len(in.Indices) > 0 {
 			for _, idx := range in.Indices {
 				s.todos = todos.MarkSkippedAt(s.todos, idx)
@@ -124,6 +129,31 @@ func (s *Session) applyTodoAction(action string, items todos.List, in tools.Todo
 		return nil, "unknown todo action: " + action + " (try: " + strings.Join(tools.TodoActions, ", ") + ")"
 	}
 	return append(todos.List(nil), s.todos...), ""
+}
+
+// unresolvedCompletionBlocker reports a failed user-visible deliverable (for
+// example github{action:"pr_create"}) that still needs a retry or an honest
+// block/skip. This turns "GitHub(create PR) · failed" into an enforced task
+// contract instead of hoping the model notices its own failed tool result.
+func (s *Session) unresolvedCompletionBlocker() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.metrics.blockerSeq == 0 {
+		return ""
+	}
+	msg := "cannot mark the todo done: " + s.metrics.blockerLabel + " failed"
+	if detail := strings.TrimSpace(s.metrics.blockerDetail); detail != "" {
+		msg += " (" + clip(detail, 220) + ")"
+	}
+	return msg + ". Retry it successfully, or mark the todo blocked/skipped and tell the user why."
+}
+
+func (s *Session) clearCompletionBlocker() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.metrics.blockerSeq = 0
+	s.metrics.blockerLabel = ""
+	s.metrics.blockerDetail = ""
 }
 
 // todosSnapshot returns a copy of the current todo list under todosMu — for

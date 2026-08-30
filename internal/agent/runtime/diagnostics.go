@@ -158,7 +158,7 @@ func (s *Session) lspDiagResult(lang, path string, diags []lsp.Diagnostic) toolR
 	out := strings.TrimRight(b.String(), "\n")
 	s.toolLine(true, "Diagnostics", lang+" (lsp)", strconv.Itoa(len(diags))+" issue(s)", true)
 	s.toolResult(linesPreview(out, maxDiagPreviewLines)) // show WHAT the issues are, not just a red count
-	return textResult(s.redactor.Redact(truncate(out, maxToolOutput)))
+	return errResult(s.redactor.Redact(truncate(out, maxToolOutput)))
 }
 
 // diagnosticsLang picks the language from the path extension, else the repo markers.
@@ -238,5 +238,5 @@ func (s *Session) diagResult(lang, out string) toolResult {
 	n := strings.Count(out, "\n") + 1
 	s.toolLine(true, "Diagnostics", lang, strconv.Itoa(n)+" line(s)", true)
 	s.toolResult(linesPreview(out, maxDiagPreviewLines))
-	return textResult(s.redactor.Redact(truncate(out, maxToolOutput)))
+	return errResult(s.redactor.Redact(truncate(out, maxToolOutput)))
 }

@@ -45,6 +45,9 @@ func TestGoDiagnostics(t *testing.T) {
 	// Introduce a type error → diagnostics surfaces it with the file name.
 	write("bad.go", "package tmpdiag\n\nvar X int = \"not an int\"\n")
 	r := s.diagnosticsTool(context.Background(), in)
+	if !r.isError {
+		t.Fatal("diagnostics with compiler output should be an error tool result")
+	}
 	if !strings.Contains(r.text(), "bad.go") {
 		t.Fatalf("compile error not surfaced with file: %q", r.text())
 	}
