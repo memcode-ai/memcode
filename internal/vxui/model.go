@@ -14,22 +14,6 @@ import (
 	"github.com/memcode-ai/memcode/internal/provider"
 )
 
-// vendorLabels maps a vendor id to its display label (capitalized, human-readable).
-var vendorLabels = map[string]string{
-	"openai":    "OpenAI",
-	"anthropic": "Anthropic",
-	"gemini":    "Gemini",
-	"grok":      "Grok",
-}
-
-// vendorLabel returns the display label for a vendor id, falling back to the id itself.
-func vendorLabel(v string) string {
-	if l, ok := vendorLabels[v]; ok {
-		return l
-	}
-	return v
-}
-
 // modelEntry is one row of the /model picker: a concrete pinnable
 // model, or (endpoint mode) the free-text entry row.
 type modelEntry struct {

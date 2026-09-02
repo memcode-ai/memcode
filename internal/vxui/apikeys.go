@@ -29,6 +29,16 @@ type apikeyRow struct {
 	status   string // "active" | "invalid" | ""
 }
 
+// vendorLabels maps a vendor id to its display label (capitalized, human-readable).
+// It moved here from model.go with the /model vendor switch: providerDisplay is
+// its only consumer now.
+var vendorLabels = map[string]string{
+	"openai":    "OpenAI",
+	"anthropic": "Anthropic",
+	"gemini":    "Gemini",
+	"grok":      "Grok",
+}
+
 // providerDisplay renders a provider id for the picker ("openai" → "OpenAI").
 // Unknown ids (the roster is server-enumerated and may grow) just capitalize —
 // the CLI never hardcodes vendor names (see the provider guard test).
