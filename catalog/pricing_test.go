@@ -3,7 +3,6 @@ package catalog
 import (
 	"math"
 	"testing"
-	"time"
 )
 
 // Real model ids must each hit their intended rate — a regression guard for the
@@ -157,20 +156,17 @@ func TestSearchFeeUSD(t *testing.T) {
 	}
 }
 
-// Sonnet 5's $2/$10 is INTRODUCTORY pricing through 2026-08-31
-// (platform.claude.com/docs pricing, verified 2026-07-27) — $3/$15 takes
-// effect 2026-09-01. This test is a deliberate time bomb: the moment the
-// deadline passes, it fails until the root /models.json sonnet family rule
-// (and the www pinned table) are flipped. Do NOT "fix" this test by changing
-// the dates — fix the catalog.
-func TestSonnet5IntroPricingDeadline(t *testing.T) {
-	cutover := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
-	wantIn, wantOut := 2.0, 10.0
-	if !time.Now().Before(cutover) {
-		wantIn, wantOut = 3.0, 15.0
-	}
+// Sonnet 5 is $2/$10. This was a time bomb asserting a flip to $3/$15 on
+// 2026-09-01, written when the launch announcement called $2/$10
+// introductory through 2026-08-31. The increase was CANCELLED:
+// platform.claude.com/docs/en/about-claude/pricing now states that rate "is
+// now the standard price" and that "the previously scheduled increase to
+// $3/$15 ... will not occur" (verified 2026-09-02). Obeying the old failure
+// message would have raised the catalog 50% above provider cost, which the
+// credits system bills through at exact cost — an overcharge, not a fix.
+func TestSonnet5Pricing(t *testing.T) {
 	p := ModelPricing("claude-sonnet-5")
-	if p.Input != wantIn || p.Output != wantOut {
-		t.Fatalf("claude-sonnet-5 = %.2f/%.2f, want %.2f/%.2f — Sonnet 5 intro pricing ended 2026-09-01: update the sonnet family rule in the ROOT /models.json (copy it to catalog/models.json) and the pinned table in pricing_test.go", p.Input, p.Output, wantIn, wantOut)
+	if p.Input != 2.0 || p.Output != 10.0 {
+		t.Fatalf("claude-sonnet-5 = %.2f/%.2f, want 2.00/10.00", p.Input, p.Output)
 	}
 }

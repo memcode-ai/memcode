@@ -117,7 +117,7 @@ data: {"type":"message_stop"}
 
 func TestWireToParamsDoesNotCacheDecorateThinking(t *testing.T) {
 	params := wireToParams(buildWire(wire.Request{
-		Model: "claude-sonnet-4-6",
+		Model: "claude-sonnet-5",
 		Messages: []wire.Message{
 			{Role: "user", Blocks: []wire.Block{{Type: "text", Text: "Use a tool."}}},
 			{Role: "assistant", Blocks: []wire.Block{

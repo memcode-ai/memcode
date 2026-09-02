@@ -126,7 +126,7 @@
       ]
     },
     {
-      "id": "claude-fable-5",
+      "id": "claude-fable-5-1",
       "label": "fable",
       "vendor": "anthropic",
       "window": 1000000,
@@ -137,10 +137,10 @@
       "group": "Claude",
       "price_in": 10.0,
       "price_out": 50.0,
-      "price_cache_read": 1.0,
-      "_note": "Claude Fable 5 (Anthropic, claude-fable-5). Anthropic's MOST capable widely-released model \u2014 state-of-the-art coding/knowledge/vision/computer-use, always-on adaptive thinking, 1M window, 128K out. PRICING verified anthropic.com/news/claude-fable-5-mythos-5 + platform.claude.com 2026-07-27: $10/$50 per 1M, cache read 0.1x ($1.00). Explicit entry price (there is no fable pricing family rule; the window family already lists fable). Uses the adaptive-thinking path like Opus (rejects manual budget_tokens).",
+      "price_cache_read": 0.25,
+      "_note": "Claude Fable 5.1 (Anthropic, claude-fable-5-1). Anthropic's MOST capable widely-released model \u2014 state-of-the-art coding/knowledge/vision/computer-use, always-on adaptive thinking, 1M window, 128K out. Supersedes claude-fable-5, which platform.claude.com now lists as legacy. PRICING verified platform.claude.com/docs/en/about-claude/pricing 2026-09-02: $10/$50 per 1M. CACHE READ IS THE ODD ONE: 5.1 (and Mythos 5.1) read cache at 0.025x = $0.25, NOT the 0.1x every other model uses \u2014 hence the explicit price_cache_read, without which the 0.1x default bills cache reads at 4x cost. Cache write stays 1.25x ($12.50). Uses the adaptive-thinking path like Opus (rejects manual budget_tokens).",
       "desc": "Most capable Claude",
-      "name": "Fable 5",
+      "name": "Fable 5.1",
       "pdf": true,
       "www": {
         "chat": true,
@@ -169,7 +169,7 @@
         "order": 35,
         "description": "Latest Claude Sonnet with adaptive thinking, 1M context, and best speed-to-intelligence ratio."
       },
-      "_note": "PRICING $2/$10 is INTRODUCTORY through 2026-08-31 (platform.claude.com/docs pricing, verified 2026-07-27); flip the sonnet family rule to $3/$15 on 2026-09-01.",
+      "_note": "PRICING $2/$10, verified platform.claude.com/docs/en/about-claude/pricing 2026-09-02. This was announced at launch as introductory through 2026-08-31 with a flip to $3/$15 on 2026-09-01; that increase was CANCELLED and $2/$10 is now the standard price. Do NOT raise it.",
       "fallback": [
         "terra"
       ]
@@ -674,6 +674,26 @@
     },
     {
       "match": [
+        "fable-5-1",
+        "mythos-5-1"
+      ],
+      "price_in": 10,
+      "price_out": 50,
+      "price_cache_read": 0.25,
+      "_note": "Fable/Mythos 5.1 read cache at 0.025x, not the usual 0.1x (platform.claude.com pricing, verified 2026-09-02). Must precede the bare fable/mythos row below."
+    },
+    {
+      "match": [
+        "fable",
+        "mythos"
+      ],
+      "price_in": 10,
+      "price_out": 50,
+      "price_cache_read": 1.0,
+      "_note": "Fable 5 / Mythos 5 (legacy, still callable and possibly still pinned): $10/$50, cache read 0.1x. Without this row a legacy id matches no pricing family and falls to the $3/$15 defaults \u2014 a 5x UNDERCHARGE on output for the most expensive model in the catalog."
+    },
+    {
+      "match": [
         "opus"
       ],
       "price_in": 5,
@@ -686,7 +706,7 @@
       ],
       "price_in": 2,
       "price_out": 10,
-      "_note": "Sonnet 5 $2/$10 (LiteLLM 2026-07-27) \u2014 previously hit the $3/$15 defaults row"
+      "_note": "Sonnet 5 $2/$10 \u2014 previously hit the $3/$15 defaults row. Re-verified against platform.claude.com 2026-09-02: the scheduled 2026-09-01 raise to $3/$15 was cancelled and this is the standard price."
     },
     {
       "match": [

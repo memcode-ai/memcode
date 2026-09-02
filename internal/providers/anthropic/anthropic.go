@@ -143,7 +143,7 @@ func supportsAdaptiveThinking(model string) bool {
 	m := strings.ToLower(model)
 	return strings.Contains(m, "opus-5") || strings.Contains(m, "fable") ||
 		strings.Contains(m, "opus-4-7") || strings.Contains(m, "opus-4-6") ||
-		strings.Contains(m, "sonnet-4-6") || strings.Contains(m, "sonnet-5")
+		strings.Contains(m, "sonnet-5")
 }
 
 // thinkingFor maps an abstract Effort onto the concrete wire controls for a model.
