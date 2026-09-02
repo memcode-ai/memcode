@@ -305,11 +305,43 @@ func (s *appState) handleModelKey(key vaxis.Key) ui.EventResult {
 // applyPickedModel applies a picker selection on the ACTIVE backend: endpoint
 // mode pins + remembers per-endpoint; hosted keeps the existing pin flow.
 func (s *appState) applyPickedModel(label, display string, window int) {
+	// A picker opened FOR a review is answering a different question ("which
+	// model should critique this plan?"), so the selection must not become the
+	// session's model. Consume the purpose either way so a later /model can
+	// never inherit it.
+	if purpose := s.modelPickPurpose; purpose != "" {
+		s.SetState(func() { s.modelPickPurpose = "" })
+		if purpose == "review" {
+			s.planReviewWithModel(label, display)
+			return
+		}
+	}
 	if ep, ok := s.w.sess.Endpoint(); ok {
 		s.applyEndpointModel(ep, label)
 		return
 	}
 	s.applyModelChoice(label, display, window)
+}
+
+// openModelPickerFor opens the normal model picker for a purpose other than
+// pinning — currently only "review". The rows are identical; only what the
+// selection means differs.
+func (s *appState) openModelPickerFor(purpose string) {
+	cur := s.w.sess.Pin()
+	s.SetState(func() { s.modelPickPurpose = purpose })
+	s.runAsync(func(ctx context.Context) string {
+		pins := provider.AvailablePins(ctx)
+		entries := make([]modelEntry, 0, len(pins))
+		for _, p := range pins {
+			name := p.Name
+			if name == "" {
+				name = p.Label
+			}
+			entries = append(entries, modelEntry{label: p.Label, name: name, desc: p.Desc, window: p.Window, byok: p.Byok})
+		}
+		s.openModelPicker(entries, cur)
+		return ""
+	})
 }
 
 // modelPickerView renders the flat model picker: Automatic first (hosted),

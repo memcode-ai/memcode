@@ -728,7 +728,7 @@ func parsePlanVerdict(resp wire.Response) (planVerdict, bool) {
 // planning) but is recorded as review_status=skipped so telemetry can tell "passed" from
 // "did not run". Returns the verdict and the reviewer's served label (for the tool line).
 // messages must end with the drafted plan so the reviewer can see it.
-func (s *Session) reviewWithTools(ctx context.Context, messages []wire.Message) (planVerdict, string) {
+func (s *Session) reviewWithTools(ctx context.Context, messages []wire.Message, model string) (planVerdict, string) {
 	// The plan thread was produced on the SESSION's model. Its tool_use/
 	// tool_result plumbing means nothing to a reviewer on a different vendor,
 	// and replaying another backend's tool calls into Anthropic trips its strict
@@ -737,7 +737,10 @@ func (s *Session) reviewWithTools(ctx context.Context, messages []wire.Message) 
 	// read-only tools, so hand it a clean natural-language transcript (task +
 	// reasoning + plan), not the planner's tool calls.
 	messages = stripToolBlocks(messages)
-	sub := New(s.store, s.runner.Fork(), s.root, s.model, permissions.ModeAsk, io.Discard)
+	// The review runs on an EPHEMERAL fork pinned to the model the user named on
+	// the approval card. It never touches the session pin or either persisted
+	// store, and it dies with this call.
+	sub := New(s.store, s.runner.ForkWithModel(model), s.root, model, permissions.ModeAsk, io.Discard)
 	sub.readOnly = true          // gates tools to the read-only whitelist (no edits, no bash)
 	sub.purpose = llm.Review     // selects the review budget/tool whitelist
 	sub.iterCap = reviewMaxTurns // bounded audit loop — a claim-verifier, not a full explorer

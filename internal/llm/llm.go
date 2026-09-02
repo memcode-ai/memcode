@@ -212,6 +212,21 @@ func (r *Runner) SetSession(id string) { r.session = id }
 // changes it mid-session except an explicit /model.
 func (r *Runner) SetPin(label string) { r.pin = label }
 
+// ForkWithModel returns a fork that serves ONE explicitly chosen model instead
+// of the session's pin, for a user-directed one-shot like "review this plan with
+// another model".
+//
+// The override lives on the returned Runner and dies with it: the session pin,
+// the workspace store, and the user store are all untouched. That containment is
+// the point — an ephemeral override is the one seam through which per-request
+// model switching could grow back, so it exists in exactly one function and
+// leaves no trace.
+func (r *Runner) ForkWithModel(label string) *Runner {
+	f := r.Fork()
+	f.pin = label
+	return f
+}
+
 // NewRunner wraps a provider with a fresh ledger. Construct ONE at the top level
 // (the cmd boundary) and thread it everywhere — sub-agents share it.
 func NewRunner(prov provider.ModelProvider) *Runner {

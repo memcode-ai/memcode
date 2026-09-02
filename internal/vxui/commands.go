@@ -481,10 +481,14 @@ func (s *appState) planOptions() (opts []choice, acts []func()) {
 		})
 	}
 	if s.planStage == 1 {
-		add("Revise plan with advice", s.planReviseWithAdvice)
+		add("Revise plan with the review", s.planReviseWithAdvice)
 		execRows("Execute plan as is")
 	} else {
 		execRows("Execute")
+		// Plans are no longer auto-reviewed by a second model — that existed to
+		// compensate for Automatic drafting on a cheap one. Asking is the
+		// replacement, and the user names the reviewer.
+		add("Review with another model", func() { s.openModelPickerFor("review") })
 		add("Ask an advisor", s.planAskAdvisor)
 	}
 	add("Cancel", s.planCancel)
@@ -527,6 +531,71 @@ func (s *appState) planAskAdvisor() {
 			s.printBlock(advice)
 			s.SetState(func() {
 				s.planAdvice = advice
+				s.planStage = 1
+				s.planChoosing = true
+				s.planChoice = 0
+				s.planCommitAsk = commitAsk
+			})
+		})
+	}()
+}
+
+// planReviewWithModel runs ONE critique of the live plan on a model the user
+// named, then re-raises the selector at the "advised" stage so the same
+// "Revise plan with advice" row can fold it in.
+//
+// This replaces the AUTOMATIC cross-model review that used to run on every
+// drafted plan. That existed because Automatic could put planning on a cheap
+// model, making an independent stronger check worth its cost; with the user's
+// own model drafting, the honest replacement is asking, not assuming.
+//
+// The review model is EPHEMERAL: it critiques and disappears. The session pin,
+// the workspace store, and the user store are untouched, the footer keeps
+// showing the session model, and the revision itself runs back on the pin.
+func (s *appState) planReviewWithModel(label, display string) {
+	if s.busy() {
+		s.sysln("busy — wait for the current task to finish")
+		return
+	}
+	plan := strings.TrimSpace(s.w.sess.LastText())
+	if plan == "" {
+		s.sysln("no plan to review yet — propose one first.")
+		return
+	}
+	shown := display
+	if shown == "" {
+		shown = label
+	}
+	pinBefore := s.w.sess.Pin()
+	in0, out0 := s.w.sess.Tokens()
+	s.SetState(func() {
+		s.planChoosing = false
+		s.setBusy(runtime.OwnerAsync)
+		s.turnStart = time.Now()
+		s.turnIn0 = in0
+		s.turnOut0 = out0
+	})
+	s.sysln("◆ review  " + shown + " is reading the plan…")
+	s.startSpinner()
+	go func() {
+		review, servedBy := s.w.sess.ReviewPlanWith(s.w.ctx, plan, label)
+		commitAsk := s.w.sess.CommitGateNeeded(s.w.ctx) // recheck off the UI thread
+		s.rt.Dispatch(func() {
+			s.flushAppend()
+			s.SetState(func() { s.setBusy(runtime.OwnerNone) })
+			s.refreshFooter()
+			// Belt and braces: an ephemeral override that leaked into the session
+			// pin would be a per-request model switch reappearing by the back
+			// door, so say so loudly rather than let it pass.
+			if now := s.w.sess.Pin(); now != pinBefore {
+				s.sysln("internal: the review changed the session model (" + pinBefore + " → " + now + ") — it must not; please report this")
+			}
+			if servedBy != "" && servedBy != shown {
+				s.sysln("  ⎿ reviewed by " + servedBy)
+			}
+			s.printBlock(review)
+			s.SetState(func() {
+				s.planAdvice = review
 				s.planStage = 1
 				s.planChoosing = true
 				s.planChoice = 0

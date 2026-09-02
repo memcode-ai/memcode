@@ -132,11 +132,15 @@ type appState struct {
 	// Opened by /model (no arg). Lists only the vendors the gateway reports as
 	// available (keys present); selecting one calls sess.SetVendor + persists.
 	modelPicking bool
-	modelSel     int
-	modelOrig    string       // the pin at picker-open time
-	modelEntries []modelEntry // picker rows: the gateway-reported pinnable models
-	modelTyping  bool         // endpoint mode: the free-text id-entry stage is active
-	modelInput   []rune       // the id being typed in that stage
+	// modelPickPurpose routes what a picker selection MEANS: "" pins the model
+	// for the session (the normal case), "review" runs one plan critique on it
+	// without touching the pin or either persisted store.
+	modelPickPurpose string
+	modelSel         int
+	modelOrig        string       // the pin at picker-open time
+	modelEntries     []modelEntry // picker rows: the gateway-reported pinnable models
+	modelTyping      bool         // endpoint mode: the free-text id-entry stage is active
+	modelInput       []rune       // the id being typed in that stage
 
 	// personality picker overlay (modal): ↑↓ choose, Enter apply, Esc cancel.
 	personalityChoosing bool
