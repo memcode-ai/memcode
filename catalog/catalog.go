@@ -4,7 +4,6 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
-	"sort"
 	"strings"
 )
 
@@ -85,11 +84,17 @@ func (r familyRule) matches(model string) bool {
 type catalogFile struct {
 	Models   []CatalogModel `json:"models"`
 	Families []familyRule   `json:"families"`
-	// Tiers is the per-vendor strong-tier triple in LABELS: which model plays
-	// frontier/balanced/cheap for each vendor. This replaces the old Go
-	// strongFallback switch (and the gateway config's fireworks_tier) — tier
-	// membership is catalog data the CLI's selection policy reads directly.
-	Tiers map[string]map[string]string `json:"tiers"`
+	// DefaultModel is the SEED for a brand-new install: the label a session
+	// starts on when no session override, workspace pin, or user pin exists. It
+	// is persisted on first use and thereafter behaves like any other user
+	// choice. It is NOT a fallback, NOT consulted per turn, and NOT a
+	// substitution target — the pin resolver is its only caller.
+	DefaultModel string `json:"default_model"`
+	// UtilityModel serves internal plumbing ONLY: the structured classifiers
+	// (classify, which authorize rides), compaction, and shrinkwrap. Utility
+	// inference supports execution; it may never select, substitute, escalate,
+	// downgrade, or steer the pinned model.
+	UtilityModel string `json:"utility_model"`
 	// SearchFees is the vendor-level per-request web-search surcharge, USD per
 	// 1,000 searches, keyed by the serving vendor (Response.Backend: "anthropic" |
 	// "openai" | "grok"). Native in-turn search bills this upstream ON TOP of
@@ -147,39 +152,25 @@ func ModelVendor(idOrLabel string) string {
 	return ""
 }
 
-// VendorTier returns the LABEL of the model playing a tier ("frontier" |
-// "balanced" | "cheap") for a vendor, from the catalog's tiers table. "" when
-// the vendor or tier isn't declared.
-func VendorTier(vendor, tier string) string {
-	return modelCatalog.file.Tiers[vendor][tier]
+// DefaultModel returns the seed label for an install with no pin anywhere. Its
+// ONLY legitimate caller is the pin resolver, and only when the
+// session/workspace/user chain came up empty; the result is persisted so the
+// next run reads a concrete pin instead of re-deriving this.
+func DefaultModel() string {
+	return modelCatalog.file.DefaultModel
 }
 
-// TierVendors returns the vendors the catalog declares a strong-tier triple
-// for, in a stable order (models.json is data — this is derived, not coded).
-func TierVendors() []string {
-	out := make([]string, 0, len(modelCatalog.file.Tiers))
-	for v := range modelCatalog.file.Tiers {
-		out = append(out, v)
-	}
-	sort.Strings(out)
-	return out
+// UtilityModel returns the label for internal plumbing (classify/authorize,
+// compact, shrinkwrap). Never user-facing, never in the picker, never a
+// substitute for the pinned model.
+func UtilityModel() string {
+	return modelCatalog.file.UtilityModel
 }
 
-// TierAltitude names the tier ("frontier" | "balanced" | "cheap") a label
-// occupies within its OWNING vendor's triple, "" for models outside the triple
-// (pin-only models). The catalog-data replacement for the old altitudeOf.
-func TierAltitude(label string) string {
-	v := ModelVendor(label)
-	if v == "" {
-		return ""
-	}
-	for _, alt := range []string{"frontier", "balanced", "cheap"} {
-		if modelCatalog.file.Tiers[v][alt] == label {
-			return alt
-		}
-	}
-	return ""
-}
+// VendorTier / TierVendors / TierAltitude are DELETED along with the `tiers`
+// block they read. They named which model played frontier/balanced/cheap for
+// each vendor — the fallback half of every Automatic ladder verdict. Nothing
+// picks a model by tier any more: the user picks one, and it serves the session.
 
 // FallbackChain returns the mid-turn failure chain (labels) for a model id or
 // label. Nil when the catalog declares none.

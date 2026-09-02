@@ -378,9 +378,8 @@ func TestStreamCutIsIncomplete(t *testing.T) {
 func TestRequestEncoding(t *testing.T) {
 	req := wire.Request{
 		System: "STABLE", SystemVolatile: "VOLATILE",
-		Purpose: "main_loop", Mode: "chat", Difficulty: "hard", Session: "sess-1",
-		RoutingHint: &wire.RoutingHint{Reason: "self_heal"},
-		Pin:         "sonnet", Effort: wire.EffortHigh, MaxTokens: 4096, ToolChoice: "grade",
+		Purpose: "main_loop", Mode: "chat", Session: "sess-1",
+		Pin: "sonnet", Effort: wire.EffortHigh, MaxTokens: 4096, ToolChoice: "grade",
 		Tools: []wire.ToolDef{{Name: "grade", Description: "grade it", InputSchema: map[string]any{"type": "object"}}},
 		Messages: []wire.Message{
 			{Role: "user", Blocks: []wire.Block{

@@ -3,6 +3,7 @@ package provider_test
 import (
 	"context"
 	"fmt"
+	"github.com/memcode-ai/memcode/catalog"
 	"os"
 	"strings"
 	"testing"
@@ -38,8 +39,10 @@ func TestLiveGatewayCompatSmoke(t *testing.T) {
 	if ierr != nil {
 		t.Fatalf("control plane unavailable: %v", ierr)
 	}
-	if std := info.Role("standard"); std != "" {
-		label = std
+	// The smoke test used to serve whatever played the "standard" ROLE. Roles
+	// are gone; probe the catalog's utility model, which is always servable.
+	if u := catalog.UtilityModel(); u != "" {
+		label = u
 	}
 	if info.CreditsExhausted {
 		found := ""

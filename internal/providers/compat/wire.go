@@ -332,18 +332,9 @@ type ModelsExt struct {
 	// Vendors lists the strong-tier vendors the gateway has keys for — the
 	// /model vendor selector's roster.
 	Vendors []string `json:"vendors,omitempty"`
-	// Roles reports which catalog model plays each routing role
-	// (planner/reviewer/standard/classify) — labels only, never provider paths.
-	Roles []RoleEntry `json:"roles,omitempty"`
-}
-
-// RoleEntry is one configured routing role: which model plays which job.
-type RoleEntry struct {
-	Role   string `json:"role"`
-	ID     string `json:"id"` // sanitized label — the raw provider id never leaves the server
-	Label  string `json:"label"`
-	Window int    `json:"window,omitempty"`
-	Vision bool   `json:"vision,omitempty"`
+	// Roles (which model plays each routing role) is no longer decoded: the
+	// ladder that consumed it is gone. The gateway may still send the field;
+	// unknown JSON is ignored.
 }
 
 // ModelEntry is one listed model. The ids are the catalog LABELS — raw

@@ -15,27 +15,35 @@ func TestCatalogVendorsDeclared(t *testing.T) {
 	}
 }
 
-func TestCatalogTiersResolve(t *testing.T) {
-	vendors := TierVendors()
-	if len(vendors) == 0 {
-		t.Fatal("catalog declares no tier triples — the CLI's vendor-tier resolution would be empty")
-	}
-	for _, v := range vendors {
-		for _, alt := range []string{"frontier", "balanced", "cheap"} {
-			lbl := VendorTier(v, alt)
-			if lbl == "" {
-				t.Errorf("tiers[%s][%s] is unset", v, alt)
-				continue
-			}
-			m, ok := LookupModel(lbl)
-			if !ok {
-				t.Errorf("tiers[%s][%s] = %q names no catalog model", v, alt, lbl)
-				continue
-			}
-			if m.Vendor != v {
-				t.Errorf("tiers[%s][%s] = %q belongs to vendor %q — a triple must stay within its vendor", v, alt, lbl, m.Vendor)
-			}
+// TestCatalogTiersResolve is replaced: the `tiers` block it validated is gone.
+// What must hold now is that the two SINGLE models the catalog names — the
+// first-run seed and the internal-plumbing model — actually exist and are
+// servable.
+func TestDefaultAndUtilityModelsResolve(t *testing.T) {
+	for _, tc := range []struct{ what, label string }{
+		{"default_model", DefaultModel()},
+		{"utility_model", UtilityModel()},
+	} {
+		if tc.label == "" {
+			t.Errorf("%s is unset — the catalog must name one", tc.what)
+			continue
 		}
+		m, ok := LookupModel(tc.label)
+		if !ok {
+			t.Errorf("%s = %q, which is not in the catalog", tc.what, tc.label)
+			continue
+		}
+		if m.Window <= 0 {
+			t.Errorf("%s (%s) declares no context window", tc.what, tc.label)
+		}
+		if p := ModelPricing(tc.label); p.Input <= 0 {
+			t.Errorf("%s (%s) has no input price — it would meter at $0", tc.what, tc.label)
+		}
+	}
+	// The seed is what a brand-new user lands on, so it must be one they could
+	// also have picked themselves.
+	if m, ok := LookupModel(DefaultModel()); ok && !m.Pinnable {
+		t.Errorf("default_model %q is not pinnable — a user could never choose it back", DefaultModel())
 	}
 }
 
@@ -54,15 +62,6 @@ func TestCatalogFallbackChainsResolve(t *testing.T) {
 	}
 }
 
-func TestTierAltitude(t *testing.T) {
-	cases := map[string]string{
-		"terra": "balanced", "sol": "frontier", "luna": "cheap",
-		"sonnet": "balanced", "glm-5p2": "cheap", "kimi-k3": "frontier",
-		"fable": "", // pin-only: outside its vendor's triple
-	}
-	for lbl, want := range cases {
-		if got := TierAltitude(lbl); got != want {
-			t.Errorf("TierAltitude(%q) = %q, want %q", lbl, got, want)
-		}
-	}
-}
+// TestTierAltitude is DELETED with TierAltitude: it named which rung of its
+// vendor's frontier/balanced/cheap triple a model occupied, which only mattered
+// for remapping an Automatic pick to the same "altitude" on another vendor.

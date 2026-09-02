@@ -8,6 +8,7 @@ import (
 	"github.com/memcode-ai/memcode/internal/agent/acceptance"
 	"github.com/memcode-ai/memcode/internal/agent/permissions"
 	"github.com/memcode-ai/memcode/internal/agent/runtime"
+	"github.com/memcode-ai/memcode/internal/config"
 	"github.com/memcode-ai/memcode/internal/llm"
 	"github.com/memcode-ai/memcode/internal/provider"
 	"github.com/memcode-ai/memcode/internal/update"
@@ -73,8 +74,11 @@ func runInteractive(ctx context.Context, mode permissions.Mode, modeExplicit boo
 		// the embedded catalog when the id is known, else the serve teaches it.
 		sess.SetPin(ep.Model, provider.CatalogWindow(ep.Model))
 	} else {
-		sess.SetVendor(cfg.Vendor)                     // remembered strong-tier vendor (from /model)
-		sess.SetPin(cfg.PinnedModel, cfg.PinnedWindow) // remembered /model pin ("" = Automatic)
+		// The session's model: session override -> workspace -> user -> the
+		// default_model seed (persisted on first use). ResolvePin is the ONLY
+		// place that chain lives.
+		pin, win := config.ResolvePin(cfg, "")
+		sess.SetPin(pin, win)
 	}
 	sess.SetServingDefault(cfg.ServingDefault)                        // cached cheap-lane model → banner/footer show it at once (refreshed by the /models fetch)
 	sess.SetScoutModel(provider.EffectiveModel(cfg.Models.Explorer))  // cheap read-only scouts (Haiku)

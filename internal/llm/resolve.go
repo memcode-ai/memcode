@@ -2,6 +2,7 @@ package llm
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -100,285 +101,90 @@ type resolved struct {
 	err    error  // turn-fatal capability refusal (no capable lane reachable)
 }
 
-// resolveHosted maps an Intent (+ the request payload, for capability
-// pre-checks) to a concrete label over the control plane. The straight port of
-// the gateway's ResolveModelPinned → SteerResolvedModel → route-absorb chain,
-// now one visible client-side decision.
+// utilityPurposes are the internal-plumbing purposes that never ride the pin:
+// the structured classifiers (classify — authorize rides it, it has no purpose
+// of its own), compaction, and shrinkwrap. They run on the catalog's
+// utility_model so background jobs never spend the user's chosen model.
+//
+// The rule that governs this set: utility inference may classify, authorize,
+// compact, shrinkwrap, or otherwise support execution, but it may NEVER select,
+// substitute, escalate, downgrade, or steer the pinned model. Anything that
+// influenced which model runs was routing, and routing is gone.
+var utilityPurposes = map[string]bool{"classify": true, "compact": true, "shrinkwrap": true}
+
+// resolveHosted maps an Intent to a concrete model label.
+//
+// There is exactly ONE model per session — the pin — and this function does not
+// choose it: the pin resolver settled that at session start from the
+// session -> workspace -> user -> default_model chain. All that happens here is
+// routing the one non-pin case (internal plumbing) and refusing a turn the
+// pinned model physically cannot serve.
+//
+// The Automatic ladder that used to live here — laneFor's role/tier verdicts,
+// BYOK steering, the $0 fundability remap, all ported from the gateway in
+// 2026-08 — is DELETED. Per-turn model decision-making is precisely what the
+// pin replaced, and keeping a second selection authority alive is how the
+// footer and the serving model came to disagree.
 func resolveHosted(it wire.Intent, req wire.Request, info provider.ModelsInfo) resolved {
 	purpose := strings.TrimSpace(strings.ToLower(it.Purpose))
 
-	// The pin path: a valid pinnable label serves every REAL purpose; utility
-	// purposes and stale/unknown labels fall through to Automatic, so a stale
-	// config never breaks a session.
-	if it.Pin != "" && !utilityPurposes[purpose] {
-		if f, ok := info.Fact(it.Pin); ok && f.Pinnable {
-			return capabilityAdjust(it.Pin, true, it, req, info)
+	if utilityPurposes[purpose] {
+		if u := catalog.UtilityModel(); u != "" {
+			return resolved{label: u}
 		}
-		if _, ok := info.Fact(it.Pin); !ok {
-			// Not in the servable list — maybe unknown, maybe a vendor outage.
-			// Automatic takes the turn (the old fall-through behavior).
-			it.Pin = ""
-		}
+		// No utility model declared: fall through to the pin rather than
+		// inventing a model. Losing a classifier is better than a silent pick.
 	}
 
-	// The semantic ladder, resolved over the deployment role config with the
-	// session vendor's tier triple as the fallback.
-	ln := laneFor(it)
-	label := ""
-	for _, role := range ln.roles {
-		if l := info.Role(role); l != "" {
-			label = l
-			break
-		}
+	if it.Pin == "" {
+		// The pin resolver guarantees a pin (it seeds from default_model when
+		// nothing is stored). Reaching here means a caller bypassed it — a bug,
+		// and one that must NOT be papered over with a default, or the default
+		// quietly becomes the new Automatic.
+		return resolved{err: errors.New("no model selected for this session — run /model to choose one")}
 	}
-	if label == "" {
-		label = catalog.VendorTier(sessionVendor(it.Vendor, info), ln.tier)
-	}
-
-	// Keyed-vendor steering (BYOK-first, ported from steer.go): an AUTOMATIC
-	// turn resolved to a strong vendor the user has NO key for remaps to the
-	// keyed preference's member at the SAME altitude. Explicit vendor choices
-	// are never overridden; with no keys this is a byte-identical no-op.
-	label = steerLabelWithLanes(label, it.Vendor, purpose, info)
-
-	return capabilityAdjust(label, false, it, req, info)
+	return capabilityCheck(it.Pin, req, info)
 }
 
-// sessionVendor resolves the tier-fallback vendor: the session's explicit
-// choice, else the deployment default. The persisted "openai" default counts
-// as Automatic (it IS the default) — that also un-breaks steering, which the
-// old always-stamped vendor silently disabled for every CLI session.
-func sessionVendor(v string, info provider.ModelsInfo) string {
-	if v != "" && v != info.DefaultVendor() {
-		return v
-	}
-	return info.DefaultVendor()
-}
-
-// explicitVendor reports whether the session vendor blocks steering: any
-// non-default choice is explicit intent.
-func explicitVendor(v string, info provider.ModelsInfo) bool {
-	return v != "" && v != info.DefaultVendor()
-}
-
-// byokVendorOrder returns every catalog vendor in catalog order (fireworks
-// appended last if unseen) — the steering preference order, identical to the
-// gateway's ByokVendors derivation.
-func byokVendorOrder() []string {
-	seen := map[string]bool{}
-	var out []string
-	for _, m := range catalog.CatalogModels() {
-		v := m.Vendor
-		if v == "" || seen[v] {
-			continue
-		}
-		seen[v] = true
-		out = append(out, v)
-	}
-	if !seen["fireworks"] {
-		out = append(out, "fireworks")
-	}
-	return out
-}
-
-// keyedPreference returns the vendor a steered turn should serve on: the first
-// keyed, tier-servable vendor in the configured order — the deployment default
-// first, then catalog order. "" when the user has no servable key.
-func keyedPreference(info provider.ModelsInfo) string {
-	keyed := info.ByokVendorSet()
-	if len(keyed) == 0 {
-		return ""
-	}
-	for _, v := range append([]string{info.DefaultVendor()}, byokVendorOrder()...) {
-		if keyed[v] && catalog.VendorTier(v, "balanced") != "" {
-			return v
-		}
-	}
-	return ""
-}
-
-// steerLabel is the port of SteerResolvedModel: remap an automatic selection
-// on an unkeyed strong vendor to the keyed preference at the same altitude.
-// Fireworks-owned labels pass through (the cheap lane serves BYOK-first on its
-// own; the $0 case is handled by fundability in capabilityAdjust).
-func steerLabel(label, vendor string, info provider.ModelsInfo) string {
-	if explicitVendor(vendor, info) {
-		return label
-	}
-	keyed := info.ByokVendorSet()
-	if len(keyed) == 0 {
-		return label
-	}
-	owner := catalog.ModelVendor(label)
-	if owner == "" || owner == "fireworks" || keyed[owner] {
-		return label
-	}
-	pref := keyedPreference(info)
-	if pref == "" || pref == owner {
-		return label
-	}
-	alt := catalog.TierAltitude(label)
-	if alt == "" {
-		return label // outside the owning triple (shouldn't happen unpinned) — leave it
-	}
-	return tierMember(pref, alt, false, 0)
-}
-
-// steerVendor names the vendor an ABSORB (vision/document/overflow/$0) should
-// target: the session vendor when keyed (or no keys at all), else the keyed
-// preference — the client-side equivalent of the gateway's steerTier.
-func steerVendor(vendorChoice string, info provider.ModelsInfo) string {
-	sv := sessionVendor(vendorChoice, info)
-	if explicitVendor(vendorChoice, info) {
-		return sv
-	}
-	keyed := info.ByokVendorSet()
-	if len(keyed) == 0 || keyed[sv] {
-		return sv
-	}
-	if pref := keyedPreference(info); pref != "" {
-		return pref
-	}
-	return sv
-}
-
-// tierMember returns vendor's tier member, with the fireworks capability
-// fixups the synthetic tier had (an image turn moves to the first member with
-// vision, an oversized turn to the first member whose window fits).
-func tierMember(vendor, alt string, needVision bool, estimate int) string {
-	label := catalog.VendorTier(vendor, alt)
-	if label == "" {
-		return ""
-	}
-	members := []string{catalog.VendorTier(vendor, "frontier"), catalog.VendorTier(vendor, "balanced"), catalog.VendorTier(vendor, "cheap")}
-	if needVision {
-		if m, ok := catalog.LookupModel(label); ok && !m.Vision {
-			for _, cand := range members {
-				if cm, ok := catalog.LookupModel(cand); ok && cm.Vision {
-					label = cand
-					break
-				}
+// capabilityCheck refuses a turn the pinned model cannot physically serve.
+//
+// This was capabilityAdjust, which SUBSTITUTED a capable model instead. That
+// was Automatic routing wearing a different hat: pasting a screenshot silently
+// moved the turn onto a model the user never chose and never saw. Model choice
+// belongs to the user now, so a capability gap is a visible refusal that names
+// the fix.
+//
+// Provider and TRANSPORT failures are a different thing and still absorb —
+// recover.go walks the catalog's declared fallback chain and names the
+// substitute on the exchange line. That is infrastructure resilience, not model
+// selection.
+func capabilityCheck(label string, req wire.Request, info provider.ModelsInfo) resolved {
+	f, ok := info.Fact(label)
+	if !ok {
+		if m, found := catalog.LookupModel(label); found {
+			f = provider.ModelFact{
+				Label: m.Label, Name: m.Name, Vendor: m.Vendor,
+				Window: m.Window, Vision: m.Vision, PDF: m.PDF,
 			}
+		} else {
+			f = provider.ModelFact{Label: label}
 		}
 	}
-	if estimate > 0 {
-		if m, ok := catalog.LookupModel(label); ok && m.Window > 0 && estimate > m.Window {
-			for _, cand := range members {
-				if cm, ok := catalog.LookupModel(cand); ok && cm.Window >= estimate {
-					label = cand
-					break
-				}
-			}
-		}
+	name := label
+	if f.Name != "" {
+		name = f.Name
 	}
-	return label
-}
-
-// capabilityAdjust runs the pre-flight capability checks the gateway used to
-// absorb server-side: an image on a no-vision model, a document on a model
-// without native PDF input, a prompt past the model's window. The remap is now
-// a VISIBLE client decision (the reason feeds the ⇄ line); the gateway's typed
-// errors remain the enforcement backstop.
-func capabilityAdjust(label string, pinned bool, it wire.Intent, req wire.Request, info provider.ModelsInfo) resolved {
-	fact := func(l string) provider.ModelFact {
-		if f, ok := info.Fact(l); ok {
-			return f
-		}
-		if m, ok := catalog.LookupModel(l); ok {
-			return provider.ModelFact{Label: m.Label, Vendor: m.Vendor, Window: m.Window, Vision: m.Vision, PDF: m.PDF}
-		}
-		return provider.ModelFact{Label: l}
-	}
-	out := resolved{label: label, pinned: pinned}
-	f := fact(label)
-	estimate := estimateTokens(req)
-	sv := steerVendor(it.Vendor, info)
 
 	if hasBlock(req, "image") && !f.Vision {
-		out.label = tierMember(sv, "balanced", true, 0)
-		out.reason = "vision"
+		return resolved{err: fmt.Errorf("%s can't read images. Switch with /model to send this turn", name)}
 	}
-	if hasBlock(req, "document") && !fact(out.label).PDF {
-		target, err := documentVendor(sv, it.Vendor, info)
-		if err != nil {
-			return resolved{err: err}
-		}
-		out.label = catalog.VendorTier(target, "balanced")
-		out.reason = "document"
+	if hasBlock(req, "document") && !f.PDF {
+		return resolved{err: fmt.Errorf("%s can't read PDFs. Switch with /model to send this turn", name)}
 	}
-	if w := fact(out.label).Window; w > 0 && estimate > w {
-		out.label = tierMember(sv, "balanced", hasBlock(req, "image"), estimate)
-		if out.reason == "" {
-			out.reason = "context_overflow"
-		}
+	if est := estimateTokens(req); f.Window > 0 && est > f.Window {
+		return resolved{err: fmt.Errorf("this turn is about %d tokens, past %s's %d-token window. Run /compact, or switch with /model", est, name, f.Window)}
 	}
-	// The $0 fundability rule (mustSteerAtZero): an AUTOMATIC selection must
-	// never target an unfunded lane — with an empty wallet and BYOK keys, an
-	// unkeyed candidate remaps to the keyed preference's balanced member (the
-	// old credits_byok absorb, now up-front). Pins are exempt: an unkeyed pin
-	// at $0 gets the gateway's clean 402 naming the vendor, never a coercion.
-	if !pinned && info.CreditsExhausted {
-		keyed := info.ByokVendorSet()
-		funded := len(keyed) > 0 || len(info.SubVendors) > 0
-		if funded && !fundedVendor(fact(out.label).Vendor, keyed, info) && !explicitVendor(it.Vendor, info) {
-			// Sub lanes are the cheapest funded path ($0 and no key metering).
-			pref := subPreference(info)
-			reason := "credits_sub"
-			if pref == "" {
-				pref, reason = keyedPreference(info), "credits_byok"
-			}
-			if pref != "" && pref != fact(out.label).Vendor {
-				out.label = tierMember(pref, "balanced", hasBlock(req, "image"), estimate)
-				if out.reason == "" {
-					out.reason = reason
-				}
-			}
-		}
-	}
-	if out.label == "" {
-		out.label = label // defensive: never return empty without err
-	}
-	return out
-}
-
-// documentVendor picks the vendor whose balanced tier takes a PDF natively,
-// keyed-aware — the port of the gateway's documentTier. Turn-fatal when
-// nothing PDF-capable is reachable (fireworks-only BYOK at $0).
-func documentVendor(sv, vendorChoice string, info provider.ModelsInfo) (string, error) {
-	pdfBalanced := func(v string) bool {
-		lbl := catalog.VendorTier(v, "balanced")
-		m, ok := catalog.LookupModel(lbl)
-		return ok && m.PDF
-	}
-	keyed := info.ByokVendorSet()
-	if len(keyed) == 0 {
-		if pdfBalanced(sv) {
-			return sv, nil
-		}
-		return info.DefaultVendor(), nil
-	}
-	if pdfBalanced(sv) && (keyed[sv] || !info.CreditsExhausted) {
-		return sv, nil
-	}
-	for _, v := range append([]string{info.DefaultVendor()}, byokVendorOrder()...) {
-		if v == "fireworks" || !keyed[v] || catalog.VendorTier(v, "balanced") == "" {
-			continue
-		}
-		if pdfBalanced(v) {
-			return v, nil
-		}
-	}
-	if !info.CreditsExhausted {
-		return info.DefaultVendor(), nil
-	}
-	var vendors []string
-	for _, v := range byokVendorOrder() {
-		if v != "fireworks" && pdfBalanced(v) {
-			vendors = append(vendors, v)
-		}
-	}
-	return "", fmt.Errorf("this turn needs PDF support, which your API keys don't cover — add credits at memcode.ai/account/billing or add a %s key with /apikeys",
-		strings.Join(vendors, "/"))
+	return resolved{label: label, pinned: true}
 }
 
 // hasBlock reports whether any message block (top-level or inside a

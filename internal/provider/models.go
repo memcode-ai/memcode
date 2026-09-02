@@ -15,7 +15,6 @@ import (
 // the runtime/selection/vxui keep their existing names.
 
 type (
-	RoleModel     = memcode.RoleModel
 	ModelFact     = memcode.ModelFact
 	PinnableModel = memcode.PinnableModel
 	ModelsInfo    = memcode.ModelsInfo

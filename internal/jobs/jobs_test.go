@@ -11,7 +11,7 @@ import (
 
 func TestSpawnWithSpecCompatibility(t *testing.T) {
 	root := t.TempDir()
-	job, err := SpawnWithSpec(SpawnSpec{Root: root, Task: "inspect", Mode: "auto", Tier: "strong", SessionID: "session-1", AgentID: "agent-1", ObjectiveID: "objective-1", SubgoalID: "subgoal-1", RunID: "run-1", ParentRunID: "parent-1", PolicyHash: "hash-1", ToolPolicy: ToolPolicy{Allowed: []string{"files"}}, ResourceGrant: ResourceGrant{IDs: []string{"resource-1"}}, Budgets: ExecutionBudgets{MaxSeconds: 30}, ReportBack: true})
+	job, err := SpawnWithSpec(SpawnSpec{Root: root, Task: "inspect", Mode: "auto", SessionID: "session-1", AgentID: "agent-1", ObjectiveID: "objective-1", SubgoalID: "subgoal-1", RunID: "run-1", ParentRunID: "parent-1", PolicyHash: "hash-1", ToolPolicy: ToolPolicy{Allowed: []string{"files"}}, ResourceGrant: ResourceGrant{IDs: []string{"resource-1"}}, Budgets: ExecutionBudgets{MaxSeconds: 30}, ReportBack: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -24,7 +24,7 @@ func TestSpawnWithSpecCompatibility(t *testing.T) {
 }
 
 func TestLegacySpawnWrapper(t *testing.T) {
-	job, err := Spawn(t.TempDir(), "inspect", "auto", "", false, false, "legacy-session")
+	job, err := Spawn(t.TempDir(), "inspect", "auto", false, false, "legacy-session")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -255,7 +255,7 @@ func TestIsTestBinary(t *testing.T) {
 // Spawn-reaching test in it spawned another detached child, exponentially.
 func TestSpawnFromTestBinaryChildExitsImmediately(t *testing.T) {
 	root := t.TempDir()
-	job, err := Spawn(root, "regression: do nothing", "auto", "", false, false, "")
+	job, err := Spawn(root, "regression: do nothing", "auto", false, false, "")
 	if err != nil {
 		t.Fatalf("Spawn: %v", err)
 	}
@@ -363,7 +363,7 @@ func TestStopReconcilesAlreadyGoneProcess(t *testing.T) {
 func TestGetIsRootScoped(t *testing.T) {
 	spawnRoot := t.TempDir()
 	otherRoot := t.TempDir()
-	job, err := Spawn(spawnRoot, "task", "auto", "", false, false, "")
+	job, err := Spawn(spawnRoot, "task", "auto", false, false, "")
 	if err != nil {
 		t.Fatal(err)
 	}

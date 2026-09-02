@@ -57,54 +57,16 @@ func applyLaneFacts(info provider.ModelsInfo, lanes []provider.LaneInfo, gateway
 		}
 		out.Models = clamped
 		out.Vendors = order
-		out.Roles = nil // gateway role config is meaningless without the gateway
 	}
 	return out
 }
 
-// subPreference is keyedPreference's $0 twin: the first sub vendor in the
-// deployment order with a servable tier triple.
-func subPreference(info provider.ModelsInfo) string {
-	if len(info.SubVendors) == 0 {
-		return ""
-	}
-	for _, v := range append([]string{info.DefaultVendor()}, byokVendorOrder()...) {
-		if info.SubVendors[v] && catalog.VendorTier(v, "balanced") != "" {
-			return v
-		}
-	}
-	return ""
-}
-
-// steerLabelWithLanes runs sub-first steering above the BYOK keyed steering:
-// an AUTOMATIC main/plan turn on a vendor with no attached sub remaps to the
-// sub preference at the same altitude. Utility purposes are exempt — judge
-// churn must never burn a subscription's rate window while a gateway exists.
-// With no subs attached this is exactly steerLabel.
-func steerLabelWithLanes(label, vendor, purpose string, info provider.ModelsInfo) string {
-	if len(info.SubVendors) == 0 {
-		return steerLabel(label, vendor, info)
-	}
-	if utilityPurposes[purpose] {
-		return steerLabel(label, vendor, info)
-	}
-	if explicitVendor(vendor, info) {
-		return label
-	}
-	owner := catalog.ModelVendor(label)
-	if owner == "" || owner == "fireworks" || info.SubVendors[owner] {
-		return steerLabel(label, vendor, info) // fireworks passthrough / already $0
-	}
-	pref := subPreference(info)
-	alt := catalog.TierAltitude(label)
-	if pref == "" || pref == owner || alt == "" {
-		return steerLabel(label, vendor, info)
-	}
-	if m := tierMember(pref, alt, false, 0); m != "" {
-		return m
-	}
-	return steerLabel(label, vendor, info)
-}
+// NOTE: subPreference / steerLabelWithLanes lived here and are DELETED.
+// They remapped an AUTOMATIC selection onto a vendor the user had a
+// subscription or BYOK key for — selection policy, and therefore routing.
+// With one pinned model there is nothing to steer: the user picked the vendor
+// when they picked the model. Credential lanes below still decide WHICH
+// credential pays for that vendor, which is a different question and stays.
 
 // fundedVendor reports a vendor with a no-credit serving path: a gateway BYOK
 // key, a local key lane (merged into Byok above), or a subscription lane.

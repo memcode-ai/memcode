@@ -690,32 +690,14 @@ func TestSlashModelInCatalog(t *testing.T) {
 	}
 }
 
-// TestSlashModelSetsVendor: /model <vendor> keeps working as the legacy Automatic
-// strong-tier switch (it also clears any pin). Locks the direct-set path (no picker).
-func TestSlashModelSetsVendor(t *testing.T) {
-	sess, be, runner := newRecRunner(t)
-	_ = sess
-	now := time.Now()
-	typeSlash(runner, "/model anthropic", now)
-	_ = runner.HandleFrame(now)
-	rec := be.recorded()
-	if !strings.Contains(rec, "strong tier Anthropic") {
-		t.Fatalf("/model anthropic didn't print the confirmation.\nrecorded=%q", rec)
-	}
-	if sess.Vendor() != "anthropic" {
-		t.Fatalf("session vendor = %q, want \"anthropic\"", sess.Vendor())
-	}
-	if sess.Pin() != "" {
-		t.Fatalf("vendor switch must clear the pin, got %q", sess.Pin())
-	}
-}
+// TestSlashModelSetsVendor is DELETED: /model <vendor> switched the Automatic
+// strong-tier vendor, which was a way of NOT choosing a model.
 
-// TestSlashModelPinsLabel: /model <label> pins that model (the gateway validates
-// for real — an unknown label falls through to Automatic server-side), and
-// /model auto releases it. The vendor is untouched by a pin.
+// TestSlashModelPinsLabel: /model <label> pins that model for the session, and
+// "auto" is refused with a message rather than silently doing nothing — old
+// muscle memory and old docs will keep sending people there.
 func TestSlashModelPinsLabel(t *testing.T) {
 	sess, be, runner := newRecRunner(t)
-	_ = sess
 	now := time.Now()
 	typeSlash(runner, "/model sonnet", now)
 	_ = runner.HandleFrame(now)
@@ -726,13 +708,14 @@ func TestSlashModelPinsLabel(t *testing.T) {
 	if sess.Pin() != "sonnet" {
 		t.Fatalf("session pin = %q, want \"sonnet\"", sess.Pin())
 	}
-	if sess.Vendor() != "" {
-		t.Fatalf("a pin must not change the vendor, got %q", sess.Vendor())
-	}
+
 	typeSlash(runner, "/model auto", now)
 	_ = runner.HandleFrame(now)
-	if sess.Pin() != "" {
-		t.Fatalf("/model auto must clear the pin, got %q", sess.Pin())
+	if sess.Pin() != "sonnet" {
+		t.Fatalf("/model auto must NOT clear the pin — there is nothing to fall back to; got %q", sess.Pin())
+	}
+	if rec := be.recorded(); !strings.Contains(rec, "Automatic routing was removed") {
+		t.Fatalf("/model auto must say Automatic is gone.\nrecorded=%q", rec)
 	}
 }
 
@@ -760,7 +743,7 @@ func TestSubmitEchoesSlashCommand(t *testing.T) {
 }
 
 // TestModelPickerEnterUsesFriendlyNameAndWindow: picking a model from the /model picker
-// confirms with the picker's friendly name + context window ("model → Sonnet 4.6 · 1M
+// confirms with the picker's friendly name + context window ("model → Sonnet 5 · 1M
 // context"), not the bare gateway label ("model → sonnet") — the confirmation should read as
 // well as the picker row did. Seeds the picker state directly (stateCapture) rather than
 // driving the real async gateway fetch, which isn't reachable offline in tests.
@@ -769,7 +752,7 @@ func TestModelPickerEnterUsesFriendlyNameAndWindow(t *testing.T) {
 	now := time.Now()
 	st.modelEntries = []modelEntry{
 		{}, // row 0: Automatic
-		{label: "sonnet", name: "Sonnet 4.6", desc: "Efficient for routine tasks", window: 1_000_000},
+		{label: "sonnet", name: "Sonnet 5", desc: "Efficient for routine tasks", window: 1_000_000},
 	}
 	st.modelSel = 1
 	st.modelPicking = true
@@ -779,7 +762,7 @@ func TestModelPickerEnterUsesFriendlyNameAndWindow(t *testing.T) {
 	_ = runner.HandleFrame(now)
 
 	rec := be.recorded()
-	if !strings.Contains(rec, "model → Sonnet 4.6") {
+	if !strings.Contains(rec, "model → Sonnet 5") {
 		t.Fatalf("confirmation didn't use the picker's friendly name.\nrecorded=%q", rec)
 	}
 	if !strings.Contains(rec, "1M context") {

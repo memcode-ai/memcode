@@ -123,22 +123,22 @@ type completer interface {
 // first model fails once (the recovery walk).
 func script(t *testing.T, r completer) []error {
 	t.Helper()
-	turn := func(p llm.Purpose, mode, risk string) error {
+	turn := func(p llm.Purpose, mode string) error {
 		req := wire.Request{
 			System: "STABLE-DOCTRINE", SystemVolatile: "[today: test]", Mode: mode,
 			Messages: []wire.Message{{Role: "user", Blocks: []wire.Block{wire.TextBlock("do it")}}},
 		}
-		if risk != "" {
-			req.RoutingHint = &wire.RoutingHint{Reason: risk}
-		}
 		_, err := r.Complete(context.Background(), p, req)
 		return err
 	}
+	// The third turn used to carry a self_heal risk hint that escalated it to
+	// the frontier tier. Hints are gone; it is an ordinary turn on the pin now,
+	// which is exactly what the expectation below asserts.
 	return []error{
-		turn(llm.MainLoop, "exec", ""),
-		turn(llm.Classify, "turn_intent", ""),
-		turn(llm.MainLoop, "exec", "self_heal"),
-		turn(llm.MainLoop, "exec", ""), // the scripted failure fires here per-backend
+		turn(llm.MainLoop, "exec"),
+		turn(llm.Classify, "turn_intent"),
+		turn(llm.MainLoop, "exec"),
+		turn(llm.MainLoop, "exec"), // the scripted failure fires here per-backend
 	}
 }
 
@@ -189,28 +189,33 @@ func TestBackendUniformity(t *testing.T) {
 		t.Fatal("token present → hosted backend expected")
 	}
 	runner := llm.NewRunner(prov)
+	runner.SetPin("sonnet") // production's pin resolver always yields one
 
-	// Turn 4's primary (the standard role, glm-5p2) fails once → the catalog
-	// chain rescues on kimi-k2p7-code. Scripted AFTER turns 1-3 so only turn 4
-	// trips it: failOnce is per-model and turn 1 also serves glm-5p2.
+	// Turn 4's primary (the pin) fails once → the catalog chain rescues on
+	// sonnet's declared fallback, terra. Scripted AFTER turns 1-3 so only turn 4
+	// trips it: failOnce is per-model and the earlier turns serve the pin too.
 	errs := script(t, &scriptedFail{Runner: runner, gw: gw})
 	for i, err := range errs {
 		if err != nil {
 			t.Fatalf("hosted turn %d failed: %v", i+1, err)
 		}
 	}
-	wantHosted := []string{"glm-5p2", "gpt-oss-120b", "sol", "glm-5p2", "kimi-k2p7-code"}
+	// Every REAL turn is the pin — the self_heal turn included. Risk hints used
+	// to escalate a turn to the frontier tier; with one pinned model there is
+	// nothing to escalate to, and the pin is not something a hint may override.
+	// Only the classifier rides elsewhere, on the utility model.
+	wantHosted := []string{"sonnet", "gpt-oss-120b", "sonnet", "sonnet", "terra"}
 	if got := gw.requestedModels(); !equalStrings(got, wantHosted) {
 		t.Fatalf("hosted decision sequence = %v, want %v", got, wantHosted)
 	}
 	assertUniformWire(t, gw, "Bearer memcode_uniformity")
-	// The hosted extras: delegate doctrine on the cheap-lane exec turn, absent
-	// on the strong-tier turn.
-	if sys := systemText(gw.bodies[0]); !strings.Contains(sys, "Match the work to the model") {
-		t.Error("hosted cheap-lane exec turn must carry the delegate doctrine")
-	}
-	if sys := systemText(gw.bodies[2]); strings.Contains(sys, "Match the work to the model") {
-		t.Error("the frontier-tier turn must not carry the delegate doctrine")
+	// The delegate doctrine ("Match the work to the model") is DELETED: it told
+	// a cheap Automatic lane to hand non-code work to a stronger tier, and
+	// neither side of that sentence exists now.
+	for i := range gw.bodies {
+		if sys := systemText(gw.bodies[i]); strings.Contains(sys, "Match the work to the model") {
+			t.Errorf("turn %d still carries the deleted delegate doctrine", i+1)
+		}
 	}
 
 	// ── (b) the SAME server as a bare endpoint: same wire, no policy extras ──
@@ -259,7 +264,7 @@ func (s *scriptedFail) Complete(ctx context.Context, p llm.Purpose, req wire.Req
 	s.seen++
 	if s.seen == 4 && s.gw != nil {
 		s.gw.mu.Lock()
-		s.gw.failOnce["glm-5p2"] = true
+		s.gw.failOnce["sonnet"] = true // the pin — turn 4 fails on it and falls back
 		s.gw.mu.Unlock()
 	}
 	return s.Runner.Complete(ctx, p, req)

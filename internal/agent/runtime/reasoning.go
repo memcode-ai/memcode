@@ -48,7 +48,7 @@ func (s *Session) reasoningTool(ctx context.Context, input json.RawMessage) tool
 			full += "\n\nContext:\n" + c
 		}
 		res, err := s.spawnAgent(ctx, AgentSpec{
-			Task: full, Tier: TierStrong, ReadOnly: true, Purpose: llm.Agent, Effort: level,
+			Task: full, ReadOnly: true, Purpose: llm.Agent, Effort: level,
 		})
 		if err != nil {
 			return errResult("reasoning delegate failed: " + err.Error())

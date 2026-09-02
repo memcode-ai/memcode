@@ -13,21 +13,17 @@ import (
 // and the first-class `agent` tool. Before this they were three bespoke bodies; now they differ
 // only by the AgentSpec they pass. The engine is assembled from the existing primitives —
 // New(...) + runner.Fork() (shared ledger, auto spend attribution), the readOnly tool gate, the
-// iterCap bound, and the forceEscalate routing hook (route.go) that pins a request to Anthropic.
+// iterCap bound.
+//
+// AgentTier (Fast | Strong) is DELETED. It selected which model LANE a sub-agent
+// ran on, via a routing hint that escalated it to a stronger tier. A delegated
+// worker is user-work inference: it runs on the session's pinned model, the same
+// one the user is paying for and watching in the footer.
 
-// AgentTier selects the model lane a sub-agent runs on.
-type AgentTier int
-
-const (
-	TierFast   AgentTier = iota // the cheap scout lane — routine read/summarize work
-	TierStrong                  // the strong vendor tier — quality-sensitive / hard / non-code work
-)
-
-// AgentSpec is everything that configures a sub-agent. Defaults (zero value) are a fast,
+// AgentSpec is everything that configures a sub-agent. Defaults (zero value) are a
 // mutating, MainLoop-ish agent; callers set what they need.
 type AgentSpec struct {
 	Task     string      // the self-contained instruction the sub-agent runs to completion
-	Tier     AgentTier   // Fast (scout/cheap) | Strong (the strong vendor)
 	ReadOnly bool        // read-only (no edits/mutating bash) vs a full mutating agent
 	Scope    string      // optional subsystem/path tag (telemetry + scout focus)
 	IterCap  int         // 0 = mode default
@@ -40,7 +36,7 @@ type AgentSpec struct {
 type AgentResult struct {
 	Text      string
 	ToolCalls int
-	ServedBy  string // which model/backend actually ran it (cheap lane vs Anthropic)
+	ServedBy  string // which model actually ran it
 }
 
 // spawnAgent runs a sub-agent synchronously and returns its report-back. It is the in-process
@@ -51,14 +47,8 @@ func (s *Session) spawnAgent(ctx context.Context, spec AgentSpec) (AgentResult, 
 	if model == "" {
 		model = s.model
 	}
-	switch {
-	case spec.Tier == TierStrong:
-		// Strong runs on the strong tier via the agent_strong risk hint; the model
-		// id is irrelevant (the ladder resolves the tier from the hint), so keep
-		// the session model.
-		model = s.model
-	case spec.Purpose == llm.Explore && s.planCtl.Planning() && s.planCtl.ResearchModel() != "":
-		model = s.planCtl.ResearchModel() // plan-mode research override (fast lane)
+	if spec.Purpose == llm.Explore && s.planCtl.Planning() && s.planCtl.ResearchModel() != "" {
+		model = s.planCtl.ResearchModel() // plan-mode research override
 	}
 
 	sub := New(s.store, s.runner.Fork(), s.root, model, s.effectiveMode(), io.Discard)
@@ -67,7 +57,6 @@ func (s *Session) spawnAgent(ctx context.Context, spec AgentSpec) (AgentResult, 
 	} else {
 		sub.purpose = llm.Agent
 	}
-	sub.forceEscalate = spec.Tier == TierStrong
 	if spec.IterCap > 0 {
 		sub.iterCap = spec.IterCap
 	}

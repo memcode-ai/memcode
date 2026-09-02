@@ -85,8 +85,8 @@ func runAdmin(ctx context.Context) error {
 	if ep, onEndpoint := prov.Endpoint(); onEndpoint {
 		sess.SetPin(ep.Model, provider.CatalogWindow(ep.Model))
 	} else {
-		sess.SetVendor(cfg.Vendor)
-		sess.SetPin(cfg.PinnedModel, cfg.PinnedWindow)
+		pin, win := config.ResolvePin(cfg, "")
+		sess.SetPin(pin, win)
 	}
 	sess.SetServingDefault(cfg.ServingDefault)
 	return vxui.Run(ctx, sess, cfg.Theme)

@@ -234,7 +234,6 @@ func (s *Session) Submit(ctx context.Context, st *ChatState, line string) {
 	if s.provisionalEffort() {
 		s.startTurnJudge(ctx, dec.Bundle.Text)
 	}
-	s.turnHighRisk = highRiskTurn(dec.Bundle.Text) // high-blast-radius surface → escalate the backend
 
 	s.printf("  ↳ %s — %s\n", dec.Route, dec.Reason)
 	if s.observer != nil {
@@ -472,7 +471,6 @@ func (s *Session) scoreTurn(ctx context.Context, text string) {
 	if s.provisionalEffort() {
 		s.startTurnJudge(ctx, text)
 	}
-	s.turnHighRisk = highRiskTurn(text)
 	if s.observer != nil {
 		s.observer.Mood(reading)
 		s.observer.Room(s.room)

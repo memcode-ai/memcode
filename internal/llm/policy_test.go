@@ -50,9 +50,19 @@ func (p *scriptedProv) Endpoint() (provider.Endpoint, bool) {
 
 // hostedRunner builds a Runner over a hosted scripted provider with a fixed
 // control-plane snapshot (no network).
+// hostedRunner builds a Runner over a hosted scripted provider with a fixed
+// control-plane snapshot (no network) and a PIN. Production's pin resolver
+// always yields one — session override, workspace, user, or the default_model
+// seed — so an unpinned Runner is not a state the product can reach, and
+// selection deliberately refuses rather than inventing a model.
 func hostedRunner(p *scriptedProv, info provider.ModelsInfo) *Runner {
+	return pinnedRunner(p, info, "sonnet")
+}
+
+func pinnedRunner(p *scriptedProv, info provider.ModelsInfo, pin string) *Runner {
 	r := NewRunner(p)
 	r.sel.fetch = func(context.Context) (provider.ModelsInfo, error) { return info, nil }
+	r.SetPin(pin)
 	return r
 }
 
@@ -60,106 +70,137 @@ func userReq(text string) wire.Request {
 	return wire.Request{Messages: []wire.Message{{Role: "user", Blocks: []wire.Block{wire.TextBlock(text)}}}}
 }
 
-func TestHostedSelectionStampsLabels(t *testing.T) {
+func TestPinServesEveryRealPurposeAndUtilityRidesTheUtilityModel(t *testing.T) {
 	p := &scriptedProv{}
-	r := hostedRunner(p, prodInfo(nil))
+	r := pinnedRunner(p, prodInfo(nil), "opus")
 
-	if _, err := r.Complete(context.Background(), MainLoop, userReq("hi")); err != nil {
-		t.Fatal(err)
+	// Real work rides the pin regardless of purpose — there is no ladder left
+	// to send a "hard" turn somewhere else or a "cheap" turn down a tier.
+	for _, purpose := range []Purpose{MainLoop, Synth, Reflect, Explore, Agent, Learn, Predict} {
+		if _, err := r.Complete(context.Background(), purpose, userReq("hi")); err != nil {
+			t.Fatalf("%s: %v", purpose, err)
+		}
 	}
-	if _, err := r.Complete(context.Background(), Classify, userReq("hi")); err != nil {
-		t.Fatal(err)
+	// Internal plumbing never rides the pin.
+	for _, purpose := range []Purpose{Classify, Compact, Shrinkwrap} {
+		if _, err := r.Complete(context.Background(), purpose, userReq("hi")); err != nil {
+			t.Fatalf("%s: %v", purpose, err)
+		}
 	}
-	req := userReq("hi")
-	req.RoutingHint = &wire.RoutingHint{Reason: "self_heal"}
-	if _, err := r.Complete(context.Background(), MainLoop, req); err != nil {
-		t.Fatal(err)
+
+	for i := 0; i < 7; i++ {
+		if p.requested[i] != "opus" {
+			t.Errorf("real-work call %d requested %q, want the pin (opus); all: %v", i, p.requested[i], p.requested)
+		}
 	}
-	want := []string{"glm-5p2", "gpt-oss-120b", "sol"}
-	for i, w := range want {
-		if p.requested[i] != w {
-			t.Errorf("call %d requested %q, want %q (all: %v)", i, p.requested[i], w, p.requested)
+	for i := 7; i < 10; i++ {
+		if p.requested[i] != "gpt-oss-120b" {
+			t.Errorf("utility call %d requested %q, want the utility model; all: %v", i, p.requested[i], p.requested)
 		}
 	}
 }
 
-func TestVisionAbsorbIsClientSideAndVisible(t *testing.T) {
+// An unpinned Runner refuses rather than falling back to default_model.
+// default_model seeds the PIN, once, in the resolver — it is not a runtime
+// default, or it would quietly become the new Automatic.
+func TestUnpinnedSelectionRefusesAndNeverDefaults(t *testing.T) {
 	p := &scriptedProv{}
-	r := hostedRunner(p, prodInfo(nil))
-	req := userReq("see")
-	req.Messages[0].Blocks = append(req.Messages[0].Blocks, wire.ImageBlock("image/png", []byte{1}))
+	r := NewRunner(p)
+	r.sel.fetch = func(context.Context) (provider.ModelsInfo, error) { return prodInfo(nil), nil }
 
-	resp, err := r.Complete(context.Background(), MainLoop, req)
-	if err != nil {
-		t.Fatal(err)
+	_, err := r.Complete(context.Background(), MainLoop, userReq("hi"))
+	if err == nil || !strings.Contains(err.Error(), "no model selected") {
+		t.Fatalf("want the no-model refusal, got %v", err)
 	}
-	// glm-5p2 (no vision) → the default vendor's balanced tier, reason stamped.
-	if p.requested[0] != "terra" {
-		t.Fatalf("vision turn requested %q, want terra", p.requested[0])
-	}
-	if resp.FallbackReason != "vision" {
-		t.Fatalf("FallbackReason = %q, want vision (the ⇄ line's signal)", resp.FallbackReason)
+	if len(p.requested) != 0 {
+		t.Fatalf("nothing may be requested without a pin, got %v", p.requested)
 	}
 }
 
-func TestDocumentAbsorbAndCapabilityRefusal(t *testing.T) {
+// Capability gaps FAIL the turn. They used to absorb onto a capable model,
+// which was Automatic routing wearing a different hat: a pasted screenshot
+// silently moved the turn onto a model the user never chose.
+func TestCapabilityGapsRefuseInsteadOfSwitchingModels(t *testing.T) {
+	image := func() wire.Request {
+		req := userReq("see")
+		req.Messages[0].Blocks = append(req.Messages[0].Blocks, wire.ImageBlock("image/png", []byte{1}))
+		return req
+	}
+	doc := func() wire.Request {
+		req := userReq("read")
+		req.Messages[0].Blocks = append(req.Messages[0].Blocks, wire.DocumentBlock("application/pdf", []byte{1}))
+		return req
+	}
+
+	cases := []struct {
+		name string
+		pin  string
+		req  wire.Request
+		want string
+	}{
+		{"image on a vision-less pin", "glm-5p2", image(), "images"},
+		{"pdf on a pin without native PDF", "glm-5p2", doc(), "PDFs"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			p := &scriptedProv{}
+			r := pinnedRunner(p, prodInfo(nil), tc.pin)
+			_, err := r.Complete(context.Background(), MainLoop, tc.req)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("want a refusal mentioning %q, got %v", tc.want, err)
+			}
+			if !strings.Contains(err.Error(), "/model") {
+				t.Errorf("the refusal must name the fix (/model): %v", err)
+			}
+			if len(p.requested) != 0 {
+				t.Fatalf("a refused turn must reach no provider, got %v", p.requested)
+			}
+		})
+	}
+
+	// A capable pin serves the same turns untouched.
 	p := &scriptedProv{}
-	r := hostedRunner(p, prodInfo(nil))
-	req := userReq("read")
-	req.Messages[0].Blocks = append(req.Messages[0].Blocks, wire.DocumentBlock("application/pdf", []byte{1}))
-
-	resp, err := r.Complete(context.Background(), MainLoop, req)
-	if err != nil {
-		t.Fatal(err)
+	r := pinnedRunner(p, prodInfo(nil), "opus")
+	if _, err := r.Complete(context.Background(), MainLoop, image()); err != nil {
+		t.Fatalf("a vision-capable pin must serve an image turn: %v", err)
 	}
-	if p.requested[0] != "terra" || resp.FallbackReason != "document" {
-		t.Fatalf("document turn requested %q reason %q, want terra/document", p.requested[0], resp.FallbackReason)
-	}
-
-	// Fireworks-only keys at $0: nothing PDF-capable is fundable → the
-	// actionable capability refusal, client-side (the old pdfCapabilityError).
-	info := prodInfo([]string{"fireworks"})
-	info.CreditsExhausted = true
-	r2 := hostedRunner(&scriptedProv{}, info)
-	_, err = r2.Complete(context.Background(), MainLoop, req)
-	if err == nil || !strings.Contains(err.Error(), "PDF") || !strings.Contains(err.Error(), "/apikeys") {
-		t.Fatalf("want the actionable PDF refusal, got %v", err)
+	if p.requested[0] != "opus" {
+		t.Fatalf("requested %q, want the pin untouched", p.requested[0])
 	}
 }
 
-func TestZeroCreditsSteersAutomaticOffUnkeyedLanes(t *testing.T) {
-	info := prodInfo([]string{"anthropic"})
-	info.CreditsExhausted = true
+// A turn past the pin's window refuses too — /compact or switch, never a
+// silent hop to a bigger model.
+func TestContextOverflowRefuses(t *testing.T) {
+	info := prodInfo(nil)
+	for i := range info.Models {
+		if info.Models[i].Label == "sonnet" {
+			info.Models[i].Window = 100
+		}
+	}
 	p := &scriptedProv{}
-	r := hostedRunner(p, info)
-
-	// Automatic main loop resolved glm-5p2 (fireworks, unkeyed) → remapped to
-	// the keyed vendor's balanced tier, visibly.
-	resp, err := r.Complete(context.Background(), MainLoop, userReq("hi"))
-	if err != nil {
-		t.Fatal(err)
+	r := pinnedRunner(p, info, "sonnet")
+	_, err := r.Complete(context.Background(), MainLoop, userReq(strings.Repeat("word ", 2000)))
+	if err == nil || !strings.Contains(err.Error(), "window") {
+		t.Fatalf("want an overflow refusal, got %v", err)
 	}
-	if p.requested[0] != "sonnet" {
-		t.Fatalf("$0 automatic requested %q, want sonnet (the keyed lane)", p.requested[0])
+	if !strings.Contains(err.Error(), "/compact") {
+		t.Errorf("the refusal must name /compact: %v", err)
 	}
-	if resp.FallbackReason != "credits_byok" {
-		t.Fatalf("reason = %q, want credits_byok", resp.FallbackReason)
-	}
-
-	// A PIN is exempt: the unkeyed pin rides through — the gateway's 402 names
-	// the vendor (an explicit choice is never coerced).
-	r.SetPin("terra")
-	if _, err := r.Complete(context.Background(), MainLoop, userReq("hi")); err != nil {
-		t.Fatal(err)
-	}
-	if p.requested[1] != "terra" {
-		t.Fatalf("$0 pin requested %q, want terra untouched", p.requested[1])
+	if len(p.requested) != 0 {
+		t.Fatalf("a refused turn must reach no provider, got %v", p.requested)
 	}
 }
+
+// TestZeroCreditsSteersAutomaticOffUnkeyedLanes is DELETED. It asserted that an
+// AUTOMATIC selection on an unfunded vendor was remapped to a keyed one. There
+// is no automatic selection left to remap, and a pin was already exempt from
+// that coercion by design — an explicit choice gets the gateway's clean 402
+// naming the vendor, never a silent switch. That is now the only behavior.
 
 func TestFallbackWalkOnModelError(t *testing.T) {
 	p := &scriptedProv{failures: map[string]error{"glm-5p2": errors.New("lane http 500: boom")}}
-	r := hostedRunner(p, prodInfo(nil))
+	r := pinnedRunner(p, prodInfo(nil), "glm-5p2")
 
 	resp, err := r.Complete(context.Background(), MainLoop, userReq("hi"))
 	if err != nil {
@@ -181,7 +222,7 @@ func TestFallbackNeverTouchesTerminalErrors(t *testing.T) {
 	for _, sentinel := range []error{wire.ErrInsufficientCredit, wire.ErrByokKeyFailed,
 		wire.ErrContextOverflow, wire.ErrStreamIncomplete, wire.ErrUnauthorized} {
 		p := &scriptedProv{failures: map[string]error{"glm-5p2": sentinel}}
-		r := hostedRunner(p, prodInfo(nil))
+		r := pinnedRunner(p, prodInfo(nil), "glm-5p2")
 		_, err := r.Complete(context.Background(), MainLoop, userReq("hi"))
 		if !errors.Is(err, sentinel) {
 			t.Errorf("%v: err = %v, want the sentinel through untouched", sentinel, err)
@@ -197,7 +238,7 @@ func TestEmittedOutputStopsFallback(t *testing.T) {
 		failures: map[string]error{"glm-5p2": errors.New("lane http 500: died mid-stream")},
 		streamed: "partial answer…",
 	}
-	r := hostedRunner(p, prodInfo(nil))
+	r := pinnedRunner(p, prodInfo(nil), "glm-5p2")
 	var got strings.Builder
 	_, err := r.Stream(context.Background(), MainLoop, userReq("hi"), wire.StreamHandler{
 		Text: func(d string) { got.WriteString(d) },
@@ -210,44 +251,10 @@ func TestEmittedOutputStopsFallback(t *testing.T) {
 	}
 }
 
-func TestDelegateDoctrineAppendsOnCheapLane(t *testing.T) {
-	p := &scriptedProv{}
-	r := hostedRunner(p, prodInfo(nil))
-
-	req := userReq("build it")
-	req.Mode, req.System, req.SystemVolatile = "exec", "DOCTRINE", "[today: x]"
-	var seen string
-	pr := &captureSystem{inner: p, out: &seen}
-	r.prov = pr
-	if _, err := r.Complete(context.Background(), MainLoop, req); err != nil {
-		t.Fatal(err)
-	}
-	if !strings.HasPrefix(seen, "DOCTRINE") || !strings.Contains(seen, "Match the work to the model") {
-		t.Fatalf("cheap-lane exec must append the delegate doctrine to the stable half: %q", seen)
-	}
-
-	// A pinned strong model never gets it.
-	seen = ""
-	r.SetPin("sonnet")
-	if _, err := r.Complete(context.Background(), MainLoop, req); err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(seen, "Match the work to the model") {
-		t.Fatal("a pinned model must not get the delegate doctrine")
-	}
-}
-
-// captureSystem wraps a provider to capture the outgoing System text.
-type captureSystem struct {
-	inner *scriptedProv
-	out   *string
-}
-
-func (c *captureSystem) Complete(ctx context.Context, r wire.Request) (wire.Response, error) {
-	*c.out = r.System
-	return c.inner.Complete(ctx, r)
-}
-func (c *captureSystem) Endpoint() (provider.Endpoint, bool) { return c.inner.Endpoint() }
+// TestDelegateDoctrineAppendsOnCheapLane is DELETED along with
+// delegateDoctrine itself: the prompt told a cheap AUTOMATIC coding lane to
+// delegate non-code work to a stronger sub-agent. With one pinned model there
+// is no cheap lane to compensate for and no stronger tier to delegate to.
 
 func TestEndpointModeBypassesPolicy(t *testing.T) {
 	p := &scriptedProv{onEP: &provider.Endpoint{Name: "ollama", BaseURL: "http://localhost:11434/v1", Model: "qwen3:4b"}}
@@ -271,12 +278,14 @@ func TestControlPlaneOutageDegradesToCatalog(t *testing.T) {
 	r.sel.fetch = func(context.Context) (provider.ModelsInfo, error) {
 		return provider.ModelsInfo{}, errors.New("gateway down")
 	}
+	r.SetPin("opus")
 	if _, err := r.Complete(context.Background(), MainLoop, userReq("hi")); err != nil {
 		t.Fatal(err)
 	}
-	// No roles in the degraded snapshot → the default vendor's balanced tier.
-	if p.requested[0] != "terra" {
-		t.Fatalf("degraded selection requested %q, want terra", p.requested[0])
+	// A gateway outage cannot change the model: the pin is local state and the
+	// degraded catalog snapshot still carries its capabilities.
+	if p.requested[0] != "opus" {
+		t.Fatalf("degraded selection requested %q, want the pin (opus)", p.requested[0])
 	}
 }
 
@@ -302,18 +311,17 @@ func TestUncatalogedServeTagsUnknown(t *testing.T) {
 }
 
 // Fork inherits the vendor flavor — sub-agents must honor /model <vendor>.
-func TestForkInheritsVendor(t *testing.T) {
+// A fork inherits the PIN. It used to inherit a session VENDOR, which only
+// mattered because the ladder resolved a tier within that vendor; the vendor is
+// implied by the model now.
+func TestForkInheritsPin(t *testing.T) {
 	p := &scriptedProv{}
-	r := hostedRunner(p, prodInfo(nil))
-	r.SetVendor("anthropic")
+	r := pinnedRunner(p, prodInfo(nil), "opus")
 	f := r.Fork()
-	req := userReq("hi")
-	req.RoutingHint = &wire.RoutingHint{Reason: "self_heal"}
-	if _, err := f.Complete(context.Background(), MainLoop, req); err != nil {
+	if _, err := f.Complete(context.Background(), MainLoop, userReq("hi")); err != nil {
 		t.Fatal(err)
 	}
-	// self_heal → frontier tier of the SESSION vendor: opus, not sol.
 	if p.requested[0] != "opus" {
-		t.Fatalf("forked self_heal requested %q, want opus (inherited anthropic vendor)", p.requested[0])
+		t.Fatalf("forked turn requested %q, want the inherited pin (opus)", p.requested[0])
 	}
 }

@@ -169,13 +169,9 @@ func (s *Session) PersonalityResolved() string {
 func (s *Session) SetExtraMile(on bool) { s.extraMile = on }
 func (s *Session) ExtraMile() bool      { return s.extraMile }
 
-// SetForceEscalate pins every request to Anthropic (the strong tier). Set on a strong-tier
-// background agent child (cmd/agent --tier strong); the in-process path sets it via AgentSpec.
-func (s *Session) SetForceEscalate(on bool) { s.forceEscalate = on }
-
-// SetForceFrontier pins every turn to the FRONTIER (top strong) tier — for a
-// long-running background agent doing substantial unattended work.
-func (s *Session) SetForceFrontier(on bool) { s.forceFrontier = on }
+// SetForceEscalate / SetForceFrontier are DELETED. They pinned a background
+// agent's every request to a stronger TIER. Delegated and background workers run
+// on the session's pinned model now — the one the user chose and is paying for.
 
 // SetToolPolicy restricts the session to the given toolsets/tools (allow;
 // empty = all) minus disabled ones (deny wins) — the gateway applies an
@@ -232,23 +228,9 @@ func (s *Session) Personality() string { return s.personality }
 // SetModel changes the model mid-session (e.g. via a `/model` command).
 func (s *Session) SetModel(model string) { s.model = model }
 
-// SetVendor sets the per-session strong-tier vendor (e.g. via the `/model` selector).
-// The empty string means the configured default. The vendor rides on every
-// subsequent turn's Intent.Vendor so the ladder resolves tiers within the chosen
-// vendor — the catalog's tier triples decide which MODEL that is.
-//
-// A vendor switch (Automatic strong-tier change) also drops thinking blocks from
-// the live chat history — see SetPin for why (provider-specific signatures).
-func (s *Session) SetVendor(v string) {
-	s.vendor = v
-	if s.runner != nil {
-		s.runner.SetVendor(v)
-	}
-	s.stripThinkingFromLiveChat()
-}
-
-// Vendor returns the per-session strong-tier vendor ("" = gateway default).
-func (s *Session) Vendor() string { return s.vendor }
+// SetVendor / Vendor are DELETED. They carried a per-session "strong-tier
+// vendor" that the Automatic ladder resolved a tier WITHIN. The model names its
+// own vendor now, and nothing chooses one on the user's behalf.
 
 // SetPin pins a concrete model for the session (the /model picker's choice): the
 // gateway serves this model for every real request; invisible plumbing (classify/

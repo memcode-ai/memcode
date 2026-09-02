@@ -472,7 +472,7 @@ func (s *Session) exploreTool(ctx context.Context, input json.RawMessage) toolRe
 	// Explore is the read-only RESEARCH flavor of the one agent engine (spawnAgent): a cheap
 	// scout (Tier Fast, Purpose Explore) whose spend is auto-attributed via the forked runner's
 	// shared ledger. Multiple explore calls run concurrently (explore is parallel-safe).
-	res, err := s.spawnAgent(ctx, AgentSpec{Task: q, Tier: TierFast, ReadOnly: true, Scope: in.Scope, Purpose: llm.Explore})
+	res, err := s.spawnAgent(ctx, AgentSpec{Task: q, ReadOnly: true, Scope: in.Scope, Purpose: llm.Explore})
 	// Claude-Code-style marker: ⏺ Explore(scope) with a status-colored bullet
 	// (green done / red failed) and the question dimmed beneath.
 	scope := in.Scope
@@ -566,42 +566,34 @@ func (s *Session) agentTool(ctx context.Context, input json.RawMessage) toolResu
 	if c := strings.TrimSpace(in.Context); c != "" {
 		task = "Context:\n" + c + "\n\nTask:\n" + task
 	}
-	tier := TierFast
-	if strings.EqualFold(strings.TrimSpace(in.Tier), "strong") {
-		tier = TierStrong
-	}
-	label := "fast"
-	if tier == TierStrong {
-		label = "strong"
-	}
 	// Background: run detached (reuse the jobs registry) and report the RESULT back to the LLM
 	// when it finishes (report-back=true) — unlike fire-and-forget dispatch. The completion poll
 	// feeds the persisted result into the engine as a new turn (see vxui agentDoneNotifications).
-	// A long-running background agent runs unattended on a substantial task, so it uses the
-	// FRONTIER (top strong) tier regardless of the requested fast/strong param.
+	// A background agent runs unattended on a substantial task — on the session's
+	// pinned model, like every other delegated worker.
 	if in.Background {
-		job, err := detachedjobs.Spawn(s.root, task, string(permissions.ModeAuto), "frontier", s.browserEnabled, true, "")
+		job, err := detachedjobs.Spawn(s.root, task, string(permissions.ModeAuto), s.browserEnabled, true, "")
 		if err != nil {
 			s.toolLine(true, "Agent", clip(task, 60), "failed", true)
 			return errResult("agent (background) failed to start: " + err.Error())
 		}
-		s.toolLine(true, "Agent", clip(task, 60), "background frontier "+job.ID, false)
-		return textResult(fmt.Sprintf("started background agent %s (frontier tier, pid %d). It runs detached; "+
+		s.toolLine(true, "Agent", clip(task, 60), "background "+job.ID, false)
+		return textResult(fmt.Sprintf("started background agent %s (pid %d). It runs detached; "+
 			"its RESULT will be delivered back to you as a new turn when it finishes — keep working in the "+
 			"meantime, don't wait. Check /agents for status.", job.ID, job.PID))
 	}
-	res, err := s.spawnAgent(ctx, AgentSpec{Task: task, Tier: tier, ReadOnly: in.ReadOnly, Purpose: llm.Agent})
+	res, err := s.spawnAgent(ctx, AgentSpec{Task: task, ReadOnly: in.ReadOnly, Purpose: llm.Agent})
 	if err != nil {
 		s.toolLine(true, "Agent", clip(task, 60), "failed", true)
 		s.printf("%s\n", metaStyle.Render("  ⎿ failed: "+clip(err.Error(), 200)))
 		return errResult("agent failed: " + err.Error())
 	}
-	status := label + fmt.Sprintf(" · %d tools", res.ToolCalls)
+	status := fmt.Sprintf("%d tools", res.ToolCalls)
 	if res.ServedBy != "" {
 		status += " · " + res.ServedBy
 	}
 	s.toolLine(true, "Agent", clip(task, 60), status, false)
-	return textResult(s.spillReport("agent-"+label, s.redactor.Redact(res.Text)))
+	return textResult(s.spillReport("agent", s.redactor.Redact(res.Text)))
 }
 
 // dispatchTool offloads a discrete block of work to a hands-off background sub-agent.
@@ -644,7 +636,7 @@ func (s *Session) dispatchTool(ctx context.Context, input json.RawMessage) toolR
 			return errResult("dispatch denied: " + orEmpty(d.Reason, "the user did not approve launching the sub-agent"))
 		}
 	}
-	job, err := detachedjobs.Spawn(s.root, task, mode, "", s.browserEnabled, false, "")
+	job, err := detachedjobs.Spawn(s.root, task, mode, s.browserEnabled, false, "")
 	if err != nil {
 		s.toolLine(true, "Dispatch", clip(task, 60), "failed", true)
 		s.printf("%s\n", metaStyle.Render("  ⎿ failed: "+clip(err.Error(), 200)))

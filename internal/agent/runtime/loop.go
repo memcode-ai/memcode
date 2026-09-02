@@ -202,18 +202,18 @@ func (s *Session) runLoop(ctx context.Context, sys promptSpec, messages *[]wire.
 			refl := s.reflectGate(ctx, *messages, &committedOut)
 			return s.finishPlan(ctx, sys, messages, committedOut, iterations, refl)
 		}
-		// Thinking + tier are judged PER USER MESSAGE by the turn_intent classifier
+		// Thinking depth is judged PER USER MESSAGE by the turn_intent classifier
 		// (fired in scoreTurn; joined here, once, before the first model call):
-		// trivial lookups run with no thinking on the cheap tier; deep work gets
-		// full thinking on the heavy tier from turn ONE. The MODEL is the selection
-		// ladder's call — the loop sends intent (purpose + effort + difficulty +
-		// the risk hint) and llm resolves the label (ROUTING.md).
+		// trivial asks run with no thinking, deep work gets full thinking from
+		// turn ONE. The MODEL is not judged — it is the user's pin, for every
+		// turn of the session.
 		s.joinTurnJudge(ctx)
 		eff := s.turnEffort
 		if s.turn.healRounds > 0 {
-			// Stuck fixing its OWN broken edit — full thinking, AND the self_heal
-			// risk takes it to the frontier tier this turn (it CONVERGES instead
-			// of spiraling on the cheap model).
+			// Stuck fixing its OWN broken edit — full thinking so it CONVERGES
+			// instead of spiraling. It used to also escalate to the frontier
+			// tier; there is no tier to escalate to, and swapping the model
+			// mid-session is exactly what the pin forbids.
 			eff = wire.EffortHigh
 		}
 		if s.planCtl.Planning() {
@@ -232,12 +232,8 @@ func (s *Session) runLoop(ctx context.Context, sys promptSpec, messages *[]wire.
 		resp, err := s.complete(ctx, s.purpose, sys.request(wire.Request{
 			Messages: *messages, Tools: s.toolDefs(),
 			Effort: eff, MaxTokens: maxTok,
-			Difficulty:  s.turnDifficulty,    // the judge's tier verdict → the ladder's difficulty input
 			BillingLane: s.turnBillingLane(), // "" normally; "credits" after an explicit BYOK-failure consent
 			LaneBypass:  s.turn.laneBypass,   // "" normally; "gateway" after a consented lane-exhaustion fallback
-			// Escalation signals only the CLI can see (self-heal, room friction,
-			// high-risk surfaces) — inputs to the CLI's own semantic ladder.
-			RoutingHint: s.turnRoutingHint(),
 		}), committedOut, s.planCtl.Planning()) // suppress prose while gathering in plan mode
 		if err != nil {
 			if ctx.Err() != nil { // the user cancelled this turn
@@ -733,16 +729,17 @@ func parsePlanVerdict(resp wire.Response) (planVerdict, bool) {
 // "did not run". Returns the verdict and the reviewer's served label (for the tool line).
 // messages must end with the drafted plan so the reviewer can see it.
 func (s *Session) reviewWithTools(ctx context.Context, messages []wire.Message) (planVerdict, string) {
-	// The plan thread was produced on the cheap PLANNER (glm — OpenAI-style tool ids). Its
-	// tool_use/tool_result plumbing means nothing to the REVIEWER (a different model, usually
-	// Haiku/Anthropic), and replaying another backend's tool calls into Anthropic trips its
-	// strict tool_use→tool_result validation ("tool_use ids without tool_result" → 400/502).
-	// The reviewer audits the plan against the CODE with its OWN read-only tools, so hand it a
-	// clean natural-language transcript (task + reasoning + plan), not the planner's tool calls.
+	// The plan thread was produced on the SESSION's model. Its tool_use/
+	// tool_result plumbing means nothing to a reviewer on a different vendor,
+	// and replaying another backend's tool calls into Anthropic trips its strict
+	// tool_use→tool_result validation ("tool_use ids without tool_result" →
+	// 400/502). The reviewer audits the plan against the CODE with its OWN
+	// read-only tools, so hand it a clean natural-language transcript (task +
+	// reasoning + plan), not the planner's tool calls.
 	messages = stripToolBlocks(messages)
 	sub := New(s.store, s.runner.Fork(), s.root, s.model, permissions.ModeAsk, io.Discard)
 	sub.readOnly = true          // gates tools to the read-only whitelist (no edits, no bash)
-	sub.purpose = llm.Review     // routes every call to the reviewer model + selects the review budget/whitelist
+	sub.purpose = llm.Review     // selects the review budget/tool whitelist
 	sub.iterCap = reviewMaxTurns // bounded audit loop — a claim-verifier, not a full explorer
 
 	skip := func(reason string) (planVerdict, string) {
@@ -948,7 +945,7 @@ func (s *Session) synthesizePlan(ctx context.Context, sys promptSpec, messages *
 	// Initial draft: the planner writes the plan, free to take a final read OR ask a clarifying
 	// question first (draftPlan keeps its tools). The reviewer-triggered revisions below reuse the
 	// SAME primitive, so a revision can ALSO ask the user — not only auto-revise.
-	resp, plan, err := s.draftPlan(ctx, sys, messages, &committedOut, &iterations, nil)
+	resp, plan, err := s.draftPlan(ctx, sys, messages, &committedOut, &iterations)
 	if err != nil {
 		if ctx.Err() != nil {
 			s.printf("\n■ interrupted.\n")
@@ -957,13 +954,14 @@ func (s *Session) synthesizePlan(ctx context.Context, sys promptSpec, messages *
 		return iterations, false, err
 	}
 	// Backstop: if the model produced nothing usable even WITH tools (rare — genuine
-	// runaway, or a truly hard plan), escalate synthesis to the strong model — the
-	// legitimate court-of-appeal (plan_synth_incomplete is in lane.go's planEscalations).
+	// runaway, or a truly hard plan), retry synthesis once with a forcing nudge. This
+	// used to escalate to a stronger tier; it is a RETRY on the same pinned model now,
+	// which is the only honest thing left to do — and still worth doing, since the
+	// failure it catches is an empty draft, not a too-weak one.
 	if len(plan) < minPlanLen && ctx.Err() == nil {
-		s.printf("\n%s\n", metaStyle.Render("(plan incomplete — escalating to the strong model…)"))
+		s.printf("\n%s\n", metaStyle.Render("(plan came back empty — retrying synthesis…)"))
 		resp3, err3 := s.complete(ctx, llm.Synth, sys.withFact("nudge", "force").request(wire.Request{
 			Messages: *messages, Tools: nil, Effort: wire.EffortHigh, MaxTokens: planMaxTokens,
-			RoutingHint: &wire.RoutingHint{Reason: "plan_synth_incomplete"},
 		}), committedOut, false)
 		if err3 == nil {
 			if t := strings.TrimSpace(resp3.Text()); len(t) > len(plan) {
@@ -974,93 +972,14 @@ func (s *Session) synthesizePlan(ctx context.Context, sys promptSpec, messages *
 	if plan != "" {
 		s.lastText = plan
 	}
-	// Cross-model review: a 2nd cheap model (purpose=review) critiques the drafted plan before
-	// it's presented. Skip when the plan was escalated to Opus (resp.Backend == "anthropic") —
-	// Opus is the bar, a cheap critic would be noise. The review LOOPS, so a SECOND "revise"
-	// actually triggers a second revision: ok → present as-is; revise → revise on the cheap
-	// planner and RE-REVIEW; escalate → re-plan on the strong model and stop. A revise/escalate
-	// verdict ALWAYS triggers a revision pass — even with no parseable findings (a generic
-	// nudge) — never a silent "couldn't resolve". Bounded so review↔revise can't spin forever.
-	const maxPlanReviewRounds = 3
-	reviewUnresolved := false // a revision CALL produced nothing usable → plan stays flagged, not ready
-	reviewed := false
-	for round := 0; plan != "" && isCheapLane(resp.Backend) && ctx.Err() == nil && round < maxPlanReviewRounds; round++ {
-		reviewed = true
-		reviewMsgs := append(append([]wire.Message{}, *messages...), wire.Message{Role: "assistant", Blocks: resp.Blocks})
-		// "Reviewing the plan…" is a PHASE (the review runs in a silenced forked sub-session),
-		// emitted as muted status prose so the spinner doesn't look stuck on synthesis; the
-		// durable record is the ⏺ ReviewPlan line below.
-		s.printf("%s\n", metaStyle.Render("Reviewing the plan…"))
-		v, reviewedBy := s.reviewWithTools(ctx, reviewMsgs)
-		s.toolLine(true, "ReviewPlan", reviewedBy, v.Verdict, false) // ⏺ ReviewPlan(haiku…) · ok|revise|escalate
-		if v.Verdict != "revise" && v.Verdict != "escalate" {
-			break // ok (or any non-fix verdict) → present as-is
-		}
-		// ⎿ findings — the summary headline plus each concrete issue, one ⎿ line each.
-		var findings []string
-		for _, ln := range strings.Split(strings.TrimSpace(v.Summary), "\n") {
-			if ln = strings.TrimSpace(ln); ln != "" {
-				findings = append(findings, ln)
-			}
-		}
-		for _, is := range v.Issues {
-			if d := strings.TrimSpace(is.Detail); d != "" {
-				findings = append(findings, d)
-			}
-		}
-		for _, ln := range findings {
-			s.printf("%s\n", metaStyle.Render("  ⎿ "+clip(ln, 300)))
-		}
-		// Build the revision nudge from everything the reviewer surfaced (findings + feedback).
-		var detail strings.Builder
-		for _, ln := range findings {
-			detail.WriteString("- " + ln + "\n")
-		}
-		if fb := strings.TrimSpace(v.Feedback); fb != "" {
-			detail.WriteString(fb)
-		}
-		body := strings.TrimSpace(detail.String())
-		// revise = ALWAYS revise: the verdict alone triggers a revision pass; if the reviewer
-		// left no parseable findings, nudge generically rather than presenting the flagged plan.
-		escalate := v.Verdict == "escalate"
-		nudge := "A reviewer flagged issues with this plan. Revise it to fix them, keeping its goal and approach intact:\n" + body
-		if body == "" {
-			nudge = "A reviewer judged this plan needs revision. Tighten it — close any gaps, ambiguity, or unjustified steps — keeping its goal and approach intact."
-		}
-		var hint *wire.RoutingHint
-		if escalate { // load-bearing problem → re-plan on the strong model
-			nudge = "A reviewer flagged a fundamental problem with this plan's approach. Re-plan to address it:\n" + body
-			hint = &wire.RoutingHint{Reason: "plan_review_escalate"}
-		}
-		*messages = append(*messages, wire.Message{Role: "assistant", Blocks: resp.Blocks})
-		*messages = append(*messages, wire.Message{Role: "user", Blocks: []wire.Block{{Type: "text", Text: nudge}}})
-		// Tool-enabled revision — the SAME draftPlan the initial synthesis uses, with the FULL
-		// toolset. A reviewer "revise" isn't always an auto-fixable gap: when the concern needs
-		// investigation (read the file the reviewer cited, grep, web-search) or a decision only the
-		// USER can make (a contradicted design choice, an unverifiable assumption), the planner does
-		// that work and folds it in — instead of a toothless one-shot regeneration that dead-ends.
-		resp2, plan2, err2 := s.draftPlan(ctx, sys, messages, &committedOut, &iterations, hint)
-		if err2 != nil || plan2 == "" {
-			// The revision produced nothing usable (and didn't resolve via investigation/questions)
-			// — keep the prior plan, flag it, stop.
-			reviewUnresolved = true
-			s.printf("\n%s\n", metaStyle.Render("(couldn't auto-resolve the reviewer's concerns above — tell me how you'd like to proceed, or revise the plan yourself)"))
-			break
-		}
-		resp, plan = resp2, plan2
-		s.lastText = plan
-		if escalate {
-			break // re-planned on Opus (the court of appeal) — don't cheap-review its output
-		}
-		// loop → re-review the revised plan (a second "revise" now triggers a second revision)
-	}
-	if reviewed {
-		// The review (+ any revision) moved lastBackend/lastModel/lastPool — restore them to
-		// the call that produced the SHOWN plan, so the footer/ServedBy stay honest.
-		s.recordServed(func(v *servedState) {
-			v.backend, v.model, v.pool, v.byok = resp.Backend, resp.Model, resp.Pool, resp.BYOK
-		})
-	}
+	// The AUTOMATIC cross-model plan review lived here and is DELETED.
+	// It ran a second, different model over every drafted plan because
+	// Automatic could put planning on a cheap one, making an independent
+	// stronger check worth its cost. With the user's own pinned model drafting,
+	// that justification is gone — and the replacement is NOT mandatory
+	// same-model review, which would just be the plan grading its own homework.
+	// Review is now an explicit choice on the approval card ("Review with
+	// another model"), which runs one critique on a model the user names.
 	// Backstop: if even planMaxTokens wasn't enough, the plan is cut mid-sentence — say
 	// so plainly instead of leaving a silently-truncated artifact (what "• **Adaptive-th"
 	// looked like before the cap bump).
@@ -1069,12 +988,12 @@ func (s *Session) synthesizePlan(ctx context.Context, sys promptSpec, messages *
 	}
 	*messages = append(*messages, wire.Message{Role: "assistant", Blocks: resp.Blocks})
 	// A plan actually landed (not interrupted before synthesis) — Present moves the machine
-	// to Presented so the TUI raises the approval selector. An empty synthesis, OR a
-	// reviewer-flagged plan we couldn't revise, presents nothing (phase stays Researching)
-	// so no "Execute" selector appears over a plan that isn't actually ready. The pin guard
+	// to Presented so the TUI raises the approval selector. An empty synthesis presents
+	// nothing (phase stays Researching) so no "Execute" selector appears over a plan that
+	// isn't actually ready. The pin guard
 	// (only a plan-SHAPED synthesis replaces the contract — the clobber bug) lives inside
 	// Present; Effects.SavePlan fires the durable copy only when the pin was replaced.
-	if plan != "" && !reviewUnresolved {
+	if plan != "" {
 		eff, _ := s.planCtl.Present(plan)
 		s.applyPlanEffects(ctx, eff)
 	}
@@ -1090,22 +1009,15 @@ func (s *Session) synthesizePlan(ctx context.Context, sys promptSpec, messages *
 // one-shot regeneration that dead-ends. committedOut and iterations advance in place (bounded
 // by the loop's runaway guard); hint, when non-nil, forces a routing path (e.g. escalation).
 // Returns the final response and its trimmed text ("" if the bound was hit before prose landed).
-func (s *Session) draftPlan(ctx context.Context, sys promptSpec, messages *[]wire.Message, committedOut, iterations *int, hint *wire.RoutingHint) (wire.Response, string, error) {
+func (s *Session) draftPlan(ctx context.Context, sys promptSpec, messages *[]wire.Message, committedOut, iterations *int) (wire.Response, string, error) {
 	var resp wire.Response
-	// The turn's own risk signal must ride the synthesis call too: without this default the
-	// research loop escalates on high_risk_surface while the plan-WRITING call arrives at the
-	// gateway risk-less and falls back to the cheap planner — the worst possible inversion
-	// (the 2026-07-15 billing plan did exactly that). An explicit caller hint (escalation)
-	// still wins. Side effect of drafting on the strong tier: the cheap cross-review below
-	// self-skips (isCheapLane gate) — the strong draft IS the bar, per doctrine.
-	if hint == nil {
-		hint = s.turnRoutingHint()
-	}
+	// No routing hint rides this call any more. It used to carry the turn's risk
+	// signal so the plan-WRITING call landed on the same tier as the research
+	// loop — a real inversion bug when it didn't. Both now run on the pinned
+	// model, which is the same model either way, so there is nothing to keep in
+	// sync.
 	for ; *iterations <= maxIterations; (*iterations)++ {
 		req := wire.Request{Messages: *messages, Tools: s.toolDefs(), Effort: wire.EffortHigh, MaxTokens: planMaxTokens}
-		if hint != nil {
-			req.RoutingHint = hint
-		}
 		var err error
 		resp, err = s.complete(ctx, llm.Synth, sys.withFact("nudge", "wrapup").request(req), *committedOut, false) // stream
 		if err != nil {
@@ -1223,9 +1135,6 @@ func (s *Session) complete(ctx context.Context, purpose llm.Purpose, req wire.Re
 		// Room/friction hints (user_friction_*) are internal interaction state — not surfaced
 		// (Tim: "don't show the room stuff"). Genuine routing reasons (self_heal, escalate,
 		// high_risk_surface) STILL show, so an unexpected escalation stays legible.
-		if req.RoutingHint != nil && req.RoutingHint.Reason != "" && !strings.HasPrefix(req.RoutingHint.Reason, "user_friction") {
-			line += " · hint:" + req.RoutingHint.Reason
-		}
 		// Thinking EFFORT (also shown live on the spinner): the depth this turn reasoned at.
 		if req.Effort != wire.EffortOff {
 			line += " · " + string(req.Effort) + " effort"

@@ -586,10 +586,8 @@ func (r *runtime) runJob(ctx context.Context, it state.Item) {
 	}
 	// A gateway-triggered job has no TTY to answer approval prompts → Auto mode.
 	// Continuity: a stable session id per conversation, so follow-up messages
-	// resume the same session (the child does resume-or-create on this id). Tier
-	// routes this channel to a stronger model when configured.
+	// resume the same session (the child does resume-or-create on this id).
 	settings := r.cfg()
-	cfg := settings.Get(it.Channel)
 	session := conversationSession(it.Channel, it.Conversation, it.Agent)
 	// Resolve the snapshotted project id to its canonical root. The registry plus
 	// the channel's project policy is the authorization boundary, re-checked at
@@ -636,7 +634,7 @@ func (r *runtime) runJob(ctx context.Context, it state.Item) {
 		fmt.Fprintf(r.out, "gateway: composing context for %s: %v\n", it.Channel, err)
 	}
 	chrome := agentWantsBrowser(settings, it.Agent)
-	job, err := jobs.Spawn(root, it.Text, string(permissions.ModeAuto), cfg.Tier, chrome, true, session)
+	job, err := jobs.Spawn(root, it.Text, string(permissions.ModeAuto), chrome, true, session)
 	if err != nil {
 		// A spawn failure won't succeed on replay; record the error as the reply so
 		// it rides the same durable delivery path instead of being lost.

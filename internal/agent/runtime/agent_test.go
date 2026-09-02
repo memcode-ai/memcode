@@ -7,19 +7,10 @@ import (
 	"github.com/memcode-ai/memcode/internal/llm"
 )
 
-// A strong-tier agent keeps every request on the strong tier via the agent_strong
-// hint (the same Risk mechanism self-heal / plan-synth use); an ordinary turn
-// carries no hint (cheap lane).
-func TestStrongTierForceEscalates(t *testing.T) {
-	strong := &Session{forceEscalate: true, turn: newTurnState()}
-	h := strong.turnRoutingHint()
-	if h == nil || h.Reason != "agent_strong" {
-		t.Fatalf("strong-tier agent must escalate to the strong tier, got %+v", h)
-	}
-	if ordinary := (&Session{turn: newTurnState()}).turnRoutingHint(); ordinary != nil {
-		t.Errorf("an ordinary turn must carry no escalation hint, got %+v", ordinary)
-	}
-}
+// TestStrongTierForceEscalates is DELETED. It asserted that a "strong tier"
+// agent escalated every request via the agent_strong hint. Delegated workers
+// are user-work inference now and run on the session's pinned model; there is
+// no tier for an agent to be pinned to, and no hint mechanism left.
 
 // The agent tool is offered to the executive, but never to a read-only explorer, and never from
 // inside a spawned agent (no runaway nesting). explore stays parallel-safe; agent is serial.

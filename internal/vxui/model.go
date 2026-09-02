@@ -30,10 +30,10 @@ func vendorLabel(v string) string {
 	return v
 }
 
-// modelEntry is one row of the /model picker: Automatic, a concrete pinnable
+// modelEntry is one row of the /model picker: a concrete pinnable
 // model, or (endpoint mode) the free-text entry row.
 type modelEntry struct {
-	label    string // "" for Automatic; else the model label/id (the pin value)
+	label    string // the model label/id (the pin value)
 	name     string // friendly display name ("Sonnet 5"); falls back to label
 	desc     string // one-line description ("1M context · Efficient for routine tasks")
 	window   int
@@ -42,10 +42,12 @@ type modelEntry struct {
 }
 
 // modelSlash handles the /model command. Endpoint mode routes to the endpoint
-// picker (the endpoint's models, no Automatic). Hosted: with no arg it opens
-// the flat model picker (Automatic + every model the gateway offers); with an
-// arg it applies directly — "auto" clears the pin, a legacy vendor name
-// switches the Automatic strong-tier vendor, anything else pins that label.
+// picker (the endpoint serves exactly the model you name). Hosted: with no arg
+// it opens the flat model picker (every model the gateway offers); with an arg
+// it pins that label directly.
+//
+// There is no Automatic row and no vendor switch. Both were ways of NOT
+// choosing a model, and the pin is the only model concept left.
 func (s *appState) modelSlash(args string) {
 	if ep, ok := s.w.sess.Endpoint(); ok {
 		s.endpointModelSlash(ep, strings.TrimSpace(args))
@@ -57,13 +59,11 @@ func (s *appState) modelSlash(args string) {
 		return
 	}
 	// No arg → open the picker. Fetch the pinnable list from the gateway (async,
-	// bounded), then open the modal on the UI thread. Offline → Automatic only
-	// (the legacy vendor switch still works as a typed arg).
+	// bounded), then open the modal on the UI thread.
 	cur := s.w.sess.Pin()
 	s.runAsync(func(ctx context.Context) string {
 		pins := provider.AvailablePins(ctx)
-		entries := make([]modelEntry, 0, len(pins)+1)
-		entries = append(entries, modelEntry{}) // row 0: Automatic
+		entries := make([]modelEntry, 0, len(pins))
 		for _, p := range pins {
 			name := p.Name
 			if name == "" {
@@ -77,7 +77,7 @@ func (s *appState) modelSlash(args string) {
 }
 
 // endpointModelSlash is /model against a custom endpoint. There is no
-// Automatic and no vendor switch — the endpoint is the routing authority and
+// vendor switch — the endpoint is the serving authority and
 // the CLI names one concrete model per session. A typed arg pins it verbatim
 // (ids are case-significant); no arg opens the picker on the endpoint's model
 // list — the config-curated allowlist when one is set, else GET {base}/models
@@ -86,7 +86,7 @@ func (s *appState) endpointModelSlash(ep provider.Endpoint, arg string) {
 	switch strings.ToLower(arg) {
 	case "":
 	case "auto", "automatic":
-		s.sysln("no Automatic on a custom endpoint — the endpoint serves exactly the model you name (/model <id>, or /model to pick)")
+		s.sysln("a custom endpoint serves exactly the model you name (/model <id>, or /model to pick)")
 		return
 	default:
 		s.applyEndpointModel(ep, arg)
@@ -174,46 +174,38 @@ func (s *appState) resolveEndpointModel() {
 	})
 }
 
-// applyModelChoice applies a /model selection: "auto"/"automatic" clears the pin,
-// a legacy vendor name ("openai"…) switches the Automatic strong-tier vendor (and
-// clears the pin), anything else pins that model label. window is the pin's
+// applyModelChoice applies a /model selection: any label pins that model for the
+// session, and is persisted so the next session starts on it. window is the pin's
 // context window when known (picker rows carry it; typed args pass 0). display is
-// the picker's friendly name ("Sonnet 4.6") when the choice came from the picker —
+// the picker's friendly name ("Sonnet 5") when the choice came from the picker —
 // empty for a typed arg, so the confirmation echoes back exactly what was typed.
 func (s *appState) applyModelChoice(choice, display string, window int) {
-	switch choice {
-	case "auto", "automatic", "":
-		s.w.sess.SetPin("", 0)
-		s.persistModel(func(cfg *config.Config) { cfg.PinnedModel, cfg.PinnedWindow = "", 0 })
-		s.sysln("model → Automatic")
-	case "openai", "anthropic", "gemini", "grok":
-		// The legacy vendor switch: Automatic mode, with this vendor as the strong tier.
-		s.w.sess.SetVendor(choice)
-		s.w.sess.SetPin("", 0)
-		s.persistModel(func(cfg *config.Config) {
-			cfg.Vendor = choice
-			cfg.PinnedModel, cfg.PinnedWindow = "", 0
-		})
-		s.sysln("model → Automatic · strong tier " + vendorLabel(choice))
-	default:
-		// A concrete model label. The resolver validates for real (an unknown
-		// label falls through to Automatic client-side), so a typed pin works
-		// even when the picker list couldn't be fetched.
-		s.w.sess.SetPin(choice, window)
-		s.persistModel(func(cfg *config.Config) { cfg.PinnedModel, cfg.PinnedWindow = choice, window })
-		// Picker selections carry a friendly name + context window — echo THAT (what the
-		// user actually picked), not the bare gateway label, so the confirmation reads as
-		// well as the picker row did. A typed arg has no display name; echo it verbatim.
-		label := display
-		if label == "" {
-			label = choice
-		}
-		msg := "model → " + label
-		if w := fmtWindow(window); w != "" {
-			msg += " · " + w + " context"
-		}
-		s.sysln(msg)
+	if choice == "" || choice == "auto" || choice == "automatic" {
+		// Automatic is gone. Say so plainly rather than silently doing nothing,
+		// because muscle memory and old docs will keep sending people here.
+		s.sysln("Automatic routing was removed — /model picks one model for the session")
+		return
 	}
+	// A concrete model label. A typed pin works even when the picker list
+	// couldn't be fetched; selection validates it for real.
+	s.w.sess.SetPin(choice, window)
+	// Persist to BOTH stores: the workspace remembers what this repo runs on,
+	// and the user level seeds the next NEW repo — "I use Opus" shouldn't have
+	// to be re-said per checkout.
+	s.persistModel(func(cfg *config.Config) { cfg.PinnedModel, cfg.PinnedWindow = choice, window })
+	config.SaveUserPin(choice, window)
+	// Picker selections carry a friendly name + context window — echo THAT (what the
+	// user actually picked), not the bare gateway label, so the confirmation reads as
+	// well as the picker row did. A typed arg has no display name; echo it verbatim.
+	label := display
+	if label == "" {
+		label = choice
+	}
+	msg := "model → " + label
+	if w := fmtWindow(window); w != "" {
+		msg += " · " + w + " context"
+	}
+	s.sysln(msg)
 }
 
 // fmtWindow renders a context window compactly for the picker column: 1M, 500K.

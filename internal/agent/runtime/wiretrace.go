@@ -35,9 +35,6 @@ func wireRecord(purpose llm.Purpose, req wire.Request, resp wire.Response, err e
 		"tools":      toolNames(req.Tools),
 		"msgs":       len(req.Messages),
 	}
-	if req.RoutingHint != nil {
-		rec["hint"] = req.RoutingHint.Reason
-	}
 	if err != nil {
 		rec["err"] = err.Error()
 		return rec

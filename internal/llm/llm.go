@@ -197,22 +197,19 @@ type Runner struct {
 	ledger  *Ledger
 	sel     *selection // control-plane snapshot + selection policy (forks share it)
 	session string     // this Session's id — stamped onto every request (the wire `user` field)
-	vendor  string     // per-session strong-tier vendor flavor ("" / default = steerable Automatic)
-	pin     string     // pinned model label from /model ("" = Automatic)
+	pin     string     // the session's model (the pin resolver settles it at start)
 }
 
 // SetSession ties this Runner to a Session id so every call carries it on the wire
 // (X-Memcode-Session). Called when the owning Session gets its id; forks set their own.
 func (r *Runner) SetSession(id string) { r.session = id }
 
-// SetVendor ties this Runner to a per-session strong-tier vendor the ladder
-// resolves tiers within (Intent.Vendor). Called when the Session's vendor
-// changes via /model. The empty string means the configured default (BYOK
-// steering may prefer a keyed vendor).
-func (r *Runner) SetVendor(v string) { r.vendor = v }
+// SetVendor is DELETED with the ladder: a "strong-tier vendor" only meant
+// anything while something resolved a TIER within it.
 
-// SetPin ties this Runner to a pinned model label the resolver serves every
-// real request on (Intent.Pin). "" = Automatic (the ladder decides).
+// SetPin ties this Runner to the session's model — the label every real request
+// serves on. The pin resolver settles it once at session start; nothing else
+// changes it mid-session except an explicit /model.
 func (r *Runner) SetPin(label string) { r.pin = label }
 
 // NewRunner wraps a provider with a fresh ledger. Construct ONE at the top level
@@ -236,7 +233,7 @@ func (r *Runner) InvalidateModels() { r.sel.Invalidate() }
 // snapshot), never an executor with per-context state. The pin is inherited:
 // /model pins the whole session, sub-agents included.
 func (r *Runner) Fork() *Runner {
-	return &Runner{prov: r.prov, ledger: r.ledger, sel: r.sel, pin: r.pin, vendor: r.vendor}
+	return &Runner{prov: r.prov, ledger: r.ledger, sel: r.sel, pin: r.pin}
 }
 
 // Provider returns the wrapped provider — ONLY for capability assertions that aren't
@@ -259,9 +256,8 @@ func (r *Runner) hostedPolicy() bool {
 }
 
 // prepare stamps the per-call wire fields and — on the hosted backend — runs
-// the selection policy: intent → lane → concrete label (+ the delegate
-// doctrine when the cheap coding lane serves an interactive building mode).
-// The chosen label rides req.Pin; the transport puts it in the wire `model`.
+// the selection policy: purpose + pin → concrete label. The chosen label rides
+// req.Pin; the transport puts it in the wire `model`.
 func (r *Runner) prepare(ctx context.Context, p Purpose, req *wire.Request) (resolved, provider.ModelsInfo, bool, error) {
 	req.Purpose, req.Session = string(p), r.session
 	if !r.hostedPolicy() {
@@ -272,37 +268,24 @@ func (r *Runner) prepare(ctx context.Context, p Purpose, req *wire.Request) (res
 	if lz, ok := r.prov.(provider.Laner); ok {
 		info = applyLaneFacts(info, lz.Lanes(), lz.GatewayPresent())
 	}
-	it := wire.Intent{Purpose: string(p), Mode: req.Mode, Reasoning: req.Effort,
-		Difficulty: req.Difficulty, Vendor: r.vendor, Pin: r.pin}
-	if req.RoutingHint != nil {
-		it.Risk = req.RoutingHint.Reason
-	}
+	it := wire.Intent{Purpose: string(p), Mode: req.Mode, Reasoning: req.Effort, Pin: r.pin}
 	res := resolveHosted(it, *req, info)
 	if res.err != nil {
 		return res, info, true, res.err
 	}
 	req.Pin = res.label
 	scrubForeignThinking(req, res.label)
-	// The delegate doctrine: the cheap coding lane, serving an interactive
-	// building mode under Automatic, is told to hand non-code work to a
-	// strong-tier agent. Appended to the composed STABLE half (cache-safe:
-	// static per selected label). Routing-owned prose — it lives with the
-	// routing decision, which is HERE now.
-	if !res.pinned && (req.Mode == "chat" || req.Mode == "exec") &&
-		req.SystemVolatile != "" && catalog.ModelVendor(res.label) == "fireworks" {
-		if req.System != "" {
-			req.System += "\n\n" + delegateDoctrine
-		} else {
-			req.System = delegateDoctrine
-		}
-	}
+	// The delegate doctrine was appended here: a cheap Automatic coding lane
+	// was told to hand non-code work to a strong-tier agent. Both halves of
+	// that sentence are gone — there is no cheap lane and no stronger tier to
+	// delegate to, only the model the user chose.
 	return res, info, true, nil
 }
 
-// delegateDoctrine tells the cheap coding lane to route non-code work to a
-// strong-tier agent rather than answering it directly (the agent tool reports
-// the result back). Moved from the gateway with the rest of routing.
-const delegateDoctrine = `Match the work to the model. You are the fast coding lane: strong at code, weaker at prose, writing, and open-ended non-code reasoning. When a task is not really about code, such as drafting docs or copy, writing, or general research and reasoning, hand it to a stronger model with the agent tool, agent{task:"…", tier:"strong"}, and use what it returns instead of doing it yourself. Keep the code and repo work for yourself.`
+// delegateDoctrine is DELETED. It told the cheap Automatic coding lane it was
+// "the fast coding lane" and should hand prose and open-ended reasoning to a
+// stronger model via agent{tier:"strong"}. There is no cheap lane to warn and
+// no strong tier to hand off to: the session runs on the model the user picked.
 
 // meter records one call's usage. Success always meters; a FAILED call still
 // meters when the response carries usage — all three native adapters return

@@ -129,7 +129,6 @@ type (
 	AgentInput struct {
 		Task       string `json:"task"`                 // the self-contained instruction for the sub-agent
 		Context    string `json:"context,omitempty"`    // optional background the sub-agent needs (it starts fresh)
-		Tier       string `json:"tier,omitempty"`       // "fast" (cheap, default) | "strong" (Anthropic — non-code/hard/quality work)
 		ReadOnly   bool   `json:"readonly,omitempty"`   // true = investigate/generate only (no edits); false = a full mutating agent
 		Background bool   `json:"background,omitempty"` // true = run detached and report the result back when done (don't block this turn)
 	}
@@ -744,7 +743,6 @@ func Defs() []wire.ToolDef {
 			InputSchema: obj(map[string]any{
 				"task":       str("the complete, self-contained instruction for the sub-agent (it has no memory of this conversation)"),
 				"context":    str("optional background the sub-agent needs to do the task well"),
-				"tier":       enum("which model lane: \"fast\" (cheap, default) or \"strong\" (Anthropic — for non-code / quality-sensitive / hard work)", []string{"fast", "strong"}),
 				"readonly":   boolean("true = investigate/generate only (no edits); false (default) = a full agent that can edit files and run commands"),
 				"background": boolean("true = run detached and have the result reported back to you when it finishes (keep working meanwhile); false (default) = run now and wait for the result"),
 			}, "task"),

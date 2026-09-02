@@ -740,31 +740,7 @@
     "price_out": 15,
     "_note": "unknown ids: a safe non-alarming window baseline + the sonnet rate card"
   },
-  "tiers": {
-    "openai": {
-      "frontier": "sol",
-      "balanced": "terra",
-      "cheap": "luna"
-    },
-    "anthropic": {
-      "frontier": "opus",
-      "balanced": "sonnet",
-      "cheap": "haiku"
-    },
-    "gemini": {
-      "frontier": "gemini-pro",
-      "balanced": "gemini-flash",
-      "cheap": "gemini-flash-lite"
-    },
-    "grok": {
-      "frontier": "grok-4.6",
-      "balanced": "grok-4.6",
-      "cheap": "grok-4.6"
-    },
-    "fireworks": {
-      "frontier": "kimi-k3",
-      "balanced": "kimi-k2p7-code",
-      "cheap": "glm-5p2"
-    }
-  }
+  "_selection_note": "default_model SEEDS the pin exactly once, when no session/workspace/user pin exists; it is then persisted and behaves like any other user choice. It is NOT a fallback, NOT consulted per turn, and NOT a substitution target. utility_model serves internal plumbing only (classify/authorize, compact, shrinkwrap) and may never select, substitute, escalate, downgrade, or steer the pinned model.",
+  "default_model": "sonnet",
+  "utility_model": "gpt-oss-120b"
 }

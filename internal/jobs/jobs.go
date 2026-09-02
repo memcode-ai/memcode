@@ -49,18 +49,17 @@ type ExecutionBudgets struct {
 }
 
 type SpawnSpec struct {
-	Root, Task, Mode, Tier, SessionID, AgentID, ObjectiveID, SubgoalID, RunID, ParentRunID, PolicyHash, BrowserMode string
-	ToolPolicy                                                                                                      ToolPolicy
-	ResourceGrant                                                                                                   ResourceGrant
-	Budgets                                                                                                         ExecutionBudgets
-	ReportBack                                                                                                      bool
+	Root, Task, Mode, SessionID, AgentID, ObjectiveID, SubgoalID, RunID, ParentRunID, PolicyHash, BrowserMode string
+	ToolPolicy                                                                                                ToolPolicy
+	ResourceGrant                                                                                             ResourceGrant
+	Budgets                                                                                                   ExecutionBudgets
+	ReportBack                                                                                                bool
 }
 
 type Job struct {
 	ID         string `json:"id"`
 	Task       string `json:"task"`
 	Mode       string `json:"mode"`
-	Tier       string `json:"tier,omitempty"`        // "strong" → the detached child runs on the frontier tier (agent_frontier)
 	ReportBack bool   `json:"report_back,omitempty"` // true → on finish, feed Result back to the calling LLM (agent{background}), not just the user
 	Result     string `json:"result,omitempty"`      // the agent's final text (set by Finish) — what gets reported back
 	PID        int    `json:"pid"`
@@ -128,16 +127,16 @@ func LogPath(root, id string) string { return filepath.Join(jobDir(root, id), "l
 // --job <id> so it acquires the writer lock and records its own completion.
 // When chrome is true, --chrome is forwarded so backgrounded browser jobs keep
 // the capability (Chrome always launches with a visible window).
-func Spawn(root, task, mode, tier string, chrome, reportBack bool, session string) (Job, error) {
+func Spawn(root, task, mode string, chrome, reportBack bool, session string) (Job, error) {
 	browserMode := ""
 	if chrome {
 		browserMode = "ephemeral"
 	}
-	return SpawnWithSpec(SpawnSpec{Root: root, Task: task, Mode: mode, Tier: tier, SessionID: session, BrowserMode: browserMode, ReportBack: reportBack})
+	return SpawnWithSpec(SpawnSpec{Root: root, Task: task, Mode: mode, SessionID: session, BrowserMode: browserMode, ReportBack: reportBack})
 }
 
 func SpawnWithSpec(spec SpawnSpec) (Job, error) {
-	root, task, mode, tier, reportBack, session := spec.Root, spec.Task, spec.Mode, spec.Tier, spec.ReportBack, spec.SessionID
+	root, task, mode, reportBack, session := spec.Root, spec.Task, spec.Mode, spec.ReportBack, spec.SessionID
 	chrome := spec.BrowserMode == "ephemeral"
 	existingChrome := spec.BrowserMode == "existing_chrome"
 	self, err := os.Executable()
@@ -155,9 +154,6 @@ func SpawnWithSpec(spec SpawnSpec) (Job, error) {
 	defer logf.Close()
 
 	argv := []string{"run", task, "--" + mode, "--job", id}
-	if tier != "" {
-		argv = append(argv, "--tier", tier) // the child force-escalates when tier == "strong"
-	}
 	if reportBack {
 		argv = append(argv, "--report-back") // the child persists its final text for report-back
 	}
@@ -216,7 +212,6 @@ func SpawnWithSpec(spec SpawnSpec) (Job, error) {
 		ID:         id,
 		Task:       task,
 		Mode:       mode,
-		Tier:       tier,
 		ReportBack: reportBack,
 		PID:        pid,
 		StartSig:   sig,

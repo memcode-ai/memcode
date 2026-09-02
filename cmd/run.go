@@ -14,6 +14,7 @@ import (
 	"github.com/memcode-ai/memcode/internal/agent/runtime"
 	"github.com/memcode-ai/memcode/internal/browser"
 	"github.com/memcode-ai/memcode/internal/browser/broker"
+	"github.com/memcode-ai/memcode/internal/config"
 	"github.com/memcode-ai/memcode/internal/jobs"
 	"github.com/memcode-ai/memcode/internal/mcp"
 	"github.com/memcode-ai/memcode/internal/provider"
@@ -115,7 +116,7 @@ for local gateway development. Never store keys in .memcode.`,
 				fmt.Println("note: --no-context is ignored with --background (the job child builds its own context)")
 			}
 			reportBack, _ := cmd.Flags().GetBool("report-back")
-			job, err := jobs.Spawn(cfg.Root, task, string(mode), "", chrome, reportBack, "")
+			job, err := jobs.Spawn(cfg.Root, task, string(mode), chrome, reportBack, "")
 			if err != nil {
 				return err
 			}
@@ -125,6 +126,31 @@ for local gateway development. Never store keys in .memcode.`,
 
 		noContext, _ := cmd.Flags().GetBool("no-context")
 		sess := runtime.New(st, runner, cfg.Root, model, mode, userOut())
+		// Headless runs get a model the same way interactive ones do:
+		// --model -> workspace -> user -> the default_model seed. This path used
+		// to set no pin at all and rely on Automatic picking per turn; there is
+		// nothing to pick with now, so the pin must be resolved here too.
+		//
+		// Endpoint mode is excluded for the same reason as the interactive path:
+		// the hosted pin is a GATEWAY label namespace, so resolving one against
+		// an arbitrary endpoint would both misroute and write a hosted label into
+		// config that the endpoint never asked for.
+		onEndpoint := false
+		if epr, ok := prov.(provider.Endpointer); ok {
+			if e, on := epr.Endpoint(); on {
+				onEndpoint = true
+				sess.SetPin(e.Model, provider.CatalogWindow(e.Model))
+			}
+		}
+		if !onEndpoint {
+			modelFlag, _ := cmd.Flags().GetString("model")
+			pin, win := config.ResolvePin(cfg, modelFlag)
+			sess.SetPin(pin, win)
+			// The header must name the model that will actually serve. It used
+			// to print a config/provider default, which under Automatic was a
+			// guess and is now simply wrong.
+			model = pin
+		}
 		sess.SetScoutModel(provider.EffectiveModel(cfg.Models.Explorer)) // cheap read-only scouts
 		sess.SetNoContext(noContext)
 		browserSession, _ := cmd.Flags().GetString("browser-session")
@@ -182,12 +208,6 @@ for local gateway development. Never store keys in .memcode.`,
 			if gwSession != "" && chrome {
 				// A gateway job has no desktop session: Chrome must run headless.
 				sess.SetBrowserHeadless(true)
-			}
-			switch tier, _ := cmd.Flags().GetString("tier"); tier {
-			case "frontier":
-				sess.SetForceFrontier(true) // long-running background agent → top strong tier
-			case "strong":
-				sess.SetForceEscalate(true) // strong-tier background agent → strong vendor's balanced tier
 			}
 			// Live readout for frontends: heartbeat activity/tokens into meta.json.
 			// stopHeartbeat is synchronous and runs before EVERY Finish below, so a
@@ -336,14 +356,13 @@ func init() {
 	runCmd.Flags().Bool("background", false, "run the task as a detached background job (see `memcode jobs`)")
 	runCmd.Flags().String("job", "", "internal: run as the child of a background job with this id")
 	_ = runCmd.Flags().MarkHidden("job")
-	runCmd.Flags().String("tier", "", "internal: model tier for a background agent child (\"strong\" → Anthropic)")
-	_ = runCmd.Flags().MarkHidden("tier")
 	runCmd.Flags().Bool("report-back", false, "internal: persist the agent's final result so the caller can report it back")
 	_ = runCmd.Flags().MarkHidden("report-back")
 	runCmd.Flags().String("allow-tools", "", "internal: comma-separated toolset/tool allow-list for a delegated job (empty = all)")
 	_ = runCmd.Flags().MarkHidden("allow-tools")
 	runCmd.Flags().String("deny-tools", "", "internal: comma-separated toolset/tool deny-list for a delegated job (deny wins)")
 	_ = runCmd.Flags().MarkHidden("deny-tools")
+	runCmd.Flags().String("model", "", "model for this run (a catalog label like sonnet or opus); overrides the remembered pin without changing it")
 	runCmd.Flags().String("browser-session", "", "internal: \"existing_chrome\" attaches this run to the user's own already-running Chrome via the gateway browser broker (fails closed, never falls back to ephemeral)")
 	_ = runCmd.Flags().MarkHidden("browser-session")
 	runCmd.Flags().String("browser-agent", "", "internal: agent id for the existing-Chrome broker lease")

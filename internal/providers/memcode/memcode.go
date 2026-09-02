@@ -54,15 +54,9 @@ func New(cfg Config) *Transport {
 
 // ── the routing control plane (GET /v1/models) ──────────────────────────────
 
-// RoleModel is one configured routing role: which model (label) plays which
-// job (planner/reviewer/standard/classify).
-type RoleModel struct {
-	Role   string `json:"role"`
-	ID     string `json:"id"`
-	Label  string `json:"label"`
-	Window int    `json:"window,omitempty"`
-	Vision bool   `json:"vision,omitempty"`
-}
+// RoleModel is DELETED. It named which model played each ROUTING role
+// (planner/reviewer/standard/classify) — the deployment half of the Automatic
+// ladder. Selection has one input now: the session's pin.
 
 // ModelFact is one servable model with the control-plane facts selection
 // reads. Label is the wire model id (the value sent in `model`).
@@ -97,7 +91,6 @@ type PinnableModel struct {
 type ModelsInfo struct {
 	Backend          string      // gateway provider mode ("hybrid" in prod)
 	Vendors          []string    // configured strong vendors; [0] is the deployment default
-	Roles            []RoleModel // which label plays which routing role
 	Models           []ModelFact // every servable label, catalog order
 	CreditsExhausted bool        // empty wallet → selection must prefer keyed lanes
 
@@ -106,16 +99,6 @@ type ModelsInfo struct {
 	// selection should prefer. Empty on every wire-decoded snapshot, so all
 	// gateway-parity behavior is byte-identical when no subs are attached.
 	SubVendors map[string]bool `json:"-"`
-}
-
-// Role returns the label configured for a routing role, "" when unset.
-func (m ModelsInfo) Role(name string) string {
-	for _, r := range m.Roles {
-		if r.Role == name {
-			return r.Label
-		}
-	}
-	return ""
 }
 
 // Fact returns the servable entry for a label.
@@ -190,9 +173,6 @@ func FetchModels(ctx context.Context, baseURL, token string) (ModelsInfo, error)
 	}
 	if x := list.Memcode; x != nil {
 		info.Backend, info.Vendors, info.CreditsExhausted = x.Backend, x.Vendors, x.CreditsExhausted
-		for _, r := range x.Roles {
-			info.Roles = append(info.Roles, RoleModel{Role: r.Role, ID: r.ID, Label: r.Label, Window: r.Window, Vision: r.Vision})
-		}
 	}
 	return info, nil
 }

@@ -16,11 +16,10 @@ func TestWireContractIsSnakeCase(t *testing.T) {
 		Model: "m", System: "s", Messages: []Message{{Role: "user", Blocks: []Block{TextBlock("hi")}}},
 		Tools: []ToolDef{{Name: "read_file"}}, MaxTokens: 10, Mode: "chat",
 		Facts: map[string]string{"root": "/r"}, Effort: EffortHigh,
-		RoutingHint: &RoutingHint{Reason: "self_heal"},
-		Purpose:     "main_loop", Session: "sess_x", // json:"-" — must NOT appear
+		Purpose: "main_loop", Session: "sess_x", // json:"-" — must NOT appear
 	}
 	reqJSON := mustMarshal(t, req)
-	assertHasKeys(t, "Request", reqJSON, "model", "system", "messages", "tools", "max_tokens", "mode", "facts", "effort", "routing_hint")
+	assertHasKeys(t, "Request", reqJSON, "model", "system", "messages", "tools", "max_tokens", "mode", "facts", "effort")
 	// Purpose/Session are internal transport hints lifted onto the envelope/header — never in the request body.
 	assertNoKeys(t, "Request", reqJSON, "Purpose", "Session", "purpose", "session")
 

@@ -15,42 +15,41 @@ import (
 	"github.com/memcode-ai/memcode/internal/wire"
 )
 
-// TestApplyTurnFacts covers the pure fact-override logic: fallback, continuation
-// inheritance, room overrides, and the axis-separation passthrough.
+// TestApplyTurnFacts covers the pure fact-override logic: fallback,
+// continuation inheritance, and the room overrides. It used to assert a second
+// return value, `difficulty` — the TIER the turn demanded — which was an input
+// to the Automatic ladder and died with it. Effort is the only axis left, and
+// it was always the independent one.
 func TestApplyTurnFacts(t *testing.T) {
-	deep := turnJudgment{Difficulty: "deep", Thinking: wire.EffortHigh, ok: true}
+	deep := turnJudgment{Thinking: wire.EffortHigh, ok: true}
 
-	// No verdict → default-capable fallback (never cheap: misrouting down is the
-	// expensive failure).
-	if d, e := applyTurnFacts(turnJudgment{}, room.State{}, turnJudgment{}); d != "standard" || e != wire.EffortOff {
-		t.Fatalf("fallback = %q/%v, want standard/off", d, e)
+	// No verdict → no thinking, and the turn still runs (fail-open).
+	if e := applyTurnFacts(turnJudgment{}, room.State{}, turnJudgment{}); e != wire.EffortOff {
+		t.Fatalf("fallback = %v, want off", e)
 	}
 	// A bare go-ahead inherits the previous turn's judgment.
-	cont := turnJudgment{Difficulty: "standard", Thinking: wire.EffortOff, Continuation: true, ok: true}
-	if d, e := applyTurnFacts(cont, room.State{}, deep); d != "deep" || e != wire.EffortHigh {
-		t.Fatalf("continuation = %q/%v, want inherited deep/high", d, e)
+	cont := turnJudgment{Thinking: wire.EffortOff, Continuation: true, ok: true}
+	if e := applyTurnFacts(cont, room.State{}, deep); e != wire.EffortHigh {
+		t.Fatalf("continuation = %v, want inherited high", e)
 	}
 	// ...but only when there IS a previous judgment.
-	if d, e := applyTurnFacts(cont, room.State{}, turnJudgment{}); d != "standard" || e != wire.EffortOff {
-		t.Fatalf("first-turn continuation = %q/%v, want standard/off", d, e)
+	if e := applyTurnFacts(cont, room.State{}, turnJudgment{}); e != wire.EffortOff {
+		t.Fatalf("first-turn continuation = %v, want off", e)
 	}
-	// A stuck/looping room brings the heavy tier + full thinking regardless of
-	// the verdict — exact parity with the old room escalation.
-	lookup := turnJudgment{Difficulty: "lookup", Thinking: wire.EffortOff, ok: true}
+	// A stuck/looping room brings full thinking regardless of the verdict.
+	lookup := turnJudgment{Thinking: wire.EffortOff, ok: true}
 	for _, rm := range []room.State{{Mode: room.Repair}, {Mode: room.Replan}} {
-		if d, e := applyTurnFacts(lookup, rm, turnJudgment{}); d != "deep" || e != wire.EffortHigh {
-			t.Fatalf("room %v = %q/%v, want deep/high", rm.Mode, d, e)
+		if e := applyTurnFacts(lookup, rm, turnJudgment{}); e != wire.EffortHigh {
+			t.Fatalf("room %v = %v, want high", rm.Mode, e)
 		}
 	}
-	// A correcting user floors thinking at medium without touching the tier.
-	if d, e := applyTurnFacts(lookup, room.State{Intent: room.Correcting}, turnJudgment{}); d != "lookup" || e != wire.EffortMedium {
-		t.Fatalf("correcting = %q/%v, want lookup/medium", d, e)
+	// A correcting user floors thinking at medium.
+	if e := applyTurnFacts(lookup, room.State{Intent: room.Correcting}, turnJudgment{}); e != wire.EffortMedium {
+		t.Fatalf("correcting = %v, want medium", e)
 	}
-	// AXIS SEPARATION: a judged {standard, high} passes through untouched — high
-	// thinking must not drag the tier up (that conflation was the old bug).
-	tricky := turnJudgment{Difficulty: "standard", Thinking: wire.EffortHigh, ok: true}
-	if d, e := applyTurnFacts(tricky, room.State{}, turnJudgment{}); d != "standard" || e != wire.EffortHigh {
-		t.Fatalf("standard+high = %q/%v, want passthrough", d, e)
+	// Room overrides never LOWER a judged high.
+	if e := applyTurnFacts(deep, room.State{Intent: room.Correcting}, turnJudgment{}); e != wire.EffortHigh {
+		t.Fatalf("correcting over a judged high = %v, want high", e)
 	}
 }
 
@@ -88,12 +87,12 @@ func turnIntentSession(t *testing.T, prov *turnIntentProvider) *Session {
 // classify purpose with a forced tool and a data-framed payload — the CLI never
 // constructs a prompt (the doctrine lives server-side).
 func TestClassifyTurnIntentRequestShape(t *testing.T) {
-	prov := &turnIntentProvider{out: `{"difficulty":"deep","thinking":"high"}`}
+	prov := &turnIntentProvider{out: `{"thinking":"high"}`}
 	s := turnIntentSession(t, prov)
 
 	j := s.classifyTurnIntent(context.Background(), "audit the whole repo")
-	if !j.ok || j.Difficulty != "deep" || j.Thinking != wire.EffortHigh {
-		t.Fatalf("judgment = %+v, want ok deep/high", j)
+	if !j.ok || j.Thinking != wire.EffortHigh {
+		t.Fatalf("judgment = %+v, want ok high", j)
 	}
 	r := prov.last
 	if r.Mode != "turn_intent" || r.Purpose != string(llm.Classify) {
@@ -129,11 +128,11 @@ func TestClassifyTurnIntentFallbacks(t *testing.T) {
 	if j := s.classifyTurnIntent(context.Background(), "x"); j.ok {
 		t.Fatal("a toolless reply must yield a not-ok judgment")
 	}
-	// Junk enum values → clamped to standard/off.
-	prov = &turnIntentProvider{out: `{"difficulty":"galactic","thinking":"warp"}`}
+	// Junk enum values → clamped to off.
+	prov = &turnIntentProvider{out: `{"thinking":"warp"}`}
 	s = turnIntentSession(t, prov)
-	if j := s.classifyTurnIntent(context.Background(), "x"); !j.ok || j.Difficulty != "standard" || j.Thinking != wire.EffortOff {
-		t.Fatalf("junk values must clamp to standard/off, got %+v", j)
+	if j := s.classifyTurnIntent(context.Background(), "x"); !j.ok || j.Thinking != wire.EffortOff {
+		t.Fatalf("junk values must clamp to off, got %+v", j)
 	}
 }
 
@@ -154,7 +153,7 @@ func TestShouldJudgeTurnSkipsFacts(t *testing.T) {
 	s = base()
 	enterPlanForTest(s, "")
 	if s.shouldJudgeTurn() {
-		t.Error("plan mode must skip (its own ladder)")
+		t.Error("plan mode must skip (it sets its own effort)")
 	}
 	s = base()
 	armApplyForTest(s, "1. step one\n2. step two")
@@ -164,17 +163,7 @@ func TestShouldJudgeTurnSkipsFacts(t *testing.T) {
 	s = base()
 	s.readOnly = true
 	if s.shouldJudgeTurn() {
-		t.Error("read-only scouts must skip (fixed tier)")
-	}
-	s = base()
-	s.forceEscalate = true
-	if s.shouldJudgeTurn() {
-		t.Error("strong-tier agents must skip (pinned)")
-	}
-	s = base()
-	s.forceFrontier = true
-	if s.shouldJudgeTurn() {
-		t.Error("frontier agents must skip (pinned)")
+		t.Error("read-only scouts must skip")
 	}
 	s = base()
 	s.purpose = llm.Explore
@@ -183,59 +172,7 @@ func TestShouldJudgeTurnSkipsFacts(t *testing.T) {
 	}
 }
 
-// mainStampProvider ends the turn immediately, recording the main call's
-// Difficulty so the wire stamp is proven end-to-end through runLoop.
-type mainStampProvider struct{ difficulty string }
-
-func (p *mainStampProvider) Complete(_ context.Context, r wire.Request) (wire.Response, error) {
-	p.difficulty = r.Difficulty
-	return wire.Response{StopReason: "end_turn", Blocks: []wire.Block{wire.TextBlock("done")}}, nil
-}
-
-// TestTurnDifficultyStampedOnMainLoop: the judged tier verdict rides every
-// main-loop request (→ Intent.Difficulty via the SDK's intentFrom).
-func TestTurnDifficultyStampedOnMainLoop(t *testing.T) {
-	ctx := context.Background()
-	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "state.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
-	prov := &mainStampProvider{}
-	s := newSess(st, prov, t.TempDir(), "auto", permissions.ModeAuto, io.Discard)
-	s.turnDifficulty = "deep"
-
-	msgs := []wire.Message{{Role: "user", Blocks: []wire.Block{{Type: "text", Text: "go"}}}}
-	if _, _, err := s.runLoop(ctx, promptSpec{mode: "chat"}, &msgs); err != nil {
-		t.Fatalf("runLoop: %v", err)
-	}
-	if prov.difficulty != "deep" {
-		t.Fatalf("main call Difficulty = %q, want deep", prov.difficulty)
-	}
-}
-
-// TestJoinTurnJudgeAppliesAndNudges: the join consumes the in-flight judgment
-// once, applies it to the turn, remembers it for continuation inheritance, and
-// surfaces the plan-shaped hint exactly once.
-func TestJoinTurnJudgeAppliesAndNudges(t *testing.T) {
-	prov := &turnIntentProvider{out: `{"difficulty":"deep","thinking":"high","plan":true}`}
-	s := turnIntentSession(t, prov)
-
-	s.startTurnJudge(context.Background(), "plan an audit of the repo")
-	s.joinTurnJudge(context.Background())
-	if s.turnDifficulty != "deep" || s.turnEffort != wire.EffortHigh {
-		t.Fatalf("join applied %q/%v, want deep/high", s.turnDifficulty, s.turnEffort)
-	}
-	if !s.lastJudgment.ok {
-		t.Fatal("a real judgment must be remembered for continuation inheritance")
-	}
-	if !s.nudgedPlanIntent {
-		t.Fatal("a plan-shaped ask must set the one-shot hint flag")
-	}
-	// Consume-once: a second join is a no-op.
-	s.setTurnEffort(wire.EffortOff)
-	s.joinTurnJudge(context.Background())
-	if s.turnEffort != wire.EffortOff {
-		t.Fatal("a second join must be a no-op")
-	}
-}
+// TestTurnDifficultyStampedOnMainLoop (and its mainStampProvider) are DELETED.
+// They proved the judged TIER verdict rode every main-loop request through to
+// Intent.Difficulty. Nothing downstream chooses a model per turn any more, so
+// there is no verdict to stamp.

@@ -23,6 +23,16 @@ type fakeProv struct {
 	calls int
 }
 
+// pinnedRunner mirrors production: the pin resolver always yields a model
+// (session override, workspace, user, or the default_model seed), so selection
+// refuses rather than inventing one. Tests must supply the pin the resolver
+// would have.
+func pinnedRunner(prov provider.ModelProvider) *llm.Runner {
+	r := llm.NewRunner(prov)
+	r.SetPin("sonnet")
+	return r
+}
+
 func (f *fakeProv) Complete(ctx context.Context, r wire.Request) (wire.Response, error) {
 	if f.calls >= len(f.steps) {
 		return wire.Response{StopReason: "end_turn", Blocks: []wire.Block{wire.TextBlock("done")}}, nil
@@ -54,7 +64,7 @@ func newTestExecutive(t *testing.T, prov provider.ModelProvider) (*Executive, *S
 	if err := st.CreateObjective(ctx, Objective{ID: "primary", Description: "Keep dependencies fresh", SuccessCriteria: "no outdated deps", Status: "active"}); err != nil {
 		t.Fatal(err)
 	}
-	ex := &Executive{Store: st, Home: home, AgentID: "tester", Objective: testObjective, Runner: llm.NewRunner(prov)}
+	ex := &Executive{Store: st, Home: home, AgentID: "tester", Objective: testObjective, Runner: pinnedRunner(prov)}
 	return ex, st, home
 }
 
@@ -162,7 +172,7 @@ func TestExecutiveSuspendsAndResumes(t *testing.T) {
 	prov2 := &fakeProv{steps: []wire.Response{
 		{StopReason: "tool_use", Blocks: []wire.Block{toolUse("t9", "report", map[string]any{"summary": "upgraded after approval"})}},
 	}}
-	ex2 := &Executive{Store: st, Home: home, AgentID: "tester", Objective: testObjective, Runner: llm.NewRunner(prov2)}
+	ex2 := &Executive{Store: st, Home: home, AgentID: "tester", Objective: testObjective, Runner: pinnedRunner(prov2)}
 	rout, err := ex2.ResumeSuspended(ctx, in, "yes, upgrade")
 	if err != nil {
 		t.Fatal(err)
@@ -454,7 +464,7 @@ func TestExecutiveDelegatesToWorker(t *testing.T) {
 		{StopReason: "tool_use", Blocks: []wire.Block{toolUse("t3", "check_delegate", map[string]any{"job_id": jobID})}},
 		{StopReason: "tool_use", Blocks: []wire.Block{toolUse("t4", "report", map[string]any{"summary": "checked"})}},
 	}}
-	ex2 := &Executive{Store: st, Home: home, AgentID: "tester", Objective: testObjective, Runner: llm.NewRunner(prov2)}
+	ex2 := &Executive{Store: st, Home: home, AgentID: "tester", Objective: testObjective, Runner: pinnedRunner(prov2)}
 	out2, err := ex2.RunOnce(ctx)
 	if err != nil {
 		t.Fatal(err)

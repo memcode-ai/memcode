@@ -27,7 +27,7 @@ func (s *appState) dispatchSlash(args string) {
 	// (fast, but touches the filesystem and execs — keep it off the UI thread).
 	go func() {
 		chrome := s.w.sess.BrowserEnabled()
-		job, err := jobs.Spawn(s.w.sess.Root(), task, mode, "", chrome, false, "")
+		job, err := jobs.Spawn(s.w.sess.Root(), task, mode, chrome, false, "")
 		s.rt.Dispatch(func() {
 			if err != nil {
 				s.sysln(fmt.Sprintf("couldn't dispatch: %v", err))

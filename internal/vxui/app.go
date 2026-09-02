@@ -18,7 +18,6 @@ import (
 
 	"github.com/charmbracelet/x/term"
 
-	"github.com/memcode-ai/memcode/catalog"
 	vaxis "github.com/memcode-ai/memcode/internal/forks/vaxis"
 	"github.com/memcode-ai/memcode/internal/forks/vaxis/ui"
 
@@ -134,8 +133,8 @@ type appState struct {
 	// available (keys present); selecting one calls sess.SetVendor + persists.
 	modelPicking bool
 	modelSel     int
-	modelOrig    string       // the pin at picker-open time ("" = Automatic)
-	modelEntries []modelEntry // picker rows: Automatic + the gateway-reported pinnable models
+	modelOrig    string       // the pin at picker-open time
+	modelEntries []modelEntry // picker rows: the gateway-reported pinnable models
 	modelTyping  bool         // endpoint mode: the free-text id-entry stage is active
 	modelInput   []rune       // the id being typed in that stage
 
@@ -1511,24 +1510,10 @@ func (s *appState) resolveServingDefault() {
 	vendor := ""
 	if info, err := provider.FetchModels(fctx); err == nil {
 		vendor = info.DefaultVendor()
-		// Mirror the ladder's everyday lane (llm/lane.go, main_loop → {roles:
-		// ["standard"], tier: "balanced"}): the configured standard role, else
-		// the session vendor's balanced tier — a deployment that omits the
-		// role still banners what will actually serve.
-		std := info.Role("standard")
-		if std == "" {
-			v := s.w.sess.Vendor()
-			if v == "" {
-				v = info.DefaultVendor()
-			}
-			std = catalog.VendorTier(v, "balanced")
-		}
-		if std != "" {
-			s.w.sess.SetServingDefault(std)
-			s.updateConfig(func(cfg *config.Config) {
-				cfg.ServingDefault = std // persist so NEXT launch's banner shows it immediately
-			})
-		}
+		// The ladder's "everyday lane" guess lived here: mirror main_loop's
+		// {roles:["standard"], tier:"balanced"} verdict so the banner could
+		// predict what Automatic would serve. There is nothing to predict — the
+		// banner shows the pin, which is the model.
 	}
 	// defaultVendor is UI-thread state (read by /status) — never write it from
 	// this goroutine; marshal the write like every other async result.

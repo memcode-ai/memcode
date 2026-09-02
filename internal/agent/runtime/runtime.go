@@ -107,8 +107,6 @@ type Session struct {
 	noApprover        bool                                          // detached job: no human can answer approval prompts
 	adminMode         bool                                          // admin session (`memcode admin`): admin tools only, settings doctrine
 	adminExec         AdminExecutor                                 // cmd-injected admin operations (engine never imports the gateway layer)
-	forceEscalate     bool                                          // strong-tier agent: pin every request to the strong vendor (balanced tier)
-	forceFrontier     bool                                          // long-running (background) agent: pin every request to the FRONTIER tier
 	iterCap           int                                           // per-session runLoop iteration override (0 = mode default); set on the bounded plan-review sub-session
 	scope             string                                        // scout/explorer subsystem scope (tags gather telemetry)
 	lastText          string                                        // most recent assistant text (for Answer)
@@ -154,7 +152,6 @@ type Session struct {
 	dispMu            sync.Mutex         // guards served + turnEffort: the TUI render goroutine reads them every frame while the engine writes them mid-turn (separate from mu so a render read never blocks on output I/O)
 	turnEffort        wire.Effort        // thinking effort for THIS turn (set per turn; default off — see turnintent.go) — read under dispMu
 	servingDefault    string             // the everyday serving model (gateway cheap lane) shown before any turn runs — read under dispMu
-	turnHighRisk      bool               // THIS turn touches a high-blast-radius surface (auth/billing/secrets/destructive) → escalate the backend (see highRiskTurn)
 	turn              *turnState         // per-turn loop state, reset each runLoop (turnstate.go)
 	skills            []skills.Skill     // discovered skill catalog (own + Claude Code plugins)
 	approvedSkills    map[string]bool    // skills the user said "don't ask again" for (loaded from + persisted to .memcode/skill-approvals)
@@ -177,7 +174,6 @@ type Session struct {
 	// tool's "auto" restores, the previous judgment (continuation inheritance),
 	// and the one-shot plan-hint flag. Engine goroutine only.
 	turnJudge        chan turnJudgment
-	turnDifficulty   string
 	turnBaseEffort   wire.Effort
 	lastJudgment     turnJudgment
 	nudgedPlanIntent bool
@@ -542,7 +538,6 @@ func (s *Session) Run(ctx context.Context, task string) (Result, error) {
 	// synchronously (a background "audit the repo" is exactly the deep case);
 	// the ladder resolves the model from the turn's intent.
 	s.judgeTurnSync(ctx, task)
-	s.turnHighRisk = highRiskTurn(task)
 	iterations, completed, err := s.runLoop(ctx, sys, &messages)
 	if err != nil {
 		return Result{}, err

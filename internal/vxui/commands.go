@@ -110,17 +110,6 @@ func (s *appState) runSlash(line string) (quit bool) {
 		}
 		line := fmt.Sprintf("model %s · mode %s · branch %s · ↑%d/↓%d tokens",
 			provider.ShortModel(model), s.w.sess.Mode(), s.branch, in, out)
-		if s.w.sess.Pin() == "" {
-			// Show the vendor only when it differs from the deployment default
-			// (cached off /v1/models; "openai" until the first fetch lands).
-			hidden := s.defaultVendor
-			if hidden == "" {
-				hidden = "openai"
-			}
-			if v := s.w.sess.Vendor(); v != "" && v != hidden {
-				line += " · vendor " + vendorLabel(v)
-			}
-		}
 		if cr, _ := s.w.sess.CacheStats(); cr > 0 {
 			line += fmt.Sprintf(" · %s %d%%", cacheGlyph, cacheHitRate(in, cr))
 		}
@@ -219,13 +208,9 @@ func (s *appState) runSlash(line string) (quit bool) {
 		model := s.w.sess.Model()
 		serving := s.w.sess.ServingModel()
 		servedBy := s.w.sess.ServedBy()
-		vendor := s.w.sess.Vendor()
-		if vendor == "" {
-			vendor = "openai (default)"
-		}
 		pin := s.w.sess.Pin()
 		if pin == "" {
-			pin = "none (Automatic)"
+			pin = "none"
 		}
 		ctxTokens, win := s.w.sess.ContextTokens(), s.w.sess.ContextWindow()
 		pct := 0
@@ -244,8 +229,8 @@ func (s *appState) runSlash(line string) (quit bool) {
 			}
 			lanes += fmt.Sprintf("\n  lane %s → %s models", label, ln.Vendor)
 		}
-		s.sysln(fmt.Sprintf("session %s\n  model %s (serving %s, backend %s)\n  vendor %s\n  pin %s\n  mode %s%s\n  ↑%d ↓%d tokens · cache %d read / %d write (%d%% hit)\n  context %d/%d (%d%%)\n  wire trace %s",
-			s.w.sess.SessionID(), model, serving, servedBy, vendor, pin, s.w.sess.Mode(), lanes, in, out, cr, cw, cacheHitRate(in, cr), ctxTokens, win, pct, trace))
+		s.sysln(fmt.Sprintf("session %s\n  model %s (serving %s, backend %s)\n  pin %s\n  mode %s%s\n  ↑%d ↓%d tokens · cache %d read / %d write (%d%% hit)\n  context %d/%d (%d%%)\n  wire trace %s",
+			s.w.sess.SessionID(), model, serving, servedBy, pin, s.w.sess.Mode(), lanes, in, out, cr, cw, cacheHitRate(in, cr), ctxTokens, win, pct, trace))
 	default:
 		s.sysln("unknown command " + cmd + " — try /help")
 	}

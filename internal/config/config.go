@@ -88,18 +88,19 @@ type Config struct {
 	Mode  string `json:"mode,omitempty"`  // ask|auto|allow-all — persisted when cycled or /mode
 	Theme string `json:"theme,omitempty"` // color theme name; empty means aurora (default)
 
-	// Vendor is the remembered strong-tier vendor (set by /model): "openai" |
-	// "anthropic" | "gemini" | "grok". Empty = the configured default (BYOK
-	// steering may prefer a keyed vendor). Persisted so the choice survives
-	// across sessions. The catalog's tier triples decide which MODEL within
-	// the vendor.
+	// Vendor (the remembered Automatic strong-tier vendor) is no longer read.
+	// Kept as an accepted-and-ignored field so an existing config file still
+	// parses; nothing writes it.
 	Vendor string `json:"vendor,omitempty"`
 
-	// PinnedModel is the remembered /model pin: a catalog model label ("sonnet",
-	// "glm-5p2") the whole session runs on — main loop, planner, reviewer, agents
-	// (invisible plumbing stays on the utility lanes). Empty = Automatic (the
-	// ladder decides). A stale label is harmless: the resolver falls through to
-	// Automatic for labels it doesn't recognize.
+	// PinnedModel is this workspace's model: a catalog label ("sonnet",
+	// "glm-5p2") the whole session runs on — main loop, plan drafting, delegated
+	// workers. Internal plumbing (classify, compact, shrinkwrap) rides the
+	// catalog's utility_model instead.
+	//
+	// Empty means "this workspace has never chosen": ResolvePin then falls
+	// through to the user-level store, and finally seeds from default_model and
+	// persists here, so it is only ever empty once.
 	PinnedModel string `json:"pinned_model,omitempty"`
 
 	// PinnedWindow caches the pin's context window (tokens) from the picker list,

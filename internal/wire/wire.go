@@ -157,15 +157,10 @@ const (
 	EffortHigh   Effort = "high"   // hardest reasoning (planning, review)
 )
 
-// RoutingHint carries the escalation signal only the CLI can observe — the
-// Risk input to the CLI's OWN semantic ladder (cli/internal/llm/lane.go):
-// "self_heal" | "agent_frontier" | "agent_strong" | "user_friction_high" |
-// "high_risk_surface" | the plan escalation reasons. It never rides any wire;
-// it is a request-local field the Runner's selection policy reads. (The old
-// PreferredPath/Force fields were read by nothing — deleted.)
-type RoutingHint struct {
-	Reason string `json:"reason,omitempty"`
-}
+// RoutingHint is DELETED. It carried the escalation signals only the CLI could
+// observe — self-heal, room friction, high-risk surfaces — as inputs to the
+// Automatic ladder's tier choice. Nothing escalates a model any more: the user
+// pinned one, and it serves every turn of the session.
 
 // Request is a model completion request — the provider-neutral shape every
 // adapter encodes from. Model selection is the CLI's job (llm/lane.go +
@@ -207,12 +202,6 @@ type Request struct {
 	// budget_tokens, or nothing). Zero value (EffortOff) means no extended thinking.
 	Effort Effort `json:"effort,omitempty"`
 
-	// RoutingHint is the session layer's escalation signal (ROUTING.md): user
-	// friction/mood, a self-healing retry after the agent's own edit broke, a
-	// high-risk surface. The Runner folds its Reason into Intent.Risk for the
-	// selection ladder. nil = no opinion (the common case).
-	RoutingHint *RoutingHint `json:"routing_hint,omitempty"`
-
 	// Purpose + Session are transport-local labels (json:"-": never marshaled on
 	// this type). Purpose labels the call for the client ledger and the lane
 	// leak-log. Session rides the compat wire as the standard `user` field for
@@ -220,11 +209,6 @@ type Request struct {
 	// the CLI's llm.Runner; never set by hand.
 	Purpose string `json:"-"`
 	Session string `json:"-"`
-
-	// Difficulty is the turn_intent judge's tier verdict ("lookup" | "standard"
-	// | "deep"), a CLI-side selection input (json:"-", read by the CLI's own
-	// resolution policy — it never rides the wire).
-	Difficulty string `json:"-"`
 
 	// Pin is the CLI-side carrier for the session's model choice: the resolved
 	// catalog LABEL the transport puts in the wire `model` field. Under

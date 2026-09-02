@@ -130,9 +130,6 @@ func adminOverview(ctx context.Context) (string, error) {
 		if ch.Agent != "" {
 			fmt.Fprintf(&b, "; agent=%s", ch.Agent)
 		}
-		if ch.Tier != "" {
-			fmt.Fprintf(&b, "; tier=%s", ch.Tier)
-		}
 		if ch.Pairing != nil {
 			fmt.Fprintf(&b, "; pairing=%v", *ch.Pairing)
 		}
@@ -298,11 +295,6 @@ func adminChannel(input json.RawMessage) (string, error) {
 			}
 		}
 		ch.Agent = val
-	case "tier":
-		if val != "" && val != "strong" && val != "frontier" {
-			return "", fmt.Errorf("tier must be empty, strong, or frontier")
-		}
-		ch.Tier = val
 	case "pairing":
 		on, err := parseAdminBool(val)
 		if err != nil {

@@ -50,7 +50,7 @@ const (
 type InitializeData struct {
 	Cwd  string `json:"cwd,omitempty"`  // working directory / repo root
 	Mode string `json:"mode,omitempty"` // permission mode: ask | auto | allow-all
-	Pin  string `json:"pin,omitempty"`  // pinned model label ("" = Automatic)
+	Pin  string `json:"pin,omitempty"`  // the session's model label
 }
 
 // InitializedData announces a ready session (CLI → client).

@@ -37,7 +37,7 @@ var slashCommands = []slashCmd{
 	{"/extramile", "go above and beyond (edge cases + completeness)", true},
 	{"/effort", "force thinking effort: off / medium / high / auto", true},
 	{"/goal", "set an objective", false}, // objective intake runs a model call
-	{"/model", "pick a model: Automatic, or pin one for everything", false},
+	{"/model", "pick the model for this session", false},
 	{"/apikeys", "bring your own provider API keys", false},
 	{"/websites", "your AI-built websites (pull with `memcode websites`)", false},
 	{"/artifacts", "your published artifact pages", false},

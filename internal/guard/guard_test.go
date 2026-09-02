@@ -205,3 +205,51 @@ func TestModuleGofmt(t *testing.T) {
 		t.Errorf("unformatted files:\n%s", files)
 	}
 }
+
+// TestOneModelAuthority is the teeth behind the pinned-model doctrine.
+//
+// Two catalog values are load-bearing precisely because they are consulted in
+// exactly one place each:
+//
+//   - catalog.DefaultModel() SEEDS the pin on an install that has never chosen
+//     anything, and only the pin resolver may read it. The moment a second
+//     caller resolves it — "no model? use the default" on every request — the
+//     default stops being an initializer and becomes Automatic routing again,
+//     which is the thing this whole change deleted.
+//   - catalog.UtilityModel() serves internal plumbing (classify/authorize,
+//     compact, shrinkwrap) and only selection may read it. A second caller
+//     would be a second model-selection authority, which is what the pin
+//     replaced.
+//
+// If this fails, do not add an exception. Route the call through the pin
+// resolver, or use the session's pin.
+func TestOneModelAuthority(t *testing.T) {
+	cases := []struct {
+		call    string
+		allowed string // the ONE non-test file permitted to make it
+	}{
+		{"catalog.DefaultModel()", "internal/config/pin.go"},
+		{"catalog.UtilityModel()", "internal/llm/resolve.go"},
+	}
+	for _, tc := range cases {
+		out, err := exec.Command("grep", "-rln", "--include=*.go", tc.call, "../..").Output()
+		if err != nil && len(out) == 0 {
+			t.Fatalf("grep for %s found nothing at all — has the call been renamed?", tc.call)
+		}
+		for _, f := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+			f = strings.TrimPrefix(strings.TrimSpace(f), "../../")
+			switch {
+			case f == "" || strings.HasSuffix(f, "_test.go"):
+				continue // tests may assert on it
+			case f == "catalog/catalog.go":
+				continue // the definition itself
+			case f == tc.allowed:
+				continue // the one authority
+			default:
+				t.Errorf("%s is called from %s — only %s may call it. "+
+					"A second caller turns a one-time default into per-request routing; "+
+					"route through the pin resolver instead.", tc.call, f, tc.allowed)
+			}
+		}
+	}
+}
