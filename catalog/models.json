@@ -46,14 +46,14 @@
         "order": 30,
         "description": "Latest Gemini model with significantly improved reasoning and 1M context window."
       },
-      "max_output": 64000,
+      "max_output": 65536,
       "fallback": [
         "gemini-flash",
         "terra"
       ]
     },
     {
-      "id": "gemini-3.6-flash",
+      "id": "gemini-3.8-flash",
       "label": "gemini-flash",
       "vendor": "gemini",
       "window": 1000000,
@@ -61,18 +61,18 @@
       "reasoning": true,
       "price_in": 0.75,
       "price_out": 3.75,
-      "_note": "Gemini 3.6 Flash (Google, GA July 21 2026). Balanced tier \u2014 everyday default + fallback absorb target for the Gemini vendor. Latest stable Flash; supersedes gemini-3.5-flash ($1.50/$9.00) at a lower output price. 1M context, 64K max output, vision, thinking budget, Google Search grounding. PRICING verified 2026-08-15 ai.google.dev: $0.75/$3.75 promo through 2026-12-31; RAISE to $1.50/$7.50 on 2027-01-01.",
+      "_note": "Gemini 3.8 Flash (Google). The Gemini vendor's everyday model. Supersedes gemini-3.6-flash, skipping 3.7 \u2014 latest only, no back-catalog. VERIFIED LIVE on Vertex 2026-09-03: generateContent, vision, native PDF, and thinking (thoughtsTokenCount returned) all work; the capability profile is identical to 3.6, so this is a drop-in. LIMITS from the v1beta models listing: 1,048,576 in / 65,536 out. PRICING verified ai.google.dev 2026-09-03: $0.75/$3.75 promo through 2026-12-31, RAISING to $1.50/$7.50 on 2027-01-01; cache read $0.075 (0.1x). The label stays gemini-flash, so existing pins move to 3.8 with no user action.",
       "pinnable": true,
       "group": "Gemini",
       "desc": "Fast agentic coding",
-      "name": "Gemini 3.6 Flash",
+      "name": "Gemini 3.8 Flash",
       "pdf": true,
       "www": {
         "chat": true,
         "order": 22,
-        "description": "Gemini 3.6 Flash, the latest frontier speed model. Combines frontier intelligence with superior search and grounding; outperforms Gemini 3.1 Pro on coding and agentic benchmarks at a fraction of the cost."
+        "description": "Gemini 3.8 Flash, built for long-horizon software engineering and agentic work. Frontier speed with a 1M context window, vision, PDF, and thinking."
       },
-      "max_output": 64000,
+      "max_output": 65536,
       "fallback": [
         "gemini-pro",
         "luna"
@@ -98,7 +98,7 @@
         "order": 20,
         "description": "Most cost-effective Gemini model. Fast, lightweight, ideal for bulk tasks and agent workflows."
       },
-      "max_output": 64000,
+      "max_output": 65536,
       "fallback": [
         "gemini-flash"
       ]
@@ -585,7 +585,7 @@
       "window": 1000000,
       "price_in": 0.75,
       "price_out": 3.75,
-      "_note": "windows: all gemini-3.x are 1M; pricing: tier-word rules above catch lite/pro, this row is the flash default (gemini-3.6-flash rate)"
+      "_note": "windows: all gemini-3.x are 1M; pricing: tier-word rules above catch lite/pro, this row is the flash default (gemini-3.8-flash rate)"
     },
     {
       "match": [

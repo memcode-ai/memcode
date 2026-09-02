@@ -7,7 +7,7 @@ import (
 
 // Real model ids must each hit their intended rate — a regression guard for the
 // substring-drift bug where pinning "gemini-3-pro" silently missed every shipped
-// gemini id (gemini-3.1-pro-preview / gemini-3.6-flash / gemini-3.5-flash-lite)
+// gemini id (gemini-3.1-pro-preview / gemini-3.8-flash / gemini-3.5-flash-lite)
 // and dropped them all onto the Flash rate. Match by tier word within the vendor.
 func TestModelPricingRealIDs(t *testing.T) {
 	cases := []struct {
@@ -18,7 +18,7 @@ func TestModelPricingRealIDs(t *testing.T) {
 		{"gpt-5.6-terra", 2, 12},
 		{"gpt-5.6-luna", 0.2, 1.2},
 		{"gemini-3.1-pro-preview", 2, 12},   // was mispriced → 1.5/9
-		{"gemini-3.6-flash", 0.75, 3.75},    // balanced default (promo through 2026-12-31)
+		{"gemini-3.8-flash", 0.75, 3.75},    // balanced default (promo through 2026-12-31)
 		{"gemini-3.5-flash-lite", 0.3, 2.5}, // was billed 6x high → 1.5/9
 		{"grok-4.6", 2, 6},
 		{"accounts/fireworks/models/glm-5p2", 1.40, 4.40}, // was $0
@@ -87,7 +87,7 @@ func TestContextWindowFireworks(t *testing.T) {
 		{"accounts/fireworks/models/deepseek-v4-pro-0813", 1_040_000},
 		{"accounts/fireworks/models/deepseek-v4-flash-0731", 1_040_000},
 		{"gemini-3.1-pro-preview", 1_000_000},
-		{"gemini-3.6-flash", 1_000_000},
+		{"gemini-3.8-flash", 1_000_000},
 	}
 	for _, c := range cases {
 		if got := ContextWindow(c.id); got != c.want {

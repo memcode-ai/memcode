@@ -27,7 +27,7 @@ const (
 // Gemini 3 model IDs (Google, via the native genai SDK).
 const (
 	ModelGeminiPro       = "gemini-3.1-pro-preview" // frontier — escalation target
-	ModelGeminiFlash     = "gemini-3.6-flash"       // balanced — everyday default + fallback absorb
+	ModelGeminiFlash     = "gemini-3.8-flash"       // the Gemini vendor's everyday model
 	ModelGeminiFlashLite = "gemini-3.5-flash-lite"  // fast/cheap — classifier
 )
 
