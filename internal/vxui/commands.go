@@ -49,7 +49,7 @@ func (s *appState) runSlash(line string) (quit bool) {
 		case "":
 			s.cycleMode()
 		case "ask", "auto", "allow-all":
-			s.w.sess.SetMode(permissions.Mode(args))
+			s.setMode(permissions.Mode(args))
 		default:
 			s.sysln("usage: /mode ask|auto|allow-all")
 			return false
