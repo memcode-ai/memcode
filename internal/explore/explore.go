@@ -82,9 +82,6 @@ func fanOut(ctx context.Context, st store.Store, runner *llm.Runner, root, model
 // scope), so the UI can show compact per-agent progress instead of every call.
 type Progress func(scope string, done bool, err error)
 
-// Scopes is the public picker for the subsystem keys to fan out over.
-func Scopes(ctx context.Context, st store.Store) []string { return pickScopes(ctx, st) }
-
 // FanOut runs one read-only explorer per scope concurrently (capped by
 // concurrency, 0 = the default), reporting lifecycle via progress (may be nil), and returns the
 // findings. Each explorer is its own read-only session writing to io.Discard —

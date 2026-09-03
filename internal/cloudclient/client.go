@@ -39,9 +39,6 @@ type Client struct {
 // Option configures a Client.
 type Option func(*Client)
 
-// WithHTTPClient overrides the default HTTP client (for tests or a custom timeout).
-func WithHTTPClient(h *http.Client) Option { return func(c *Client) { c.http = h } }
-
 // WithRetryNotify registers a callback invoked before each retry backoff, so a
 // caller (the runtime loop) can surface "⊙ retrying…" in the TUI. The attempt is
 // 1-based (1 = first retry); err is the failure that triggered the retry; delay
