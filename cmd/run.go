@@ -144,7 +144,10 @@ for local gateway development. Never store keys in .memcode.`,
 		}
 		if !onEndpoint {
 			modelFlag, _ := cmd.Flags().GetString("model")
-			pin, win := config.ResolvePin(cfg, modelFlag)
+			pin, win, warn := config.ResolvePinSeeded(cfg, modelFlag)
+			if warn != nil {
+				fmt.Fprintf(os.Stderr, "warning: %v\n", warn)
+			}
 			sess.SetPin(pin, win)
 			sess.SetPolicy(sessionPolicy(cfg.Root, pin))
 			// The header must name the model that will actually serve. It used
