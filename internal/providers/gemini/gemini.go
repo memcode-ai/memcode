@@ -241,6 +241,36 @@ func inlineBlobPart(b wire.Block) *genai.Part {
 // blockToPart maps one wire.Block onto a genai.Part. Text → Text part; image
 // → InlineData (base64-decoded back to bytes); tool_use → FunctionCall;
 // tool_result → FunctionResponse; thinking → dropped (per-call only on Gemini).
+// toolUseFromPart converts a Gemini functionCall part into a tool_use block.
+// It is the exact inverse of blockToPart's tool_use case, and exists as its own
+// function so the round-trip can be tested without a live stream — the bug it
+// guards against is only reachable across TWO turns.
+//
+// The thought signature is the load-bearing part. Gemini 3.x issues one with
+// every functionCall and REQUIRES it echoed back when that call is replayed:
+//
+//	400 INVALID_ARGUMENT: Function call is missing a thought_signature in
+//	functionCall parts.
+//
+// Dropping it made every tool-using Gemini turn fail on turn 2, across the
+// whole model family. It is opaque provider data — stored base64 so it survives
+// the JSON wire, echoed verbatim, never interpreted.
+func toolUseFromPart(part *genai.Part) (wire.Block, bool) {
+	fc := part.FunctionCall
+	if fc == nil || fc.Name == "" {
+		return wire.Block{}, false
+	}
+	args, _ := json.Marshal(fc.Args)
+	if len(args) == 0 || string(args) == "null" {
+		args = json.RawMessage("{}")
+	}
+	blk := wire.Block{Type: "tool_use", ID: fc.ID, Name: fc.Name, Input: args}
+	if len(part.ThoughtSignature) > 0 {
+		blk.Signature = base64.StdEncoding.EncodeToString(part.ThoughtSignature)
+	}
+	return blk, true
+}
+
 func (g *Gemini) blockToPart(b wire.Block, callName map[string]string) *genai.Part {
 	switch b.Type {
 	case "text":
@@ -259,11 +289,21 @@ func (g *Gemini) blockToPart(b wire.Block, callName map[string]string) *genai.Pa
 				provcore.LogToolInputMalformed("gemini", err)
 			}
 		}
-		return &genai.Part{FunctionCall: &genai.FunctionCall{
+		part := &genai.Part{FunctionCall: &genai.FunctionCall{
 			ID:   b.ID,
 			Name: b.Name,
 			Args: args,
 		}}
+		// Echo the thought signature Gemini issued for this call. Required on
+		// replay (see the capture site) — a missing one is a hard 400, not a
+		// degraded response. Absent for a call that came from another vendor,
+		// which is correct: there is nothing of Gemini's to return.
+		if b.Signature != "" {
+			if sig, err := base64.StdEncoding.DecodeString(b.Signature); err == nil {
+				part.ThoughtSignature = sig
+			}
+		}
+		return part
 	case "tool_result":
 		var resp map[string]any
 		if b.IsError {
@@ -513,14 +553,8 @@ func (g *Gemini) streamOnce(ctx context.Context, cl *genai.Client, model string,
 					emitted = true
 				}
 			}
-			if fc := part.FunctionCall; fc != nil && fc.Name != "" {
-				args, _ := json.Marshal(fc.Args)
-				if len(args) == 0 || string(args) == "null" {
-					args = json.RawMessage("{}")
-				}
-				fnCalls = append(fnCalls, wire.Block{
-					Type: "tool_use", ID: fc.ID, Name: fc.Name, Input: args,
-				})
+			if blk, ok := toolUseFromPart(part); ok {
+				fnCalls = append(fnCalls, blk)
 			}
 		}
 	}

@@ -1,6 +1,7 @@
 package gemini
 
 import (
+	"encoding/base64"
 	"fmt"
 	"testing"
 
@@ -229,3 +230,76 @@ func TestGeminiOverflowClassification(t *testing.T) {
 type errString string
 
 func (e errString) Error() string { return string(e) }
+
+// The multi-turn tool replay that single-turn tests could never catch.
+//
+// Gemini 3.x issues a thoughtSignature alongside every functionCall and
+// REQUIRES it echoed back when that call is replayed on the next turn. Without
+// it the continuation is rejected outright:
+//
+//	400 INVALID_ARGUMENT: Function call is missing a thought_signature in
+//	functionCall parts.
+//
+// That made every tool-using Gemini turn die on turn 2 — the whole model
+// family, not one version. It went unnoticed because the capability checks
+// that ran against Gemini were all SINGLE-turn (text, vision, PDF, thinking),
+// and a first turn has no prior call to replay. Verified live on Vertex against
+// gemini-3.8-flash and gemini-3.6-flash: identical failure without the
+// signature, success with it.
+func TestGeminiRoundTripsThoughtSignature(t *testing.T) {
+	const sig = "AY89a1+xXXW4pP89"
+	encoded := base64.StdEncoding.EncodeToString([]byte(sig))
+
+	// DECODE: a functionCall part's signature is captured onto the block.
+	g := NewGemini("key")
+	decoded, ok := toolUseFromPart(&genai.Part{
+		FunctionCall:     &genai.FunctionCall{ID: "tu_1", Name: "bash", Args: map[string]any{"cmd": "ls"}},
+		ThoughtSignature: []byte(sig),
+	})
+	if !ok || decoded.Type != "tool_use" {
+		t.Fatalf("decode produced %+v (ok=%v), want a tool_use block", decoded, ok)
+	}
+	blocks := []wire.Block{decoded}
+	if blocks[0].Signature != encoded {
+		t.Fatalf("decoded signature = %q, want the base64 of what Gemini issued", blocks[0].Signature)
+	}
+
+	// ENCODE: replaying that block sends the signature back, byte-identical.
+	contents := g.buildContents(wire.Request{Messages: []wire.Message{
+		{Role: "user", Blocks: []wire.Block{{Type: "text", Text: "run ls"}}},
+		{Role: "assistant", Blocks: []wire.Block{blocks[0]}},
+		{Role: "user", Blocks: []wire.Block{{Type: "tool_result", ToolUseID: "tu_1", Name: "bash", Content: "a.txt"}}},
+	}})
+	if len(contents) != 3 {
+		t.Fatalf("buildContents produced %d contents, want 3", len(contents))
+	}
+	var replayed *genai.Part
+	for _, p := range contents[1].Parts {
+		if p.FunctionCall != nil {
+			replayed = p
+		}
+	}
+	if replayed == nil {
+		t.Fatal("the replayed assistant turn carries no functionCall")
+	}
+	if string(replayed.ThoughtSignature) != sig {
+		t.Fatalf("replayed signature = %q, want %q — a missing or altered one is a hard 400, "+
+			"not a degraded response", replayed.ThoughtSignature, sig)
+	}
+}
+
+// A tool_use block with no signature (one that came from another vendor, or a
+// model that issued none) replays without inventing one.
+func TestGeminiReplayWithoutSignatureSendsNone(t *testing.T) {
+	g := NewGemini("key")
+	contents := g.buildContents(wire.Request{Messages: []wire.Message{
+		{Role: "assistant", Blocks: []wire.Block{
+			{Type: "tool_use", ID: "tu_1", Name: "bash", Input: []byte(`{"cmd":"ls"}`)},
+		}},
+	}})
+	for _, p := range contents[0].Parts {
+		if p.FunctionCall != nil && len(p.ThoughtSignature) != 0 {
+			t.Fatalf("invented a signature %q for a call that never had one", p.ThoughtSignature)
+		}
+	}
+}
