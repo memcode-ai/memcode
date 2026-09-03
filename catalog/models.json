@@ -290,7 +290,6 @@
       },
       "max_output": 32000,
       "fallback": [
-        "kimi-k2p7-code",
         "terra"
       ]
     },
@@ -321,52 +320,6 @@
       ]
     },
     {
-      "id": "accounts/fireworks/models/kimi-k2p7-code",
-      "label": "kimi-k2p7-code",
-      "vendor": "fireworks",
-      "window": 262000,
-      "vision": true,
-      "reasoning": true,
-      "_note": "Kimi K2.7 Code (Moonshot, Fireworks Day-0 2026-06-12): vision, 262K. TRIED as planner 2026-06-13, RETIRED \u2014 failed to synthesize a usable plan (incomplete/reasoning-soup output, same class as K2.6). Kept for reference; no role.",
-      "pinnable": true,
-      "group": "Kimi",
-      "desc": "Coding specialist",
-      "name": "Kimi K2.7 Code",
-      "www": {
-        "chat": true,
-        "order": 19,
-        "description": "Moonshot coding specialist with native vision and a 262K context window."
-      },
-      "max_output": 32000,
-      "fallback": [
-        "glm-5p2",
-        "terra"
-      ]
-    },
-    {
-      "id": "accounts/fireworks/models/kimi-k2p6",
-      "label": "kimi-k2p6",
-      "vendor": "fireworks",
-      "window": 262000,
-      "vision": true,
-      "reasoning": true,
-      "pinnable": true,
-      "group": "Kimi",
-      "_note": "Kimi K2.6 (Moonshot, Fireworks). Added 2026-07-17 for the /model pin picker. Native vision (MoonViT), 262K. VERIFY the Fireworks id spelling + window against the account before relying on it in prod.",
-      "desc": "General open-weight",
-      "name": "Kimi K2.6",
-      "www": {
-        "chat": true,
-        "order": 20,
-        "description": "Moonshot general open-weight model with native vision and a 262K context window."
-      },
-      "max_output": 32000,
-      "fallback": [
-        "kimi-k2p7-code",
-        "terra"
-      ]
-    },
-    {
       "id": "accounts/fireworks/models/kimi-k3",
       "label": "kimi-k3",
       "vendor": "fireworks",
@@ -388,7 +341,7 @@
       },
       "max_output": 32000,
       "fallback": [
-        "kimi-k2p7-code",
+        "glm-5p2",
         "terra"
       ]
     },
@@ -633,15 +586,6 @@
         "minimax-m3"
       ],
       "window": 500000
-    },
-    {
-      "match": [
-        "kimi-k2p7"
-      ],
-      "price_in": 0.95,
-      "price_out": 4.0,
-      "price_cache_read": 0.19,
-      "_note": "Kimi K2.7 real Fireworks card (LiteLLM 2026-07-27) \u2014 the glm floor overcharged kimi ~1.5x"
     },
     {
       "match": [
