@@ -3,9 +3,11 @@ package llm
 import (
 	"context"
 	"errors"
+	"net/http"
 
 	"github.com/memcode-ai/memcode/catalog"
 	"github.com/memcode-ai/memcode/internal/provider"
+	"github.com/memcode-ai/memcode/internal/providers/provcore"
 	"github.com/memcode-ai/memcode/internal/wire"
 )
 
@@ -30,6 +32,17 @@ const maxModelFallbacks = 2
 
 // terminalForFallback reports errors the fallback chain must never touch —
 // they carry their own recovery policy elsewhere.
+// IsTerminal reports whether an error will fail identically no matter which
+// model receives it — billing and auth state, or a request WE malformed.
+//
+// Callers outside the fallback walk need this too. A delegated worker that dies
+// on a terminal error is not a retryable tool failure: handing "agent failed"
+// back to the model invites it to try again, and it did — a Gemini
+// thought-signature 400 was retried roughly 150 times over 12 minutes, because
+// nothing in the loop could tell "this tool had a bad day" from "this will
+// never work".
+func IsTerminal(err error) bool { return err != nil && terminalForFallback(err) }
+
 func terminalForFallback(err error) bool {
 	for _, sentinel := range []error{
 		wire.ErrContextOverflow,    // compact-and-retry (runLoop)
@@ -52,7 +65,43 @@ func terminalForFallback(err error) bool {
 	if errors.As(err, &exh) || errors.As(err, &noLane) {
 		return true
 	}
-	return errors.Is(err, provider.ErrNotLoggedIn) || errors.Is(err, provider.ErrGatewayOnly)
+	if errors.Is(err, provider.ErrNotLoggedIn) || errors.Is(err, provider.ErrGatewayOnly) {
+		return true
+	}
+	return terminalStatus(err)
+}
+
+// terminalStatus classifies a provider's HTTP status. The rule the whole
+// fallback chain rests on:
+//
+//	The pinned model is authoritative. Fallbacks exist to survive
+//	INFRASTRUCTURE failure, not to reinterpret the request.
+//
+// A 4xx that describes OUR request is not an infrastructure failure. Retrying
+// it on another model sends the same malformed conversation and fails the same
+// way — which is exactly what happened when a Gemini thought-signature 400 was
+// walked: one bug became 298 failed calls across two models before anything
+// gave up.
+//
+// Deliberately NOT "all 4xx are terminal": 408 and 429 are timing, not shape,
+// and a different model genuinely may serve them.
+//
+//	400 malformed / invalid argument   -> terminal
+//	401 / 403 auth                     -> terminal
+//	404 unknown model or endpoint      -> terminal (for this model)
+//	408 timeout, 429 rate limit        -> walk the chain
+//	5xx, transport, timeouts           -> walk the chain
+//	capability gap                     -> refused earlier, never reaches here
+func terminalStatus(err error) bool {
+	code, _, ok := provcore.APIErrorInfo(err)
+	if !ok {
+		return false // not an HTTP-shaped error: a transport failure, which walks
+	}
+	switch code {
+	case http.StatusRequestTimeout, http.StatusTooManyRequests:
+		return false
+	}
+	return code >= 400 && code < 500
 }
 
 // billingClass reports the errors that mean the org's billing state just

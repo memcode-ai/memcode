@@ -65,3 +65,34 @@ func TestCatalogFallbackChainsResolve(t *testing.T) {
 // TestTierAltitude is DELETED with TierAltitude: it named which rung of its
 // vendor's frontier/balanced/cheap triple a model occupied, which only mattered
 // for remapping an Automatic pick to the same "altitude" on another vendor.
+
+// A fallback must fail DIFFERENTLY from the thing it covers.
+//
+// A same-vendor first hop shares the provider, the adapter and the request
+// semantics, so it survives only a single-model outage and multiplies every
+// other kind of failure. That is not theoretical: gemini-flash used to fall
+// back to gemini-pro, and when a bug in the shared Gemini adapter rejected
+// every tool-using turn, the chain dutifully reproduced the same failure on the
+// second model.
+//
+// Later hops may return to the same vendor — by then the independent one has
+// already been tried.
+func TestFallbackFirstHopLeavesTheVendor(t *testing.T) {
+	for _, m := range CatalogModels() {
+		fb := FallbackChain(m.Label)
+		if len(fb) == 0 {
+			continue
+		}
+		first, ok := LookupModel(fb[0])
+		if !ok {
+			t.Errorf("%s falls back to %q, which is not in the catalog — a chain naming a "+
+				"model that does not exist silently shortens the safety net", m.Label, fb[0])
+			continue
+		}
+		if first.Vendor == m.Vendor {
+			t.Errorf("%s (%s) falls back first to %s, the SAME vendor. A fallback that shares "+
+				"the provider and adapter cannot cover an outage or a bug in either — point the "+
+				"first hop at a different vendor.", m.Label, m.Vendor, fb[0])
+		}
+	}
+}

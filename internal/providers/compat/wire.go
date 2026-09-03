@@ -205,6 +205,14 @@ type ToolCall struct {
 	ID       string       `json:"id"`
 	Type     string       `json:"type"` // "function"
 	Function FunctionCall `json:"function"`
+
+	// MemcodeSignature carries opaque provider state that belongs to THIS call
+	// and must come back verbatim when the call is replayed — Gemini issues a
+	// thoughtSignature with every functionCall and rejects the replay with a 400
+	// without it. The standard tool_calls shape has nowhere to put that, so it
+	// rides a namespaced extension, the same way reasoning blocks ride
+	// memcode_opaque. Ignored by any server that does not know it.
+	MemcodeSignature string `json:"memcode_signature,omitempty"`
 }
 
 // FunctionCall is a call's name + JSON-encoded arguments string.
@@ -307,6 +315,10 @@ type ToolCallDelta struct {
 	ID       string        `json:"id,omitempty"`
 	Type     string        `json:"type,omitempty"`
 	Function *FunctionCall `json:"function,omitempty"`
+
+	// MemcodeSignature is the streaming half of ToolCall.MemcodeSignature —
+	// sent once on the delta that opens the call.
+	MemcodeSignature string `json:"memcode_signature,omitempty"`
 }
 
 // ── models + errors ─────────────────────────────────────────────────────────
