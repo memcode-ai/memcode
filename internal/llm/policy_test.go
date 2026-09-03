@@ -9,11 +9,13 @@ package llm
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/memcode-ai/memcode/internal/provider"
 	"github.com/memcode-ai/memcode/internal/wire"
+	"google.golang.org/genai"
 )
 
 // scriptedProv is a ModelProvider+Streamer+Endpointer fake: records requested
@@ -206,9 +208,9 @@ func TestFallbackWalkOnModelError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the chain must rescue the call: %v", err)
 	}
-	// glm-5p2 fails → catalog chain: kimi-k2p7-code.
-	if len(p.requested) != 2 || p.requested[1] != "kimi-k2p7-code" {
-		t.Fatalf("walk = %v, want [glm-5p2 kimi-k2p7-code]", p.requested)
+	// glm-5p2 fails → catalog chain: terra.
+	if len(p.requested) != 2 || p.requested[1] != "terra" {
+		t.Fatalf("walk = %v, want [glm-5p2 terra]", p.requested)
 	}
 	if !strings.HasPrefix(resp.FallbackReason, "model_error: ") {
 		t.Fatalf("reason = %q, want model_error: …", resp.FallbackReason)
@@ -323,5 +325,46 @@ func TestForkInheritsPin(t *testing.T) {
 	}
 	if p.requested[0] != "opus" {
 		t.Fatalf("forked turn requested %q, want the inherited pin (opus)", p.requested[0])
+	}
+}
+
+// A 4xx that describes OUR request must never walk the fallback chain. The
+// next model would receive the same malformed conversation and fail the same
+// way — which is how one Gemini thought-signature 400 became 298 failed calls
+// across two models before anything gave up.
+//
+// 408 and 429 are the deliberate exceptions: those are timing, not shape, and
+// another model genuinely may serve them.
+func TestRequestShapeErrorsAreTerminalButTimingErrorsWalk(t *testing.T) {
+	apiErr := func(code int) error {
+		return fmt.Errorf("gemini stream: %w", &genai.APIError{Code: code, Message: "boom"})
+	}
+	for _, tc := range []struct {
+		name     string
+		code     int
+		wantCall int // total provider calls: 1 = terminal, 2 = walked
+	}{
+		{"400 malformed request", 400, 1},
+		{"401 unauthorized", 401, 1},
+		{"403 forbidden", 403, 1},
+		{"404 unknown model", 404, 1},
+		{"408 timeout", 408, 2},
+		{"429 rate limited", 429, 2},
+		{"500 provider down", 500, 2},
+		{"503 unavailable", 503, 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := &scriptedProv{failures: map[string]error{"glm-5p2": apiErr(tc.code)}}
+			r := pinnedRunner(p, prodInfo(nil), "glm-5p2")
+			_, _ = r.Complete(context.Background(), MainLoop, userReq("hi"))
+			if len(p.requested) != tc.wantCall {
+				verb := "walked the chain"
+				if tc.wantCall == 1 {
+					verb = "stopped at the first model"
+				}
+				t.Fatalf("%d → %d calls (%v), want %d — it should have %s",
+					tc.code, len(p.requested), p.requested, tc.wantCall, verb)
+			}
+		})
 	}
 }
