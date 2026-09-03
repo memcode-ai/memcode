@@ -102,9 +102,6 @@ func TestFinishPlanYoloSuppressesAsk(t *testing.T) {
 	defer st.Close()
 	prov := &yoloFinishProvider{}
 	s := newSess(st, prov, t.TempDir(), "sonnet", permissions.ModeAsk, io.Discard)
-	s.SetPlannerModel("opus")
-	s.SetPlanResearchModel("sonnet")
-
 	// Wire a sentinel ask callback — if yolo is broken and asks, this fires.
 	s.ask = func(ctx context.Context, req AskRequest) AskResponse {
 		prov.asked = true

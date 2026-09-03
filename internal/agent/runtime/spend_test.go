@@ -84,15 +84,17 @@ func TestScoutModelDefaultsLuna(t *testing.T) {
 	}
 	defer st.Close()
 	s := newSess(st, usageProvider{}, t.TempDir(), "sonnet", permissions.ModeAsk, io.Discard)
-	if s.scoutModel != catalog.ModelLuna {
-		t.Fatalf("scouts should default to Luna, got %q", s.scoutModel)
+	// Unset means INHERIT: delegated work rides the primary pin, so there is no
+	// separate default to configure and nothing splits unless asked.
+	if s.DelegatedPin() != "" {
+		t.Fatalf("delegated pin should start unset (inherit), got %q", s.DelegatedPin())
 	}
-	s.SetScoutModel("") // empty config must not clobber the default
-	if s.scoutModel != catalog.ModelLuna {
-		t.Fatal("SetScoutModel(\"\") should keep the default")
+	s.SetDelegatedPin(catalog.ModelSonnet, 0)
+	if s.DelegatedPin() != catalog.ModelSonnet {
+		t.Fatalf("SetDelegatedPin should set the delegated model, got %q", s.DelegatedPin())
 	}
-	s.SetScoutModel(catalog.ModelSonnet) // explicit override (e.g. to A/B back to Sonnet)
-	if s.scoutModel != catalog.ModelSonnet {
-		t.Fatal("SetScoutModel should override")
+	s.SetDelegatedPin("", 0) // reset back to inherit
+	if s.DelegatedPin() != "" {
+		t.Fatalf(`SetDelegatedPin("") should reset to inherit, got %q`, s.DelegatedPin())
 	}
 }

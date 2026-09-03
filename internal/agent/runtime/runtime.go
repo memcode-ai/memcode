@@ -79,7 +79,9 @@ type Session struct {
 	root              string
 	model             string
 	scoutModel        string            // model for read-only explore sub-agents (cheap; Luna by default)
-	pin               string            // the session's model label (resolved once at start; changed only by /model)
+	pin               string            // the session's PRIMARY model label (resolved once at start; changed only by /model)
+	delegatedPin      string            // the DELEGATED model label for sub-agents/scouts; "" = inherit the primary
+	delegatedWindow   int               // the delegated pin's context window (0 = unknown)
 	lastServedModel   string            // last turn's serving model — cross-family thinking-block hygiene (loop.go)
 	laneFallback      map[string]string // vendor → sticky exhaustion choice for this session ("gateway" | "stop")
 	pinWindow         int               // the pin's context window from the picker list (0 = unknown; sizes the meter before the first serve)

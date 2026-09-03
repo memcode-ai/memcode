@@ -40,8 +40,6 @@ func TestPlanRenders(t *testing.T) {
 	defer st.Close()
 	var out bytes.Buffer
 	s := newSess(st, &planScript{}, t.TempDir(), "sonnet-research", permissions.ModeAsk, &out)
-	s.SetPlannerModel("opus-planner")
-	s.SetPlanResearchModel("sonnet-research")
 	s.EnterPlan(ctx)
 
 	msgs := []wire.Message{{Role: "user", Blocks: []wire.Block{{Type: "text", Text: "plan it"}}}}

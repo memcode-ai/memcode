@@ -79,11 +79,14 @@ func runInteractive(ctx context.Context, mode permissions.Mode, modeExplicit boo
 		// place that chain lives.
 		pin, win := config.ResolvePin(cfg, "")
 		sess.SetPin(pin, win)
+		// Delegated work (sub-agents, scouts, plan research) runs on the
+		// delegated pin. Unset means inherit the primary, so by default every
+		// worker stays on the model the user chose.
+		if dp, dw := config.ResolveDelegatedPin(cfg, "", pin, win); dp != pin {
+			sess.SetDelegatedPin(dp, dw)
+		}
 	}
-	sess.SetServingDefault(cfg.ServingDefault)                        // cached cheap-lane model → banner/footer show it at once (refreshed by the /models fetch)
-	sess.SetScoutModel(provider.EffectiveModel(cfg.Models.Explorer))  // cheap read-only scouts (Haiku)
-	sess.SetPlannerModel(provider.EffectiveModel(cfg.Models.Planner)) // reasoning model for plan SYNTHESIS
-	sess.SetPlanResearchModel(model)                                  // cheap model for plan-mode research
+	sess.SetServingDefault(cfg.ServingDefault) // cached cheap-lane model → banner/footer show it at once (refreshed by the /models fetch)
 	if chrome {
 		sess.SetBrowserEnabled(true)
 		defer sess.CloseBrowser() // tear down Chrome when the TUI session ends

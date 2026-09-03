@@ -74,8 +74,6 @@ func TestPlanExecutiveDelegates(t *testing.T) {
 
 	prov := &execProvider{}
 	s := newSess(st, prov, t.TempDir(), "sonnet-research", permissions.ModeAsk, io.Discard)
-	s.SetPlannerModel("opus-planner")
-	s.SetPlanResearchModel("sonnet-research")
 	s.EnterPlan(ctx)
 
 	msgs := []wire.Message{{Role: "user", Blocks: []wire.Block{{Type: "text", Text: "plan it"}}}}
@@ -147,9 +145,6 @@ func TestClarifyGateAsksBeforeSynthesis(t *testing.T) {
 
 	prov := &hitlProvider{}
 	s := newSess(st, prov, t.TempDir(), "sonnet-research", permissions.ModeAsk, io.Discard)
-	s.SetPlannerModel("opus-planner")
-	s.SetPlanResearchModel("sonnet-research")
-
 	askedAtCall := -1
 	var askedQ string
 	s.ask = func(_ context.Context, req AskRequest) AskResponse {

@@ -24,11 +24,18 @@ const ConfigFile = "config.json"
 // ModelTiers maps the engine's model roles to concrete model ids. Values may be
 // aliases ("opus"|"sonnet"|"haiku") or full model ids; resolve with
 // provider.ResolveAlias.
+// ModelTiers is LEGACY. Planner/Classifier/Explorer selected nothing once the
+// pin became the single selection authority, and are no longer read or
+// defaulted — they remain only so an existing config file still parses. Coder
+// is still consulted, but only as the session's DISPLAY model at startup.
+//
+// Which model runs what is now two pins: PinnedModel (primary) and
+// DelegatedModel (sub-agents and scouts). Do not add roles here.
 type ModelTiers struct {
-	Planner    string `json:"planner"`    // hard reasoning / planning
-	Coder      string `json:"coder"`      // the everyday default / agent
-	Classifier string `json:"classifier"` // the reducer's cheap router
-	Explorer   string `json:"explorer"`   // read-only scout sub-agents (cheap; Haiku by default)
+	Planner    string `json:"planner,omitempty"`    // legacy, ignored
+	Coder      string `json:"coder"`                // startup display model only
+	Classifier string `json:"classifier,omitempty"` // legacy, ignored
+	Explorer   string `json:"explorer,omitempty"`   // legacy, ignored
 }
 
 // SyncTarget names an AI-editor context file that memcode can keep in sync.
@@ -102,6 +109,16 @@ type Config struct {
 	// through to the user-level store, and finally seeds from default_model and
 	// persists here, so it is only ever empty once.
 	PinnedModel string `json:"pinned_model,omitempty"`
+
+	// DelegatedModel is this workspace's DELEGATED pin: the model that
+	// agent-tool workers, explore/research scouts and plan-mode scouts run on.
+	// Empty means INHERIT PinnedModel — it is never seeded, so delegated work
+	// only lands on a different model because someone explicitly said so.
+	//
+	// Written by the model_preference tool on an explicit user instruction, and
+	// by nothing else. See config.ResolveDelegatedPin.
+	DelegatedModel  string `json:"delegated_model,omitempty"`
+	DelegatedWindow int    `json:"delegated_window,omitempty"`
 
 	// PinnedWindow caches the pin's context window (tokens) from the picker list,
 	// so the ctx meter is sized right on launch before the first serve reports one.
@@ -333,9 +350,6 @@ func (c *Config) pruneSubscriptionEndpoints() bool {
 // the read-only scout lane — defaults to Haiku, exactly as its field doc promises. Planner
 // and Coder have no default and stay required (see Validate).
 func (c *Config) applyDefaults() {
-	if c.Models.Explorer == "" {
-		c.Models.Explorer = "haiku" // resolves via provider.ResolveAlias
-	}
 	if c.Vendor == "" {
 		c.Vendor = "openai" // the gateway default strong tier in hybrid mode
 	}
@@ -350,9 +364,6 @@ func (c *Config) Validate(path string) error {
 	var missing []string
 	if c.Models.Coder == "" {
 		missing = append(missing, "models.coder")
-	}
-	if c.Models.Planner == "" {
-		missing = append(missing, "models.planner")
 	}
 	if len(missing) == 0 {
 		return nil

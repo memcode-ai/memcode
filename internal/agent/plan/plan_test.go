@@ -34,14 +34,15 @@ func TestTransitions(t *testing.T) {
 			t.Fatal("nil Snapshot must be empty")
 		}
 	})
-	t.Run("Enter from Idle researches, emits, switches model", func(t *testing.T) {
+	t.Run("Enter from Idle researches and emits (no model switch)", func(t *testing.T) {
 		c := &Controller{}
-		c.SetPlannerModel("planner")
 		eff := c.Enter("current")
 		if c.Phase() != Researching {
 			t.Fatalf("phase = %v", c.Phase())
 		}
-		if eff.Emit != events.KindPlanStarted || !eff.ClearTodos || eff.SetModel != "planner" {
+		// Entering plan mode no longer switches models: plan drafting is
+		// user-work inference and runs on the primary pin like the main loop.
+		if eff.Emit != events.KindPlanStarted || !eff.ClearTodos || eff.SetModel != "" {
 			t.Fatalf("effects = %+v", eff)
 		}
 	})

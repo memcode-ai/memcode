@@ -289,21 +289,21 @@ func (s *Session) stripThinkingFromLiveChat() {
 	_ = changed // no user-facing notice — the switch line already announces the model change
 }
 
-// SetScoutModel sets the model used by read-only explore sub-agents (cheap by
-// default — Haiku). Empty is ignored, so an unset config keeps the default.
-func (s *Session) SetScoutModel(model string) {
-	if model != "" {
-		s.scoutModel = model
-	}
+// SetDelegatedPin sets the model DELEGATED work runs on: agent-tool workers,
+// explore/research scouts, and plan-mode scouts. "" means inherit the primary,
+// which is the default — a split only exists because someone asked for one.
+//
+// This replaced SetScoutModel / SetPlannerModel / SetPlanResearchModel. Those
+// set only a sub-session's DISPLAY model and had silently stopped affecting
+// which model served anything once the pin became the single selection
+// authority — a config knob that looked like it chose a model and didn't.
+func (s *Session) SetDelegatedPin(label string, window int) {
+	s.delegatedPin, s.delegatedWindow = label, window
 }
 
-// SetPlannerModel records the reasoning model used for final plan SYNTHESIS.
-func (s *Session) SetPlannerModel(model string) { s.planCtl.SetPlannerModel(model) }
-
-// SetPlanResearchModel records the cheaper model used for the read-only research
-// loop while planning. If unset, research runs on whatever model the session was
-// already using when it entered plan mode.
-func (s *Session) SetPlanResearchModel(model string) { s.planCtl.SetResearchModel(model) }
+// DelegatedPin reports the delegated model label; "" when delegated work
+// inherits the primary pin.
+func (s *Session) DelegatedPin() string { return s.delegatedPin }
 
 // Planning reports whether the session is currently in plan mode.
 func (s *Session) Planning() bool { return s.planCtl.Planning() }

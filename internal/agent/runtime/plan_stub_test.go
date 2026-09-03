@@ -45,8 +45,6 @@ func TestSynthesisKeepsToolsForFinalRead(t *testing.T) {
 	defer st.Close()
 	prov := &synthReadsThenPlans{}
 	s := newSess(st, prov, t.TempDir(), "sonnet", permissions.ModeAsk, io.Discard)
-	s.SetPlannerModel("opus")
-	s.SetPlanResearchModel("sonnet")
 	s.EnterPlan(ctx)
 
 	msgs := []wire.Message{{Role: "user", Blocks: []wire.Block{{Type: "text", Text: "plan it"}}}}

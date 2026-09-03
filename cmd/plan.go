@@ -7,7 +7,7 @@ import (
 
 	"github.com/memcode-ai/memcode/internal/agent/permissions"
 	"github.com/memcode-ai/memcode/internal/agent/runtime"
-	"github.com/memcode-ai/memcode/internal/provider"
+	"github.com/memcode-ai/memcode/internal/config"
 )
 
 var planCmd = &cobra.Command{
@@ -27,13 +27,15 @@ Requires MEMCODE_API_TOKEN (from the environment or a gitignored .env at the rep
 			return err
 		}
 		defer st.Close()
-		planner := provider.EffectiveModel(cfg.Models.Planner)
-		research := provider.EffectiveModel(cfg.Models.Coder)
-		// Base = research model so the read-only loop + explorers run cheap; the
-		// final plan is synthesized on the planner (reasoning) model.
-		sess := runtime.New(st, runner, cfg.Root, research, permissions.ModeAsk, userOut())
-		sess.SetPlannerModel(planner)
-		sess.SetPlanResearchModel(research)
+		// The session's model comes from the pin chain like everywhere else;
+		// delegated work (the read-only research loop's explorers) rides the
+		// delegated pin when one is configured.
+		pin, win := config.ResolvePin(cfg, "")
+		sess := runtime.New(st, runner, cfg.Root, pin, permissions.ModeAsk, userOut())
+		sess.SetPin(pin, win)
+		if dp, dw := config.ResolveDelegatedPin(cfg, "", pin, win); dp != pin {
+			sess.SetDelegatedPin(dp, dw)
+		}
 
 		_, err = sess.RunPlan(ctx, strings.Join(args, " "))
 		return err

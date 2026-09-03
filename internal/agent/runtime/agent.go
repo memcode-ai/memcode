@@ -43,15 +43,20 @@ type AgentResult struct {
 // Task primitive: the caller (the LLM via a tool, or plan mode) blocks until the sub-agent
 // finishes, then acts on the result.
 func (s *Session) spawnAgent(ctx context.Context, spec AgentSpec) (AgentResult, error) {
-	model := s.scoutModel
-	if model == "" {
-		model = s.model
-	}
-	if spec.Purpose == llm.Explore && s.planCtl.Planning() && s.planCtl.ResearchModel() != "" {
-		model = s.planCtl.ResearchModel() // plan-mode research override
+	// Every delegated worker — agent-tool tasks, explore scouts, plan-mode
+	// research — runs on the DELEGATED pin. Unset means inherit the primary, so
+	// the default is "the model you chose runs everything" and a split only
+	// happens because someone asked for one.
+	//
+	// This is a pin, not a decision: nothing here inspects the task to pick a
+	// model, and the agent tool has no model parameter to override it with.
+	model, runner := s.model, s.runner.Fork()
+	if s.delegatedPin != "" {
+		model, runner = s.delegatedPin, s.runner.ForkWithModel(s.delegatedPin)
 	}
 
-	sub := New(s.store, s.runner.Fork(), s.root, model, s.effectiveMode(), io.Discard)
+	sub := New(s.store, runner, s.root, model, s.effectiveMode(), io.Discard)
+	sub.delegatedPin, sub.delegatedWindow = s.delegatedPin, s.delegatedWindow // a worker's own workers too
 	if spec.Purpose != "" {
 		sub.purpose = spec.Purpose
 	} else {

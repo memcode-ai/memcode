@@ -102,9 +102,7 @@ type Controller struct {
 	revision      int // times the current plan has been revised (event trail)
 	reflectRounds int // extra research rounds the reflection gate triggered
 
-	plannerModel  string // reasoning model for the executive loop + synthesis
-	researchModel string // cheaper model for explore() scout sub-agents
-	savedModel    string // model to restore when leaving plan mode
+	savedModel string // model to restore when leaving plan mode
 
 	// lastPlan is the pinned apply contract: the most recently PRESENTED
 	// plan-shaped synthesis. Preferred over any "last rendered text" at
@@ -165,9 +163,6 @@ func (c *Controller) Enter(currentModel string, opts ...Opt) Effects {
 	}
 	c.savedModel = currentModel
 	eff := Effects{ClearTodos: true, Emit: events.KindPlanStarted}
-	if c.plannerModel != "" {
-		eff.SetModel = c.plannerModel
-	}
 	return eff
 }
 
@@ -330,20 +325,6 @@ func (c *Controller) RecordSaveSlug(slug string) {
 	c.slug = slug
 }
 
-// SetPlannerModel records the reasoning model for the executive loop + synthesis.
-func (c *Controller) SetPlannerModel(model string) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.plannerModel = model
-}
-
-// SetResearchModel records the cheaper model for explore() scout sub-agents.
-func (c *Controller) SetResearchModel(model string) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.researchModel = model
-}
-
 // --- Read accessors. All nil-receiver-safe (a nil Controller is Idle), all
 // locked, so no caller ever needs planCtl != nil or an external mutex.
 
@@ -450,16 +431,6 @@ func (c *Controller) Slug() string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.slug
-}
-
-// ResearchModel returns the scout-model override ("" = none).
-func (c *Controller) ResearchModel() string {
-	if c == nil {
-		return ""
-	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.researchModel
 }
 
 // --- Plan-shape detection (the Present pin guard's structural signal).

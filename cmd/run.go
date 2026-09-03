@@ -146,12 +146,14 @@ for local gateway development. Never store keys in .memcode.`,
 			modelFlag, _ := cmd.Flags().GetString("model")
 			pin, win := config.ResolvePin(cfg, modelFlag)
 			sess.SetPin(pin, win)
+			if dp, dw := config.ResolveDelegatedPin(cfg, "", pin, win); dp != pin {
+				sess.SetDelegatedPin(dp, dw) // sub-agents/scouts; unset = inherit
+			}
 			// The header must name the model that will actually serve. It used
 			// to print a config/provider default, which under Automatic was a
 			// guess and is now simply wrong.
 			model = pin
 		}
-		sess.SetScoutModel(provider.EffectiveModel(cfg.Models.Explorer)) // cheap read-only scouts
 		sess.SetNoContext(noContext)
 		browserSession, _ := cmd.Flags().GetString("browser-session")
 		if chrome && browserSession != "existing_chrome" {
