@@ -368,3 +368,44 @@ func TestRequestShapeErrorsAreTerminalButTimingErrorsWalk(t *testing.T) {
 		})
 	}
 }
+
+// TestIsTerminalExcludesRecoverableCauses: IsTerminal decides whether a failure
+// KILLS THE TURN, which is a stricter question than "should the fallback walk
+// stop here?" — the question terminalForFallback answers.
+//
+// Several causes stop the walk precisely because something else recovers them.
+// Aliasing the two would make a delegated worker's context overflow kill the
+// parent turn instead of compacting and retrying: the recovery would be
+// replaced by a hard failure, and the bug would look like the very hang this
+// classification exists to prevent.
+func TestIsTerminalExcludesRecoverableCauses(t *testing.T) {
+	shape := fmt.Errorf("gemini stream: %w", &genai.APIError{Code: 400, Message: "malformed"})
+
+	for _, tc := range []struct {
+		name string
+		err  error
+		want bool
+		why  string
+	}{
+		{"malformed request", shape, true, "fails identically on every model"},
+		{"unauthorized", wire.ErrUnauthorized, true, "needs the user to sign in"},
+		{"insufficient credit", wire.ErrInsufficientCredit, true, "needs the user to top up"},
+		{"context overflow", wire.ErrContextOverflow, false, "compact-and-retry recovers it"},
+		{"incomplete stream", wire.ErrStreamIncomplete, false, "the same call is retried"},
+		{"rate limited", fmt.Errorf("x: %w", &genai.APIError{Code: 429}), false, "timing, not shape"},
+		{"provider down", fmt.Errorf("x: %w", &genai.APIError{Code: 503}), false, "infrastructure"},
+		{"transport failure", errors.New("connection reset"), false, "infrastructure"},
+		{"nil", nil, false, "no failure at all"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := IsTerminal(tc.err); got != tc.want {
+				t.Errorf("IsTerminal = %v, want %v — %s", got, tc.want, tc.why)
+			}
+		})
+	}
+
+	// The lane-exhausted card is the user's decision, not a turn kill.
+	if IsTerminal(&provider.ErrLaneExhausted{}) {
+		t.Error("an exhausted lane raises the fallback-choice card; it must not kill the turn")
+	}
+}

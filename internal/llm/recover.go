@@ -41,7 +41,30 @@ const maxModelFallbacks = 2
 // thought-signature 400 was retried roughly 150 times over 12 minutes, because
 // nothing in the loop could tell "this tool had a bad day" from "this will
 // never work".
-func IsTerminal(err error) bool { return err != nil && terminalForFallback(err) }
+func IsTerminal(err error) bool {
+	if err == nil {
+		return false
+	}
+	// NOT an alias for terminalForFallback. That answers "should the fallback
+	// walk stop here?", and several of its cases stop the walk precisely BECAUSE
+	// something else recovers them: a context overflow compacts and retries, an
+	// incomplete stream retries the same call, an exhausted lane raises the
+	// user's fallback-choice card. Killing the turn on those would break the
+	// recovery instead of surfacing a cause.
+	for _, recoverable := range []error{
+		wire.ErrContextOverflow,  // compact-and-retry, inside the worker
+		wire.ErrStreamIncomplete, // same-call transport retry
+	} {
+		if errors.Is(err, recoverable) {
+			return false
+		}
+	}
+	var exh *provider.ErrLaneExhausted
+	if errors.As(err, &exh) {
+		return false // raises the fallback-choice card; the user decides
+	}
+	return terminalForFallback(err)
+}
 
 func terminalForFallback(err error) bool {
 	for _, sentinel := range []error{
