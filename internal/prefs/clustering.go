@@ -3,6 +3,8 @@ package prefs
 import (
 	"sort"
 	"strings"
+
+	"github.com/memcode-ai/memcode/internal/setsim"
 )
 
 // cluster groups signals by axis, then within each axis groups by lexical
@@ -67,7 +69,7 @@ func jaccardGroup(signals []signalEvent) [][]signalEvent {
 		toks := tokens(sig.Text)
 		merged := false
 		for i, ct := range clusterTokens {
-			if jaccard(toks, ct) >= jaccardThreshold {
+			if setsim.Jaccard(toks, ct) >= jaccardThreshold {
 				clusters[i] = append(clusters[i], sig)
 				// Refresh the representative tokens so later signals can match the
 				// growing cluster.
@@ -97,24 +99,6 @@ func tokens(s string) map[string]bool {
 		}
 	}
 	return set
-}
-
-// jaccard is the token-set Jaccard similarity |A∩B| / |A∪B|.
-func jaccard(a, b map[string]bool) float64 {
-	if len(a) == 0 || len(b) == 0 {
-		return 0
-	}
-	inter := 0
-	for t := range a {
-		if b[t] {
-			inter++
-		}
-	}
-	union := len(a) + len(b) - inter
-	if union == 0 {
-		return 0
-	}
-	return float64(inter) / float64(union)
 }
 
 // polarity returns +1 for affirmative directives ("always", "use", "prefer") and

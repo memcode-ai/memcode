@@ -32,6 +32,8 @@ import (
 	"github.com/memcode-ai/memcode/internal/atomicfile"
 	"github.com/memcode-ai/memcode/internal/events"
 	"github.com/memcode-ai/memcode/internal/store"
+
+	"github.com/memcode-ai/memcode/internal/setsim"
 )
 
 const (
@@ -172,7 +174,7 @@ func clusterSignals(signals []Signal) [][]Signal {
 		tk := tokenSet(s.Trigger + " " + s.Strategy)
 		placed := false
 		for i := range clusters {
-			if jaccard(tokens[i], tk) >= jaccardThreshold {
+			if setsim.Jaccard(tokens[i], tk) >= jaccardThreshold {
 				clusters[i] = append(clusters[i], s)
 				for w := range tk { // grow the cluster's vocabulary
 					tokens[i][w] = true
@@ -446,20 +448,6 @@ func tokenSet(text string) map[string]bool {
 		}
 	}
 	return out
-}
-
-func jaccard(a, b map[string]bool) float64 {
-	if len(a) == 0 || len(b) == 0 {
-		return 0
-	}
-	inter := 0
-	for w := range a {
-		if b[w] {
-			inter++
-		}
-	}
-	union := len(a) + len(b) - inter
-	return float64(inter) / float64(union)
 }
 
 func slug(text string, n int) string {
