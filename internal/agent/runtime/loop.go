@@ -1114,7 +1114,7 @@ func (s *Session) complete(ctx context.Context, purpose llm.Purpose, req wire.Re
 		if resp.Model != "" {
 			s.lastServedModel = resp.Model
 		}
-		// Just the model name — it already implies the backend (kimi-k2p6 = cheap lane, opus =
+		// Just the model name — it already implies the backend (glm-5p2 = cheap lane, opus =
 		// Anthropic). The cheap lane tags a short Pool label; Anthropic has none, so fall back to
 		// the short model id.
 		name := resp.Pool

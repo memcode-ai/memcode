@@ -23,8 +23,7 @@ func TestModelPricingRealIDs(t *testing.T) {
 		{"grok-4.6", 2, 6},
 		{"accounts/fireworks/models/glm-5p2", 1.40, 4.40}, // was $0
 		{"accounts/fireworks/models/glm-5p1", 1.40, 4.40},
-		{"accounts/fireworks/models/kimi-k3", 3.00, 15.00},       // K3's own Fireworks headline card ($3/$15), NOT the kimi family rule
-		{"accounts/fireworks/models/kimi-k2p7-code", 0.95, 4.00}, // pinnable via /model
+		{"accounts/fireworks/models/kimi-k3", 3.00, 15.00}, // K3's own Fireworks headline card ($3/$15), NOT the kimi family rule
 		{"accounts/fireworks/models/qwen3p8-2p4t-a95b", 2.00, 6.00},
 		{"accounts/fireworks/models/deepseek-v4-pro-0813", 1.32, 3.96},
 		{"accounts/fireworks/models/deepseek-v4-flash-0731", 0.22, 0.66},
@@ -56,7 +55,7 @@ func TestModelPricingByLabel(t *testing.T) {
 		in    float64
 	}{
 		{"sol", 5}, {"terra", 2}, {"luna", 0.2},
-		{"glm-5p2", 1.40}, {"kimi-k2p6", 0.95}, {"qwen3p8-max", 2.00},
+		{"glm-5p2", 1.40}, {"kimi-k3", 3.00}, {"qwen3p8-max", 2.00},
 		{"deepseek-v4-pro", 1.32}, {"deepseek-v4-flash", 0.22},
 		{"gemini-flash-lite", 0.3},
 	}
@@ -82,7 +81,7 @@ func TestContextWindowFireworks(t *testing.T) {
 		{"accounts/fireworks/models/glm-5p2", 1_000_000}, // was defaulting to 200K
 		{"accounts/fireworks/models/glm-5p1", 202_000},
 		{"accounts/fireworks/models/kimi-k3", 1_000_000}, // k3 ≠ the kimi-k2 262K case
-		{"accounts/fireworks/models/kimi-k2p6", 262_000},
+		{"accounts/fireworks/models/kimi-k3", 1_000_000},
 		{"accounts/fireworks/models/qwen3p8-2p4t-a95b", 262_144},
 		{"accounts/fireworks/models/deepseek-v4-pro-0813", 1_040_000},
 		{"accounts/fireworks/models/deepseek-v4-flash-0731", 1_040_000},
@@ -108,7 +107,7 @@ func TestModelPricingCacheRates(t *testing.T) {
 		{"claude-sonnet-5", 0.2, 2.5},
 		{"gpt-5.6-terra", 0.2, 2.5},
 		{"accounts/fireworks/models/glm-5p2", 0.14, 1.75},
-		{"accounts/fireworks/models/kimi-k2p6", 0.16, 1.1875},
+		{"accounts/fireworks/models/kimi-k3", 0.30, 3.75},
 		{"accounts/fireworks/models/qwen3p8-2p4t-a95b", 0.2, 2.5},
 		{"accounts/fireworks/models/deepseek-v4-pro-0813", 0.044, 1.32 * 1.25},
 		{"accounts/fireworks/models/deepseek-v4-flash-0731", 0.007, 0.275},

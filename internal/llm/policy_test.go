@@ -208,7 +208,7 @@ func TestFallbackWalkOnModelError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the chain must rescue the call: %v", err)
 	}
-	// glm-5p2 fails → catalog chain: terra.
+	// glm-5p2 fails → its declared chain: terra.
 	if len(p.requested) != 2 || p.requested[1] != "terra" {
 		t.Fatalf("walk = %v, want [glm-5p2 terra]", p.requested)
 	}
