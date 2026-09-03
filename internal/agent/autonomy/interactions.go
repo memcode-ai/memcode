@@ -98,14 +98,3 @@ func (s *Store) CancelInteraction(ctx context.Context, id string) error {
 	_, err := s.db.ExecContext(ctx, `UPDATE interactions SET status='cancelled' WHERE id=? AND status='pending'`, id)
 	return err
 }
-
-// Package-level wrappers used by cmd (store passed explicitly).
-func PendingInteractions(s *Store, agentID string) ([]Interaction, error) {
-	return s.PendingInteractions(context.Background(), agentID)
-}
-func GetInteraction(s *Store, id string) (Interaction, bool, error) {
-	return s.GetInteraction(context.Background(), id)
-}
-func ResolveInteraction(s *Store, id, answer string) error {
-	return s.ResolveInteraction(context.Background(), id, answer)
-}

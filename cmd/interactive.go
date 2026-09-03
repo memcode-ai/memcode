@@ -78,7 +78,10 @@ func runInteractive(ctx context.Context, mode permissions.Mode, modeExplicit boo
 		// The session's model: session override -> workspace -> user -> the
 		// default_model seed (persisted on first use). ResolvePin is the ONLY
 		// place that chain lives.
-		pin, win := config.ResolvePin(cfg, "")
+		pin, win, warn := config.ResolvePinSeeded(cfg, "")
+		if warn != nil {
+			fmt.Fprintf(os.Stderr, "warning: %v\n", warn)
+		}
 		sess.SetPin(pin, win)
 		sess.SetPolicy(sessionPolicy(cfg.Root, pin))
 	}

@@ -78,18 +78,6 @@ func NewGemini(apiKey string) *Gemini {
 	}
 }
 
-// NewGeminiVertex returns a client that runs on Vertex AI using a GCP service
-// account JSON key. project is the GCP project
-// ID; location is the Vertex AI region (e.g. "global" or "us-central1").
-func NewGeminiVertex(serviceAccountJSON []byte, project, location string) *Gemini {
-	return &Gemini{
-		serviceAccountJSON: serviceAccountJSON,
-		project:            project,
-		location:           location,
-		http:               provcore.NewTurnHTTPClient(),
-	}
-}
-
 // SetBaseURL points the adapter at a different Gemini host (tests, proxies).
 // "" restores the SDK default.
 func (g *Gemini) SetBaseURL(u string) { g.baseURL = u }

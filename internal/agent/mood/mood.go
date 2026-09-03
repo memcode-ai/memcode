@@ -18,6 +18,8 @@ import (
 	"sort"
 	"strings"
 	"sync"
+
+	"github.com/memcode-ai/memcode/internal/setsim"
 )
 
 // State is the interaction state inferred for a turn (or the running aggregate).
@@ -499,7 +501,7 @@ func (t *Tracker) Current() Reading {
 
 func (t *Tracker) repeatedNegative(toks map[string]struct{}) bool {
 	for _, prev := range t.recent {
-		if jaccard(toks, prev) >= 0.5 {
+		if setsim.Jaccard(toks, prev) >= 0.5 {
 			return true
 		}
 	}
@@ -605,23 +607,6 @@ func tokenSet(text string) map[string]struct{} {
 		}
 	}
 	return m
-}
-
-func jaccard(a, b map[string]struct{}) float64 {
-	if len(a) == 0 || len(b) == 0 {
-		return 0
-	}
-	inter := 0
-	for k := range a {
-		if _, ok := b[k]; ok {
-			inter++
-		}
-	}
-	union := len(a) + len(b) - inter
-	if union == 0 {
-		return 0
-	}
-	return float64(inter) / float64(union)
 }
 
 func appendUniq(s []string, v string) []string {

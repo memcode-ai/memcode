@@ -8,11 +8,15 @@ import (
 	"github.com/memcode-ai/memcode/internal/wire"
 )
 
-// Lane-aware policy: attached subscriptions are $0 serving paths, so
-// AUTOMATIC selection prefers their vendors (never overriding explicit pins
-// or vendor choices), and signed-out sessions resolve only over attached
-// families. Every branch here guards on lane presence, so with no lanes the
-// selection pipeline is byte-identical to the gateway parity goldens.
+// Lane FACTS, not lane policy. Attached subscriptions and own-key vendors are
+// $0 serving paths, so this file folds them into the control-plane snapshot:
+// which vendors are servable, which are keyed, and what the default is when
+// there is no gateway.
+//
+// It does NOT choose a model. The steering that once lived alongside this
+// (Automatic preferring keyed vendors, the $0 fundability remap) went with the
+// routing removal in v0.29.0 — the pin is the only selection authority now, and
+// a lane can make a model reachable or unreachable but never preferred.
 
 // applyLaneFacts stamps the control-plane snapshot with the local lane
 // reality: sub vendors join SubVendors; own-key vendors merge into the BYOK
