@@ -32,11 +32,11 @@ Run `memcode` in a repo and you get a full terminal coding agent.
 
 **It remembers.** Ask it to pick up where you left off last week and it can. It knows your repo's layout, what has been tried before, and the preferences you have corrected it on. Memory lives in `.memcode`, so it travels with the repo and your whole team benefits.
 
-**Pick a model or let it decide.** Out of the box it uses cheap models for routine work and strong models when the task is hard or risky. Pin any model with `/model` when you want control.
+**One model, and it stays put.** You pick the model your session runs on and nothing swaps it out mid-task. Change it any time with `/model`. Sub-agents and scouts can run on a cheaper model of your choosing, so the expensive one is spent where you decided it should be.
 
 **Reads the room.** When you are correcting it, it slows down, asks before acting, and stops cutting corners. When things are calm it stays out of your way.
 
-**Plan first when it matters.** `/plan` researches your codebase, drafts an approach, and gets a second model's review before you approve it. Execution then sticks to what you approved.
+**Plan first when it matters.** `/plan` researches your codebase and drafts an approach for you to approve, and execution then sticks to what you approved. Send the draft to a second model for review first when the stakes are worth it.
 
 **Work in parallel.** Hand off side quests to sub-agents and background jobs, keep working, and check on them with `/jobs` and `/tail`.
 
@@ -121,7 +121,7 @@ The user manual lives at [memcode.ai/docs](https://memcode.ai/docs):
 
 Internals and reference docs live in this repo:
 
-- [ROUTING.md](ROUTING.md): how Automatic mode picks models.
+- [ROUTING.md](ROUTING.md): how the session model is chosen, and what happens when a provider fails.
 - [HOOKS.md](HOOKS.md): the hook surface.
 - [COMPACTION.md](COMPACTION.md): context compaction.
 - [docs/gateway/README.md](docs/gateway/README.md): gateway operations and channel secrets.
