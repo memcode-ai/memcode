@@ -776,28 +776,6 @@ func LessonSignals(root string) ([]Record, error) {
 	return out, nil
 }
 
-// AdherenceRecords returns every adherence record across all sessions, oldest
-// first — the reducers' backfill path for adherence weighting (files canonical,
-// SQLite derived; same contract as LessonSignals).
-func AdherenceRecords(root string) ([]Record, error) {
-	refs, err := sessionRefs(root)
-	if err != nil {
-		return nil, err
-	}
-	var out []Record
-	for _, ref := range refs {
-		recs, _ := readRecords(ref.path)
-		for _, r := range recs {
-			if r.Kind == KindAdherence {
-				r.SessionID = ref.id
-				out = append(out, r)
-			}
-		}
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].TS.Before(out[j].TS) })
-	return out, nil
-}
-
 // SessionRecords returns the full record list of ONE session by id, oldest first
 // — the post-session learning loop reads a finished session's trail to build the
 // adherence digest. (nil, nil) when the session has no log.
