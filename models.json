@@ -48,7 +48,7 @@
       },
       "max_output": 65536,
       "fallback": [
-        "gemini-flash",
+        "sonnet",
         "terra"
       ]
     },
@@ -74,7 +74,7 @@
       },
       "max_output": 65536,
       "fallback": [
-        "gemini-pro",
+        "haiku",
         "luna"
       ]
     },
@@ -100,7 +100,8 @@
       },
       "max_output": 65536,
       "fallback": [
-        "gemini-flash"
+        "haiku",
+        "luna"
       ]
     },
     {
@@ -218,6 +219,7 @@
       },
       "max_output": 128000,
       "fallback": [
+        "opus",
         "terra"
       ]
     },
@@ -243,6 +245,7 @@
       },
       "max_output": 128000,
       "fallback": [
+        "sonnet",
         "luna"
       ]
     },
@@ -268,6 +271,7 @@
       },
       "max_output": 128000,
       "fallback": [
+        "haiku",
         "terra"
       ]
     },
@@ -290,8 +294,8 @@
       },
       "max_output": 32000,
       "fallback": [
-        "kimi-k2p7-code",
-        "terra"
+        "terra",
+        "luna"
       ]
     },
     {
@@ -316,8 +320,8 @@
       },
       "max_output": 32000,
       "fallback": [
-        "glm-5p2",
-        "terra"
+        "terra",
+        "glm-5p2"
       ]
     },
     {
@@ -339,8 +343,8 @@
       },
       "max_output": 32000,
       "fallback": [
-        "glm-5p2",
-        "terra"
+        "terra",
+        "glm-5p2"
       ]
     },
     {
@@ -362,8 +366,8 @@
       },
       "max_output": 32000,
       "fallback": [
-        "kimi-k2p7-code",
-        "terra"
+        "terra",
+        "glm-5p2"
       ]
     },
     {
@@ -388,8 +392,8 @@
       },
       "max_output": 32000,
       "fallback": [
-        "kimi-k2p7-code",
-        "terra"
+        "terra",
+        "glm-5p2"
       ]
     },
     {
@@ -403,6 +407,7 @@
       "price_out": 0.6,
       "_note": "OpenAI gpt-oss-120b (open-weight, Fireworks serverless). CLASSIFY role 2026-06-21: the cheap structured-output classifier for the followup-fold queue + plan-intent + risk/authorize judges. LIVE-PROBED against glm-5p2 on a followup-fold battery: gpt-oss-120b 10/10 @1.6-2.6s; glm-5p2 only 7/10 (biased to 'false' \u2192 under-folds) at ~10x the token cost. Forces tools cleanly (tool_choice). price ~$0.15/$0.60 per M (approx). The cheap CODING lane stays glm-5p2; this is classify-only. Rollback: drop config.json roles.classify (falls back to the cheap lane) + redeploy.",
       "fallback": [
+        "luna",
         "glm-5p2"
       ]
     },
@@ -415,6 +420,7 @@
       "reasoning": true,
       "_note": "GLM-5.1 (Z.ai): prior planner + cheap lane, SUPERSEDED by glm-5p2 2026-06-17. Kept as the instant rollback target. Function-calling, 202K, no vision. Fallback id accounts/fireworks/models/glm-5.",
       "fallback": [
+        "terra",
         "glm-5p2"
       ]
     },
@@ -437,6 +443,7 @@
       },
       "max_output": 32000,
       "fallback": [
+        "terra",
         "glm-5p2"
       ],
       "price_in": 1.32,
@@ -462,6 +469,7 @@
       },
       "max_output": 32000,
       "fallback": [
+        "luna",
         "glm-5p2"
       ],
       "price_in": 0.22,
@@ -477,6 +485,7 @@
       "reasoning": true,
       "_note": "RETIRED from roles 2026-06-13 \u2014 recurring tool-call-text leak (opencode #30684 + cross-harness) + weak instruction-following. Kept for reference; not assigned to any role. PRICING verified 2026-08-15 fireworks.ai model page: $0.30/$1.20, cached $0.059 (was billing the glm-family fallback $1.40/$4.40).",
       "fallback": [
+        "luna",
         "glm-5p2"
       ],
       "price_in": 0.3,
