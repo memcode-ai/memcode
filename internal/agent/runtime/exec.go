@@ -484,7 +484,7 @@ func (s *Session) exploreTool(ctx context.Context, input json.RawMessage) toolRe
 	if err != nil {
 		s.toolLine(true, "Explore", scope, "failed", true)
 		s.printf("%s\n", metaStyle.Render("  ⎿ failed: "+clip(err.Error(), 200)))
-		return errResult("explore failed: " + err.Error())
+		return s.workerFailed("explore", err)
 	}
 	status := fmt.Sprintf("%d tools", res.ToolCalls)
 	if res.ServedBy != "" {
@@ -556,6 +556,23 @@ func sanitizeReportKind(kind string) string {
 // strong Anthropic), read-only or mutating, run it to completion, and return its result to the
 // calling model. This is the unified primitive — explore is its read-only-research sugar, and
 // (Phase 2) background runs reuse it via the jobs registry.
+
+// workerFailed reports a delegated worker's failure back to the model, and — when
+// the cause is terminal (auth, billing, or a request WE malformed) — also arms the
+// turn's fatal error so the loop stops instead of letting the model retry.
+//
+// A worker that died on a 400 will die on the next 400 identically. Handed back as
+// a plain tool error it reads as "that had a bad day, try again", and the model
+// does, forever: a dropped Gemini thought-signature produced ~150 identical failed
+// calls over 12 minutes before the run gave up on a timeout, with the real cause
+// never surfacing anywhere the user could see it.
+func (s *Session) workerFailed(kind string, err error) toolResult {
+	if llm.IsTerminal(err) && s.turn.fatalErr == nil {
+		s.turn.fatalErr = fmt.Errorf("%s: %w", kind, err)
+	}
+	return errResult(kind + " failed: " + err.Error())
+}
+
 func (s *Session) agentTool(ctx context.Context, input json.RawMessage) toolResult {
 	var in tools.AgentInput
 	if err := json.Unmarshal(input, &in); err != nil {
@@ -588,7 +605,7 @@ func (s *Session) agentTool(ctx context.Context, input json.RawMessage) toolResu
 	if err != nil {
 		s.toolLine(true, "Agent", clip(task, 60), "failed", true)
 		s.printf("%s\n", metaStyle.Render("  ⎿ failed: "+clip(err.Error(), 200)))
-		return errResult("agent failed: " + err.Error())
+		return s.workerFailed("agent", err)
 	}
 	status := fmt.Sprintf("%d tools", res.ToolCalls)
 	if res.ServedBy != "" {
@@ -642,7 +659,7 @@ func (s *Session) dispatchTool(ctx context.Context, input json.RawMessage) toolR
 	if err != nil {
 		s.toolLine(true, "Dispatch", clip(task, 60), "failed", true)
 		s.printf("%s\n", metaStyle.Render("  ⎿ failed: "+clip(err.Error(), 200)))
-		return errResult("dispatch failed: " + err.Error())
+		return s.workerFailed("dispatch", err)
 	}
 	s.toolLine(true, "Dispatch", clip(task, 60), fmt.Sprintf("started %s (pid %d)", job.ID, job.PID), false)
 	return textResult(fmt.Sprintf("dispatched sub-agent %s (pid %d) — running hands-off in %s mode.\n"+

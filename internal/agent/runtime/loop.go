@@ -456,6 +456,12 @@ func (s *Session) runLoop(ctx context.Context, sys promptSpec, messages *[]wire.
 		*messages = append(*messages, wire.Message{Role: "user", Blocks: results})
 		s.recordTurn(resp.Text(), uses) // episodic log: assistant text + meaningful actions
 
+		// A delegated worker hit a terminal failure — it cannot succeed on a retry,
+		// so end the turn with the real cause instead of looping on it.
+		if s.turn.fatalErr != nil {
+			return iterations, false, s.turn.fatalErr
+		}
+
 		// execute_plan fired this batch: ExitPlan just flipped the state machine into the
 		// apply phase (Active→false, Applying→true). END the plan turn NOW — the chained
 		// apply turn (runTurn's Applying branch) is the SINGLE sanctioned execution, run
@@ -1037,6 +1043,12 @@ func (s *Session) draftPlan(ctx context.Context, sys promptSpec, messages *[]wir
 		results := s.executeBatchHooked(ctx, uses)
 		*messages = append(*messages, wire.Message{Role: "user", Blocks: results})
 		s.recordTurn(resp.Text(), uses)
+
+		// A delegated worker hit a terminal failure — it cannot succeed on a retry,
+		// so end the turn with the real cause instead of looping on it.
+		if s.turn.fatalErr != nil {
+			return resp, "", s.turn.fatalErr
+		}
 	}
 	return resp, strings.TrimSpace(resp.Text()), nil
 }
