@@ -15,6 +15,7 @@ import (
 	"github.com/memcode-ai/memcode/internal/agent/room"
 	"github.com/memcode-ai/memcode/internal/agent/tools"
 	"github.com/memcode-ai/memcode/internal/objectives"
+	"github.com/memcode-ai/memcode/internal/policy"
 	"github.com/memcode-ai/memcode/internal/provider"
 	"github.com/memcode-ai/memcode/internal/sessionlog"
 	"github.com/memcode-ai/memcode/internal/todos"
@@ -289,21 +290,36 @@ func (s *Session) stripThinkingFromLiveChat() {
 	_ = changed // no user-facing notice — the switch line already announces the model change
 }
 
-// SetDelegatedPin sets the model DELEGATED work runs on: agent-tool workers,
-// explore/research scouts, and plan-mode scouts. "" means inherit the primary,
-// which is the default — a split only exists because someone asked for one.
-//
-// This replaced SetScoutModel / SetPlannerModel / SetPlanResearchModel. Those
-// set only a sub-session's DISPLAY model and had silently stopped affecting
-// which model served anything once the pin became the single selection
-// authority — a config knob that looked like it chose a model and didn't.
-func (s *Session) SetDelegatedPin(label string, window int) {
-	s.delegatedPin, s.delegatedWindow = label, window
+// SetPolicy installs the resolved policy layers for this session. Called once
+// at the cmd boundary, where the workspace and user files are loaded.
+func (s *Session) SetPolicy(r *policy.Resolver) {
+	if r != nil {
+		if r.Session == nil {
+			r.Session = policy.Set{}
+		}
+		s.policy = r
+	}
 }
 
-// DelegatedPin reports the delegated model label; "" when delegated work
-// inherits the primary pin.
-func (s *Session) DelegatedPin() string { return s.delegatedPin }
+// PlanPolicyOverride reports policy the user attached to the plan currently in
+// flight, nil when none. It lives on the plan controller and dies with the plan.
+func (s *Session) PlanPolicyOverride(target string) map[string]any {
+	if s.planCtl == nil {
+		return nil
+	}
+	return s.planCtl.PolicyOverride(target)
+}
+
+// Policy exposes the resolver so callers at a decision point can read it, and
+// so the /policy view and the policy tool can show and mutate the session layer.
+func (s *Session) Policy() *policy.Resolver { return s.policy }
+
+// DelegatedModel reports the model delegated work runs on, resolved through
+// policy. It exists for display (/status, /policy) — decision points resolve
+// the target they care about rather than asking a general question.
+func (s *Session) DelegatedModel() string {
+	return s.policy.Resolve(policy.AgentDelegated).Model("model")
+}
 
 // Planning reports whether the session is currently in plan mode.
 func (s *Session) Planning() bool { return s.planCtl.Planning() }

@@ -10,6 +10,7 @@ import (
 	"github.com/memcode-ai/memcode/internal/agent/runtime"
 	"github.com/memcode-ai/memcode/internal/config"
 	"github.com/memcode-ai/memcode/internal/llm"
+	"github.com/memcode-ai/memcode/internal/policy"
 	"github.com/memcode-ai/memcode/internal/provider"
 	"github.com/memcode-ai/memcode/internal/update"
 	"github.com/memcode-ai/memcode/internal/vxui"
@@ -79,12 +80,7 @@ func runInteractive(ctx context.Context, mode permissions.Mode, modeExplicit boo
 		// place that chain lives.
 		pin, win := config.ResolvePin(cfg, "")
 		sess.SetPin(pin, win)
-		// Delegated work (sub-agents, scouts, plan research) runs on the
-		// delegated pin. Unset means inherit the primary, so by default every
-		// worker stays on the model the user chose.
-		if dp, dw := config.ResolveDelegatedPin(cfg, "", pin, win); dp != pin {
-			sess.SetDelegatedPin(dp, dw)
-		}
+		sess.SetPolicy(sessionPolicy(cfg.Root, pin))
 	}
 	sess.SetServingDefault(cfg.ServingDefault) // cached cheap-lane model → banner/footer show it at once (refreshed by the /models fetch)
 	if chrome {
@@ -123,4 +119,16 @@ func runInteractive(ctx context.Context, mode permissions.Mode, modeExplicit boo
 	default: // check still in flight or failed — never wait on it
 	}
 	return runErr
+}
+
+// sessionPolicy loads the user's behavior policy for this session: the two
+// persisted layers plus the primary pin a model chain ends at. One call at the
+// cmd boundary; every decision point then resolves its own target.
+func sessionPolicy(root, primary string) *policy.Resolver {
+	return &policy.Resolver{
+		Session:   policy.Set{},
+		Workspace: policy.Load(policy.WorkspacePath(root)),
+		User:      policy.Load(policy.UserPath()),
+		Primary:   primary,
+	}
 }

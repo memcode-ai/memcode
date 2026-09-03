@@ -33,7 +33,7 @@ var toolsetDefs = map[string][]string{
 	// Connected MCP servers (and orchestrating them from code).
 	"mcp": {MCP, MCPResource, MCPPrompt, MCPCodeExec},
 	// The agent's own knowledge: memory, todos, baseline facts.
-	"memory": {Memcode, Todo, Knowledge, PreferenceSignal, ModelPreference},
+	"memory": {Memcode, Todo, Knowledge, PreferenceSignal, UserPolicy},
 	// Installed skills.
 	"skills": {Skill},
 	// Spawning sub-agents and background work.

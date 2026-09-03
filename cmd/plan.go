@@ -33,9 +33,7 @@ Requires MEMCODE_API_TOKEN (from the environment or a gitignored .env at the rep
 		pin, win := config.ResolvePin(cfg, "")
 		sess := runtime.New(st, runner, cfg.Root, pin, permissions.ModeAsk, userOut())
 		sess.SetPin(pin, win)
-		if dp, dw := config.ResolveDelegatedPin(cfg, "", pin, win); dp != pin {
-			sess.SetDelegatedPin(dp, dw)
-		}
+		sess.SetPolicy(sessionPolicy(cfg.Root, pin))
 
 		_, err = sess.RunPlan(ctx, strings.Join(args, " "))
 		return err

@@ -5,6 +5,7 @@ import (
 	"io"
 
 	"github.com/memcode-ai/memcode/internal/llm"
+	"github.com/memcode-ai/memcode/internal/policy"
 	"github.com/memcode-ai/memcode/internal/wire"
 )
 
@@ -43,20 +44,30 @@ type AgentResult struct {
 // Task primitive: the caller (the LLM via a tool, or plan mode) blocks until the sub-agent
 // finishes, then acts on the result.
 func (s *Session) spawnAgent(ctx context.Context, spec AgentSpec) (AgentResult, error) {
-	// Every delegated worker — agent-tool tasks, explore scouts, plan-mode
-	// research — runs on the DELEGATED pin. Unset means inherit the primary, so
-	// the default is "the model you chose runs everything" and a split only
-	// happens because someone asked for one.
+	// Which model a delegated worker runs on is POLICY, resolved at this
+	// decision point. Read-only explorers resolve agent.explore, which declares
+	// agent.delegated as its parent, which ends at the session's own model — so
+	// the default is still "everything runs on the model you chose", and a
+	// split exists only because someone asked for one.
 	//
-	// This is a pin, not a decision: nothing here inspects the task to pick a
-	// model, and the agent tool has no model parameter to override it with.
-	model, runner := s.model, s.runner.Fork()
-	if s.delegatedPin != "" {
-		model, runner = s.delegatedPin, s.runner.ForkWithModel(s.delegatedPin)
+	// Nothing here inspects the task. The target is chosen by the worker's
+	// PURPOSE, which the caller already fixed, and the agent tool has no model
+	// parameter to override it with.
+	target := policy.AgentDelegated
+	if spec.Purpose == llm.Explore {
+		target = policy.AgentExplore
+	}
+	model := s.policy.Resolve(target).Model("model")
+	runner := s.runner.Fork()
+	if model != "" && model != s.pin {
+		runner = s.runner.ForkWithModel(model)
+	}
+	if model == "" {
+		model = s.model
 	}
 
 	sub := New(s.store, runner, s.root, model, s.effectiveMode(), io.Discard)
-	sub.delegatedPin, sub.delegatedWindow = s.delegatedPin, s.delegatedWindow // a worker's own workers too
+	sub.policy, sub.pin = s.policy, s.pin // a worker's own workers resolve the same way
 	if spec.Purpose != "" {
 		sub.purpose = spec.Purpose
 	} else {

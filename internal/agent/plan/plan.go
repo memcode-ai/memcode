@@ -103,6 +103,11 @@ type Controller struct {
 	reflectRounds int // extra research rounds the reflection gate triggered
 
 	savedModel string // model to restore when leaving plan mode
+	// policyOverride holds per-OPERATION policy for the plan in flight, e.g.
+	// "review this plan with kimi". It belongs to this plan and is dropped when
+	// the plan ends — there is deliberately no stored "consume on next use"
+	// state that could leak into an unrelated later operation.
+	policyOverride map[string]map[string]any
 
 	// lastPlan is the pinned apply contract: the most recently PRESENTED
 	// plan-shaped synthesis. Preferred over any "last rendered text" at
@@ -145,6 +150,7 @@ func WithTask(task string) Opt { return func(c *Controller) { c.task = task } }
 func (c *Controller) Enter(currentModel string, opts ...Opt) Effects {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.policyOverride = nil // per-operation policy never outlives its operation
 	if c.phase != Idle {
 		return Effects{}
 	}
@@ -164,6 +170,38 @@ func (c *Controller) Enter(currentModel string, opts ...Opt) Effects {
 	c.savedModel = currentModel
 	eff := Effects{ClearTodos: true, Emit: events.KindPlanStarted}
 	return eff
+}
+
+// SetPolicyOverride attaches policy to the plan currently in flight. Scoped to
+// this operation only; Enter and the terminal transitions clear it.
+func (c *Controller) SetPolicyOverride(target string, fields map[string]any) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.policyOverride == nil {
+		c.policyOverride = map[string]map[string]any{}
+	}
+	dst := c.policyOverride[target]
+	if dst == nil {
+		dst = map[string]any{}
+		c.policyOverride[target] = dst
+	}
+	for k, v := range fields {
+		dst[k] = v
+	}
+}
+
+// PolicyOverride reports the per-operation policy for a target, nil when none.
+func (c *Controller) PolicyOverride(target string) map[string]any {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	out := map[string]any{}
+	for k, v := range c.policyOverride[target] {
+		out[k] = v
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // BeginTurn is the per-turn reset: a presented plan goes back to Researching at
@@ -234,6 +272,7 @@ func (c *Controller) NotePlanTurn(hasOutput bool) Effects {
 func (c *Controller) Approve(lastTextFallback string) (Effects, ApproveOutcome) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.policyOverride = nil // per-operation policy never outlives its operation
 	if !c.phase.Planning() {
 		return Effects{}, ApproveOutcome{}
 	}
@@ -262,6 +301,7 @@ func (c *Controller) Approve(lastTextFallback string) (Effects, ApproveOutcome) 
 func (c *Controller) Cancel() Effects {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.policyOverride = nil // per-operation policy never outlives its operation
 	if !c.phase.Planning() {
 		return Effects{}
 	}

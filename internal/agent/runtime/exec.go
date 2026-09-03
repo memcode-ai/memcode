@@ -325,8 +325,8 @@ func (s *Session) dispatch(ctx context.Context, u wire.Block) toolResult {
 		return s.recallPlanTool(ctx, u.Input)
 	case tools.PreferenceSignal:
 		return s.preferenceSignalTool(ctx, u.Input)
-	case tools.ModelPreference:
-		return s.modelPreferenceTool(ctx, u.Input)
+	case tools.UserPolicy:
+		return s.policyTool(ctx, u.Input)
 	case tools.BrowserNavigate:
 		return s.browserNavigateTool(ctx, u.Input)
 	case tools.BrowserClick:

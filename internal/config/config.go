@@ -110,16 +110,6 @@ type Config struct {
 	// persists here, so it is only ever empty once.
 	PinnedModel string `json:"pinned_model,omitempty"`
 
-	// DelegatedModel is this workspace's DELEGATED pin: the model that
-	// agent-tool workers, explore/research scouts and plan-mode scouts run on.
-	// Empty means INHERIT PinnedModel — it is never seeded, so delegated work
-	// only lands on a different model because someone explicitly said so.
-	//
-	// Written by the model_preference tool on an explicit user instruction, and
-	// by nothing else. See config.ResolveDelegatedPin.
-	DelegatedModel  string `json:"delegated_model,omitempty"`
-	DelegatedWindow int    `json:"delegated_window,omitempty"`
-
 	// PinnedWindow caches the pin's context window (tokens) from the picker list,
 	// so the ctx meter is sized right on launch before the first serve reports one.
 	PinnedWindow int `json:"pinned_window,omitempty"`

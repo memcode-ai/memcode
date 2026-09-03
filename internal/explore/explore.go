@@ -21,9 +21,19 @@ import (
 	"github.com/memcode-ai/memcode/internal/wire"
 )
 
-// maxReaders caps concurrency so a big monorepo doesn't spawn a hundred
-// simultaneous model calls.
-const maxReaders = 6
+// defaultReaders caps concurrency so a big monorepo doesn't spawn a hundred
+// simultaneous model calls. It is the DEFAULT: the agent.explore policy's
+// `concurrency` field overrides it when the user has set one.
+const defaultReaders = 6
+
+// readers resolves the concurrency cap. 0 (nothing configured) means the
+// default, so a caller that has no policy layer stays on today's behavior.
+func readers(n int) int {
+	if n <= 0 {
+		return defaultReaders
+	}
+	return n
+}
 
 // Finding is one explorer's answer for a scope.
 type Finding struct {
@@ -36,11 +46,11 @@ type Finding struct {
 // scoped to one), collects their findings, and prints a synthesized answer to
 // out. The store and provider are shared; the SQLite WAL serializes the event
 // writes the explorers emit.
-func Run(ctx context.Context, st store.Store, runner *llm.Runner, root, model, question string, out io.Writer) error {
+func Run(ctx context.Context, st store.Store, runner *llm.Runner, root, model, question string, concurrency int, out io.Writer) error {
 	scopes := pickScopes(ctx, st)
 	fmt.Fprintf(out, "exploring %q across %d scope(s) with read-only agents…\n\n", question, len(scopes))
 
-	findings := fanOut(ctx, st, runner, root, model, question, scopes)
+	findings := fanOut(ctx, st, runner, root, model, question, scopes, concurrency)
 
 	for _, f := range findings {
 		label := f.Scope
@@ -63,9 +73,9 @@ func Run(ctx context.Context, st store.Store, runner *llm.Runner, root, model, q
 	return nil
 }
 
-// fanOut runs one read-only explorer per scope, capped at maxReaders.
-func fanOut(ctx context.Context, st store.Store, runner *llm.Runner, root, model, question string, scopes []string) []Finding {
-	return FanOut(ctx, st, runner, root, model, question, scopes, nil)
+// fanOut runs one read-only explorer per scope, capped at concurrency.
+func fanOut(ctx context.Context, st store.Store, runner *llm.Runner, root, model, question string, scopes []string, concurrency int) []Finding {
+	return FanOut(ctx, st, runner, root, model, question, scopes, concurrency, nil)
 }
 
 // Progress reports an explorer's lifecycle to a front-end (started/finished per
@@ -75,14 +85,14 @@ type Progress func(scope string, done bool, err error)
 // Scopes is the public picker for the subsystem keys to fan out over.
 func Scopes(ctx context.Context, st store.Store) []string { return pickScopes(ctx, st) }
 
-// FanOut runs one read-only explorer per scope concurrently (capped at
-// maxReaders), reporting lifecycle via progress (may be nil), and returns the
+// FanOut runs one read-only explorer per scope concurrently (capped by
+// concurrency, 0 = the default), reporting lifecycle via progress (may be nil), and returns the
 // findings. Each explorer is its own read-only session writing to io.Discard —
 // its tool calls and narration never reach the user; only the orchestrator's
 // progress + the final synthesis do. This is what keeps deep research QUIET.
-func FanOut(ctx context.Context, st store.Store, runner *llm.Runner, root, model, question string, scopes []string, progress Progress) []Finding {
+func FanOut(ctx context.Context, st store.Store, runner *llm.Runner, root, model, question string, scopes []string, concurrency int, progress Progress) []Finding {
 	findings := make([]Finding, len(scopes))
-	sem := make(chan struct{}, maxReaders)
+	sem := make(chan struct{}, readers(concurrency))
 	var wg sync.WaitGroup
 	for i, scope := range scopes {
 		wg.Add(1)

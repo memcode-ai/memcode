@@ -6,6 +6,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/memcode-ai/memcode/internal/explore"
+	"github.com/memcode-ai/memcode/internal/policy"
 	"github.com/memcode-ai/memcode/internal/provider"
 )
 
@@ -33,7 +34,12 @@ Requires MEMCODE_API_TOKEN (from the environment or a gitignored .env at the rep
 		defer st.Close()
 		model := provider.EffectiveModel(cfg.Models.Coder)
 
-		return explore.Run(ctx, st, runner, cfg.Root, model, question, userOut())
+		// Explore's model and its concurrency are both agent.explore policy.
+		pol := sessionPolicy(cfg.Root, model).Resolve(policy.AgentExplore)
+		if m := pol.Model("model"); m != "" {
+			model = m
+		}
+		return explore.Run(ctx, st, runner, cfg.Root, model, question, pol.Int("concurrency"), userOut())
 	},
 }
 

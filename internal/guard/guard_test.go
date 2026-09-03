@@ -253,3 +253,55 @@ func TestOneModelAuthority(t *testing.T) {
 		}
 	}
 }
+
+// TestPolicyIsUserAuthored is the teeth behind the policy layer's one rule:
+//
+//	Policy chooses behavior. The model may not synthesize policy.
+//
+// Mechanically, that means the policy store has exactly two writers — the tool
+// the user's instruction flows through, and the runtime that resolves it. If a
+// third appears, the likeliest reason is something deciding policy on its own,
+// which is the automatic routing memcode deleted arriving through a settings
+// API instead of a router.
+//
+// If this fails, do not add an exception. Route the change through the tool.
+func TestPolicyIsUserAuthored(t *testing.T) {
+	allowed := map[string]bool{
+		"internal/policy/store.go":             true, // the store itself
+		"internal/agent/runtime/policytool.go": true, // the user's instruction
+		"internal/agent/runtime/runtime.go":    true, // constructs the resolver
+		"internal/agent/runtime/ui.go":         true, // SetPolicy at the cmd boundary
+	}
+	for _, call := range []string{"policy.SetField(", "policy.UnsetTarget(", "policy.Save("} {
+		out, _ := exec.Command("grep", "-rln", "--include=*.go", call, "../..").Output()
+		for _, f := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+			f = strings.TrimPrefix(strings.TrimSpace(f), "../../")
+			if f == "" || strings.HasSuffix(f, "_test.go") || allowed[f] {
+				continue
+			}
+			t.Errorf("%s writes policy from %s. Policy is authored by an explicit user "+
+				"instruction routed through the policy tool — a new writer is how a model "+
+				"starts choosing behavior for itself.", call, f)
+		}
+	}
+}
+
+// TestPrefsCannotWritePolicy keeps the two preference systems separate.
+//
+// internal/prefs INFERS standing preferences from repeated signals and injects
+// advisory prose. internal/policy is explicit, immediate and programmatic. A
+// write path from the first into the second would mean a reducer noticing a
+// pattern could silently rewire which model runs — exactly the spookiness the
+// split exists to prevent.
+func TestPrefsCannotWritePolicy(t *testing.T) {
+	out, _ := exec.Command("grep", "-rln", "--include=*.go",
+		"memcode/internal/policy", "../prefs").Output()
+	for _, f := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if strings.TrimSpace(f) == "" {
+			continue
+		}
+		t.Errorf("internal/prefs imports internal/policy (%s). Inferred preferences must "+
+			"never create or modify executable policy — they are advisory prose, and policy "+
+			"is what the user explicitly asked for.", strings.TrimSpace(f))
+	}
+}

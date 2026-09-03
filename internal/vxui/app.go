@@ -131,6 +131,7 @@ type appState struct {
 	// vendor picker overlay (modal): ↑↓ choose, Enter apply + persist, Esc cancel.
 	// Opened by /model (no arg). Lists only the vendors the gateway reports as
 	// available (keys present); selecting one calls sess.SetVendor + persists.
+	planAutoStep string // a mode=always plan step queued to run before the card
 	modelPicking bool
 	// modelPickPurpose routes what a picker selection MEANS: "" pins the model
 	// for the session (the normal case), "review" runs one plan critique on it
@@ -599,11 +600,19 @@ func (s *appState) startTurn() {
 					s.planStage = 0 // a freshly proposed/revised plan → advisor on offer again
 					s.planAdvice = ""
 					s.planCommitAsk = commitAsk
+					s.planAutoStep = s.pendingAlwaysStep()
 				}
 			})
 			s.refreshFooter()
 			if yolo {
 				s.planExecute() // yolo: skip the selector, run the plan
+			} else if step := s.planAutoStep; step != "" {
+				// mode=always: the user asked for this every time, so run it
+				// instead of showing a row they would always pick. Still one
+				// deterministic step from their own policy — nothing decided
+				// that this plan looked like it needed reviewing.
+				s.SetState(func() { s.planAutoStep = "" })
+				s.runAlwaysStep(step)
 			}
 			// Run the promoted queued tx too. In yolo, Finish already promoted a follow-up
 			// queued during planning into the active slot, so planExecute's instruction

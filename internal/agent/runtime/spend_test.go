@@ -75,26 +75,6 @@ func TestLoopPurposeFlows(t *testing.T) {
 }
 
 // TestScoutModelDefaultsLuna: read-only scouts default to the cheap model (Luna), and
-// SetScoutModel ignores empty (so an unset config keeps the default).
-func TestScoutModelDefaultsLuna(t *testing.T) {
-	ctx := context.Background()
-	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "state.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
-	s := newSess(st, usageProvider{}, t.TempDir(), "sonnet", permissions.ModeAsk, io.Discard)
-	// Unset means INHERIT: delegated work rides the primary pin, so there is no
-	// separate default to configure and nothing splits unless asked.
-	if s.DelegatedPin() != "" {
-		t.Fatalf("delegated pin should start unset (inherit), got %q", s.DelegatedPin())
-	}
-	s.SetDelegatedPin(catalog.ModelSonnet, 0)
-	if s.DelegatedPin() != catalog.ModelSonnet {
-		t.Fatalf("SetDelegatedPin should set the delegated model, got %q", s.DelegatedPin())
-	}
-	s.SetDelegatedPin("", 0) // reset back to inherit
-	if s.DelegatedPin() != "" {
-		t.Fatalf(`SetDelegatedPin("") should reset to inherit, got %q`, s.DelegatedPin())
-	}
-}
+// TestScoutModelDefaultsLuna is DELETED. Which model a scout runs on is POLICY
+// now (agent.explore, inheriting agent.delegated, inheriting the primary pin),
+// covered by internal/policy's resolution tests and by TestExploreNarrowsDelegated.

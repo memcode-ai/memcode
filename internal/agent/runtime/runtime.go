@@ -41,6 +41,7 @@ import (
 	"github.com/memcode-ai/memcode/internal/llm"
 	"github.com/memcode-ai/memcode/internal/lsp"
 	"github.com/memcode-ai/memcode/internal/mcp"
+	"github.com/memcode-ai/memcode/internal/policy"
 	"github.com/memcode-ai/memcode/internal/provider"
 	"github.com/memcode-ai/memcode/internal/scripts"
 	"github.com/memcode-ai/memcode/internal/sessionlog"
@@ -72,16 +73,18 @@ const (
 
 // Session runs one agent task against a project.
 type Session struct {
-	store             store.Store
-	runner            *llm.Runner            // metered model gateway (this session's own Fork; shares the central Ledger)
-	prov              provider.ModelProvider // raw provider, ONLY for capability checks (WebSearcher/WebFetcher/doctor)
-	purpose           llm.Purpose            // ledger purpose for THIS session's main loop (main_loop, or explore for scout sub-agents)
-	root              string
-	model             string
-	scoutModel        string            // model for read-only explore sub-agents (cheap; Luna by default)
-	pin               string            // the session's PRIMARY model label (resolved once at start; changed only by /model)
-	delegatedPin      string            // the DELEGATED model label for sub-agents/scouts; "" = inherit the primary
-	delegatedWindow   int               // the delegated pin's context window (0 = unknown)
+	store      store.Store
+	runner     *llm.Runner            // metered model gateway (this session's own Fork; shares the central Ledger)
+	prov       provider.ModelProvider // raw provider, ONLY for capability checks (WebSearcher/WebFetcher/doctor)
+	purpose    llm.Purpose            // ledger purpose for THIS session's main loop (main_loop, or explore for scout sub-agents)
+	root       string
+	model      string
+	scoutModel string // model for read-only explore sub-agents (cheap; Luna by default)
+	pin        string // the session's PRIMARY model label (resolved once at start; changed only by /model)
+	// policy is the user's behavior layer: typed settings on named decision
+	// points, resolved deterministically (internal/policy). The delegated model
+	// is one policy among several rather than a bespoke field.
+	policy            *policy.Resolver
 	lastServedModel   string            // last turn's serving model — cross-family thinking-block hygiene (loop.go)
 	laneFallback      map[string]string // vendor → sticky exhaustion choice for this session ("gateway" | "stop")
 	pinWindow         int               // the pin's context window from the picker list (0 = unknown; sizes the meter before the first serve)
@@ -253,6 +256,7 @@ func New(st store.Store, runner *llm.Runner, root, model string, mode permission
 		root:       root,
 		model:      model,
 		scoutModel: catalog.ModelLuna,
+		policy:     &policy.Resolver{Session: policy.Set{}},
 		mode:       mode,
 		out:        out,
 		approve:    stdinApprover(out),

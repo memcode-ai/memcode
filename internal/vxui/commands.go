@@ -11,6 +11,7 @@ import (
 
 	"github.com/memcode-ai/memcode/internal/agent/permissions"
 	"github.com/memcode-ai/memcode/internal/agent/runtime"
+	"github.com/memcode-ai/memcode/internal/policy"
 	"github.com/memcode-ai/memcode/internal/provider"
 	"github.com/memcode-ai/memcode/internal/theme"
 )
@@ -117,6 +118,11 @@ func (s *appState) runSlash(line string) (quit bool) {
 			line += " · theme " + theme.Active().Name + " (random roll)"
 		}
 		s.sysln(line)
+	case "/policy", "/policies":
+		// The same view the policy tool's `show` returns: every effective
+		// setting and where it came from. Per-field resolution across four
+		// layers is only comprehensible if the source is visible.
+		s.sysln(s.w.sess.PolicySummary())
 	case "/plan":
 		s.planStart(args, false)
 	case "/yolo":
@@ -480,16 +486,30 @@ func (s *appState) planOptions() (opts []choice, acts []func()) {
 			s.planExecute()
 		})
 	}
+	// Whether review and advice are offered at all is POLICY: mode off hides
+	// the row entirely, offer shows it, always means it already ran before the
+	// card appeared (see planReadyPolicy). The card renders what the user asked
+	// for rather than one fixed set of rows.
+	reviewMode := s.planPolicyMode(policy.PlanReview)
+	advisorMode := s.planPolicyMode(policy.PlanAdvisor)
+
 	if s.planStage == 1 {
 		add("Revise plan with the review", s.planReviseWithAdvice)
 		execRows("Execute plan as is")
 	} else {
 		execRows("Execute")
-		// Plans are no longer auto-reviewed by a second model — that existed to
-		// compensate for Automatic drafting on a cheap one. Asking is the
-		// replacement, and the user names the reviewer.
-		add("Review with another model", func() { s.openModelPickerFor("review") })
-		add("Ask an advisor", s.planAskAdvisor)
+		if reviewMode != policy.ModeOff {
+			// A configured reviewer runs on the model the user named; without
+			// one, they pick per plan.
+			if m := s.planPolicyModel(policy.PlanReview); m != "" {
+				add("Review with "+m, func() { s.planReviewWithModel(m, m) })
+			} else {
+				add("Review with another model", func() { s.openModelPickerFor("review") })
+			}
+		}
+		if advisorMode != policy.ModeOff {
+			add("Ask an advisor", s.planAskAdvisor)
+		}
 	}
 	add("Cancel", s.planCancel)
 	return opts, acts
@@ -538,6 +558,35 @@ func (s *appState) planAskAdvisor() {
 			})
 		})
 	}()
+}
+
+// planPolicyMode resolves a plan target's mode, honouring any override the
+// user attached to THIS plan ("review this one with kimi").
+func (s *appState) planPolicyMode(target policy.Target) string {
+	return s.planPolicyResolved(target).Mode()
+}
+
+// planPolicyModel resolves a plan target's configured model, "" when the user
+// has not named one and should be asked per plan.
+func (s *appState) planPolicyModel(target policy.Target) string {
+	r := s.planPolicyResolved(target)
+	// Only report a model the user actually chose. Inheriting the primary here
+	// would silently turn "review my plan" into "the plan reviews itself".
+	if src := r.Source("model"); src == policy.ScopeInherited || src == policy.ScopeDefault {
+		return ""
+	}
+	return r.Model("model")
+}
+
+func (s *appState) planPolicyResolved(target policy.Target) policy.Resolved {
+	pol := s.w.sess.Policy()
+	if pol == nil {
+		return policy.Resolved{Target: target, Values: map[string]policy.Value{}}
+	}
+	if over := s.w.sess.PlanPolicyOverride(string(target)); len(over) > 0 {
+		return pol.Resolve(target, policy.Override(target, over))
+	}
+	return pol.Resolve(target)
 }
 
 // planReviewWithModel runs ONE critique of the live plan on a model the user
@@ -642,4 +691,35 @@ func (s *appState) planRevise(feedback string) {
 	s.ectx.AppendString("\n")
 	s.lastBlank = true
 	s.route(s.sched.Accept(feedback, runtime.GateInput{Internal: true}))
+}
+
+// pendingAlwaysStep reports which plan step the user has set to mode=always, so
+// it runs instead of being offered. Review wins when both are set: a critique of
+// the plan is more specific than general advice, and running both unprompted
+// would spend twice on one plan without being asked to.
+func (s *appState) pendingAlwaysStep() string {
+	if s.planPolicyMode(policy.PlanReview) == policy.ModeAlways {
+		return "review"
+	}
+	if s.planPolicyMode(policy.PlanAdvisor) == policy.ModeAlways {
+		return "advisor"
+	}
+	return ""
+}
+
+// runAlwaysStep runs a mode=always plan step. This is not a decision: the user
+// said "always", so the only thing being evaluated is their own setting.
+func (s *appState) runAlwaysStep(step string) {
+	switch step {
+	case "review":
+		if m := s.planPolicyModel(policy.PlanReview); m != "" {
+			s.planReviewWithModel(m, m)
+			return
+		}
+		// always with no model named: fall back to asking, rather than
+		// picking one on the user's behalf.
+		s.openModelPickerFor("review")
+	case "advisor":
+		s.planAskAdvisor()
+	}
 }

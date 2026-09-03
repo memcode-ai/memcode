@@ -50,7 +50,7 @@ const (
 	RecallPlan       = "recall_plan"       // list / retrieve a previously saved plan from the user-level plans store
 	Reasoning        = "reasoning"         // adaptive reasoning: inspect/adjust OWN thinking depth mid-turn, or delegate a hard sub-problem to the strong reasoning model
 	PreferenceSignal = "preference_signal" // capture a durable user taste/constraint to remember (LLM-captured, reducer-promoted)
-	ModelPreference  = "model_preference"  // set which model DELEGATED work runs on, when the user says so (a persisted pin, never a per-task choice)
+	UserPolicy       = "policy"            // read/set the user's behavior policy (which model does what, plan review/advisor mode, ...) — only on explicit instruction
 
 	// Browser tools — only advertised when --chrome is set (gated in toolDefs).
 	BrowserNavigate   = "browser_navigate"   // load a URL in the current Chrome tab
@@ -125,17 +125,13 @@ type (
 		Axis  string `json:"axis"`
 		Scope string `json:"scope,omitempty"`
 	}
-	// ModelPreferenceInput sets the DELEGATED model pin — the model sub-agents,
-	// scouts and plan research run on.
-	//
-	// This mutates a SETTING on an explicit user instruction. It is not model
-	// routing: the pin applies to every delegated worker deterministically, and
-	// there is no per-invocation model anywhere. The model may translate "use
-	// Sonnet for your subagents" into this call; it may NOT decide on its own
-	// that some task deserves a cheaper or stronger model.
-	ModelPreferenceInput struct {
-		Model string `json:"model"`           // a model label ("sonnet"), or "inherit" to go back to the primary
-		Scope string `json:"scope,omitempty"` // session | workspace (default) | user
+	// PolicyInput drives the policy tool: read or change the user's behavior
+	// settings. It records a choice the user stated; it never makes one.
+	PolicyInput struct {
+		Action string         `json:"action"`
+		Target string         `json:"target,omitempty"`
+		Fields map[string]any `json:"fields,omitempty"`
+		Scope  string         `json:"scope,omitempty"`
 	}
 	// AgentInput drives the first-class agent tool: run a self-contained task on a chosen tier,
 	// read-only or mutating, and get the result back.
@@ -768,12 +764,14 @@ func Defs() []wire.ToolDef {
 			}),
 		},
 		{
-			Name:        ModelPreference,
-			Description: "Record which model the user wants DELEGATED work to use (sub-agents, scouts, plan research), e.g. \"use Sonnet for your subagents\". `model`: a label, or \"inherit\" for the user's own model. `scope`: session | workspace (default) | user. Never changes the model the user talks to. Call ONLY when they ask — never on your own judgement that a task is easy or cheap.",
+			Name:        UserPolicy,
+			Description: "Read or change how memcode behaves. `show` (default) lists the user's settings and where each came from, and names every target. `set` records a choice they stated (\"always use haiku for explore agents\", \"always review plans with grok\", \"never review plans\"); `unset` resets one. `scope`: operation (this plan) | session | workspace (default) | user. Call ONLY when they ask — NEVER on your own judgement that a task is hard or expensive. You record their choices, you do not make them.",
 			InputSchema: obj(map[string]any{
-				"model": str("a model label such as sonnet, opus or kimi-k3 — or \"inherit\" to run delegated work on the user's own model"),
-				"scope": enum("session | workspace (default) | user", []string{"session", "workspace", "user"}),
-			}, "model"),
+				"action": enum("show (default) | set | unset", []string{"show", "set", "unset"}),
+				"target": str("the decision point, e.g. agent.explore or plan.review"),
+				"fields": obj(map[string]any{}),
+				"scope":  enum("operation | session | workspace (default) | user", []string{"operation", "session", "workspace", "user"}),
+			}),
 		},
 		{
 			Name:        PreferenceSignal,

@@ -38,6 +38,8 @@ var slashCommands = []slashCmd{
 	{"/effort", "force thinking effort: off / medium / high / auto", true},
 	{"/goal", "set an objective", false}, // objective intake runs a model call
 	{"/model", "pick the model for this session", false},
+	{"/policy", "how you've customized memcode, and where each setting came from", false},
+
 	{"/apikeys", "bring your own provider API keys", false},
 	{"/websites", "your AI-built websites (pull with `memcode websites`)", false},
 	{"/artifacts", "your published artifact pages", false},
