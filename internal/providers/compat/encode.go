@@ -221,7 +221,9 @@ func encodeAssistant(m wire.Message, memcode bool) (ChatMessage, error) {
 				args = "{}"
 			}
 			out.ToolCalls = append(out.ToolCalls, ToolCall{ID: b.ID, Type: "function",
-				Function: FunctionCall{Name: b.Name, Arguments: args}})
+				Function: FunctionCall{Name: b.Name, Arguments: args},
+				// Handed back verbatim: without it Gemini rejects the replay.
+				MemcodeSignature: b.Signature})
 		default:
 			return out, fmt.Errorf("unsupported block type %q", b.Type)
 		}

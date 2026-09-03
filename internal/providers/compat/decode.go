@@ -69,7 +69,7 @@ func blocksFrom(opaque []json.RawMessage, text string, calls []ToolCall, memcode
 			args = "{}"
 		}
 		blocks = append(blocks, wire.Block{Type: "tool_use", ID: tc.ID, Name: tc.Function.Name,
-			Input: json.RawMessage(args)})
+			Input: json.RawMessage(args), Signature: tc.MemcodeSignature})
 	}
 	return blocks
 }
@@ -129,6 +129,7 @@ func applyExt(resp *wire.Response, ext *MemcodeExt, memcode bool) {
 // arguments; both assemble identically).
 type callAccum struct {
 	id         string
+	sig        string // opaque per-call provider state (Gemini thoughtSignature)
 	name, args strings.Builder
 }
 
@@ -184,6 +185,9 @@ func (a *streamAccum) apply(c ChatChunk, h wire.StreamHandler) {
 			if td.ID != "" {
 				ca.id = td.ID
 			}
+			if td.MemcodeSignature != "" {
+				ca.sig = td.MemcodeSignature
+			}
 			if td.Function != nil {
 				ca.name.WriteString(td.Function.Name)
 				ca.args.WriteString(td.Function.Arguments)
@@ -215,7 +219,8 @@ func (a *streamAccum) response() wire.Response {
 	for _, i := range a.order {
 		ca := a.calls[i]
 		calls = append(calls, ToolCall{ID: ca.id, Type: "function",
-			Function: FunctionCall{Name: ca.name.String(), Arguments: ca.args.String()}})
+			Function:         FunctionCall{Name: ca.name.String(), Arguments: ca.args.String()},
+			MemcodeSignature: ca.sig})
 	}
 	resp := wire.Response{Model: a.model, Backend: backendFor(a.memcode), StopReason: stopReasonFrom(a.finish)}
 	resp.Blocks = blocksFrom(a.opaque, a.text.String(), calls, a.memcode)
