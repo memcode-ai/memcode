@@ -172,7 +172,7 @@ func assertUniformWire(t *testing.T, cs *compatServer, wantAuth string) {
 func TestBackendUniformity(t *testing.T) {
 	// ── (a) the gateway-shaped backend: hosted policy over the control plane ──
 	gw := &compatServer{gateway: true,
-		models:   []string{"sol", "terra", "luna", "opus", "sonnet", "haiku", "glm-5p2", "kimi-k2p7-code", "kimi-k2p6", "kimi-k3", "gpt-oss-120b"},
+		models:   []string{"sol", "terra", "luna", "opus", "sonnet", "haiku", "glm-5p2", "kimi-k3", "gpt-oss-120b"},
 		failOnce: map[string]bool{},
 	}
 	gwSrv := httptest.NewServer(gw.handler())

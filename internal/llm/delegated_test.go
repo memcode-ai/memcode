@@ -68,7 +68,7 @@ func TestDelegatedWorkerKeepsNormalFailureSemantics(t *testing.T) {
 	if _, err := worker2.Complete(context.Background(), Agent, userReq("work")); err != nil {
 		t.Fatalf("the declared chain must rescue a delegated worker too: %v", err)
 	}
-	if len(p2.requested) != 2 || p2.requested[1] != "kimi-k2p7-code" {
-		t.Fatalf("delegated fallback walk = %v, want [glm-5p2 kimi-k2p7-code]", p2.requested)
+	if len(p2.requested) != 2 || p2.requested[1] != "terra" {
+		t.Fatalf("delegated fallback walk = %v, want [glm-5p2 terra]", p2.requested)
 	}
 }
