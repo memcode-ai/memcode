@@ -198,6 +198,42 @@
       ]
     },
     {
+      "id": "gpt-6-astra",
+      "label": "astra",
+      "vendor": "openai",
+      "window": 1050000,
+      "vision": true,
+      "reasoning": true,
+      "price_in": 10.0,
+      "price_out": 50.0,
+      "price_tiers": [
+        {
+          "above_prompt_tokens": 272000,
+          "in": 2.0,
+          "out": 1.5,
+          "cache_read": 2.0,
+          "cache_write": 2.0
+        }
+      ],
+      "min_reasoning_effort": "low",
+      "_note": "GPT-6 Astra (OpenAI, GA 2026-09-03; API access opened 2026-09-05). Frontier tier. Responses API. 1.05M context, 128K max output, vision, PDF, reasoning (low/medium/high/xhigh/max) - note the floor is \"low\", NOT \"none\": a classifier turn sending none gets a 400, hence min_reasoning_effort. Cached input $1/M = the default in*0.1, so no price_cache_read override. Prompts over 272K bill 2x input/cache and 1.5x output for the WHOLE request; that is the price_tiers entry. Capabilities verified live against api.openai.com, not from docs alone.",
+      "pinnable": true,
+      "group": "OpenAI",
+      "desc": "Strongest reasoning",
+      "name": "GPT-6 Astra",
+      "pdf": true,
+      "www": {
+        "chat": true,
+        "order": 105,
+        "description": "OpenAI frontier GPT-6 Astra. Top-tier intelligence for coding, computer use and professional work, with a 1.05M context window."
+      },
+      "max_output": 128000,
+      "fallback": [
+        "opus",
+        "sol"
+      ]
+    },
+    {
       "id": "gpt-5.6-sol",
       "label": "sol",
       "vendor": "openai",

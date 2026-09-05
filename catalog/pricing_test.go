@@ -169,3 +169,92 @@ func TestSonnet5Pricing(t *testing.T) {
 		t.Fatalf("claude-sonnet-5 = %.2f/%.2f, want 2.00/10.00", p.Input, p.Output)
 	}
 }
+
+// Prompt-size tiers are generic mechanism, not an Astra special case: the base
+// card holds under the threshold, every declared multiplier applies over it, and
+// the bend covers the WHOLE request rather than the tokens past the line.
+func TestPriceTiers(t *testing.T) {
+	base := Pricing{Input: 10, Output: 50, CacheWrite: 12.5, CacheRead: 1}
+	tiers := []PriceTier{{AbovePromptTokens: 272000, In: 2, Out: 1.5, CacheRead: 2, CacheWrite: 2}}
+
+	if got := applyTiers(base, tiers, 272000); got != base {
+		t.Errorf("at the threshold = %+v, want base %+v (strictly ABOVE bends)", got, base)
+	}
+	want := Pricing{Input: 20, Output: 75, CacheWrite: 25, CacheRead: 2}
+	if got := applyTiers(base, tiers, 272001); got != want {
+		t.Errorf("over the threshold = %+v, want %+v", got, want)
+	}
+	if got := applyTiers(base, nil, 10_000_000); got != base {
+		t.Errorf("no tiers = %+v, want base %+v", got, base)
+	}
+}
+
+// An omitted multiplier means 1x, so a tier states only what it bends.
+func TestPriceTierPartialMultipliers(t *testing.T) {
+	base := Pricing{Input: 10, Output: 50, CacheWrite: 12.5, CacheRead: 1}
+	got := applyTiers(base, []PriceTier{{AbovePromptTokens: 100, Out: 3}}, 200)
+	want := Pricing{Input: 10, Output: 150, CacheWrite: 12.5, CacheRead: 1}
+	if got != want {
+		t.Errorf("partial tier = %+v, want %+v", got, want)
+	}
+}
+
+// Several bands are allowed and independent: the highest one the prompt clears
+// wins, regardless of the order they appear in JSON.
+func TestPriceTierHighestWinsRegardlessOfOrder(t *testing.T) {
+	base := Pricing{Input: 10}
+	tiers := []PriceTier{{AbovePromptTokens: 1_000_000, In: 4}, {AbovePromptTokens: 200_000, In: 2}}
+	for _, c := range []struct {
+		prompt int
+		want   float64
+	}{{100_000, 10}, {300_000, 20}, {2_000_000, 40}} {
+		if got := applyTiers(base, tiers, c.prompt).Input; got != c.want {
+			t.Errorf("prompt %d = %v, want %v", c.prompt, got, c.want)
+		}
+	}
+}
+
+// The catalog's Astra entry must actually carry the 272K band, and CostUSD must
+// route a long request through it — this is the money path, not just the struct.
+func TestAstraLongPromptCost(t *testing.T) {
+	if p := ModelPricing("gpt-6-astra"); p.Input != 10 || p.Output != 50 || p.CacheRead != 1 {
+		t.Fatalf("base card = %+v, want 10/50 with cache read 1", p)
+	}
+	// 300K prompt clears 272K: input 2x, output 1.5x.
+	got := CostUSD("gpt-6-astra", 300_000, 1_000, 0, 0)
+	want := (300_000*20.0 + 1_000*75.0) / 1e6
+	if math.Abs(got-want) > 1e-9 {
+		t.Errorf("long-prompt cost = %v, want %v", got, want)
+	}
+	// Same model, short prompt, base rates.
+	short := CostUSD("gpt-6-astra", 1_000, 1_000, 0, 0)
+	if wantShort := (1_000*10.0 + 1_000*50.0) / 1e6; math.Abs(short-wantShort) > 1e-9 {
+		t.Errorf("short-prompt cost = %v, want %v", short, wantShort)
+	}
+}
+
+// The threshold measures the whole prompt, so cache reads and writes count
+// toward it — billing a 280K prompt at base rates just because most of it was
+// cached is exactly the underbill this mechanism exists to prevent.
+func TestPriceTierThresholdCountsCachedPrompt(t *testing.T) {
+	// 10K fresh + 280K cache read = 290K prompt → over the line.
+	got := CostUSD("gpt-6-astra", 10_000, 0, 280_000, 0)
+	want := (10_000*20.0 + 280_000*2.0) / 1e6
+	if math.Abs(got-want) > 1e-9 {
+		t.Errorf("cached long prompt = %v, want %v", got, want)
+	}
+}
+
+// The effort floor is a catalog FACT, not an adapter special case: Astra rejects
+// "none", GPT-5.6 accepts it, and a model that declares no floor reports "".
+func TestMinReasoningEffort(t *testing.T) {
+	if got := MinReasoningEffort("gpt-6-astra"); got != "low" {
+		t.Errorf("astra floor = %q, want \"low\"", got)
+	}
+	if got := MinReasoningEffort("gpt-5.6-sol"); got != "" {
+		t.Errorf("sol floor = %q, want \"\" (no floor)", got)
+	}
+	if got := MinReasoningEffort("some-model-nobody-added"); got != "" {
+		t.Errorf("unknown floor = %q, want \"\"", got)
+	}
+}

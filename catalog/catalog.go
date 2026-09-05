@@ -43,6 +43,22 @@ type CatalogModel struct {
 	PriceOut       float64 `json:"price_out,omitempty"`
 	PriceCacheRead float64 `json:"price_cache_read,omitempty"` // optional override (default in×0.1)
 
+	// PriceTiers bends the rate card by PROMPT SIZE. Several vendors now price a
+	// long prompt differently from a short one (GPT-6 Astra doubles input and
+	// adds half again to output past 272K), and that is a per-request fact, not a
+	// per-model one. Expressing it as ordered multiplier data — rather than a
+	// special case in Go — keeps the rule where every consumer already reads it:
+	// this file is shared verbatim with the gateway and with apps/www's own
+	// calculateCost, and only one of those three can run Go.
+	PriceTiers []PriceTier `json:"price_tiers,omitempty"`
+
+	// MinReasoningEffort is the LOWEST reasoning effort this model accepts, in the
+	// vendor's own vocabulary. Vendors disagree about the bottom of the range —
+	// GPT-5.6 takes "none", GPT-6 Astra's floor is "low" and 400s below it — and
+	// that is a model fact, so it lives here rather than as another adapter bool.
+	// Empty means "no floor": send whatever the effort maps to.
+	MinReasoningEffort string `json:"min_reasoning_effort,omitempty"`
+
 	// Fallback is the model's mid-turn failure chain, in LABELS: who covers
 	// when this model errors after transport retries, walked IN ORDER by the
 	// CLI's recovery executor (availability/billing filtering happens at walk
@@ -56,12 +72,13 @@ type CatalogModel struct {
 // tier word to its vendor, e.g. gemini+flash-lite). First matching rule that
 // DECLARES a field wins for that field.
 type familyRule struct {
-	Match          []string `json:"match,omitempty"`
-	MatchAll       []string `json:"match_all,omitempty"`
-	Window         int      `json:"window,omitempty"`
-	PriceIn        float64  `json:"price_in,omitempty"`
-	PriceOut       float64  `json:"price_out,omitempty"`
-	PriceCacheRead float64  `json:"price_cache_read,omitempty"`
+	Match          []string    `json:"match,omitempty"`
+	MatchAll       []string    `json:"match_all,omitempty"`
+	Window         int         `json:"window,omitempty"`
+	PriceIn        float64     `json:"price_in,omitempty"`
+	PriceOut       float64     `json:"price_out,omitempty"`
+	PriceCacheRead float64     `json:"price_cache_read,omitempty"`
+	PriceTiers     []PriceTier `json:"price_tiers,omitempty"`
 }
 
 func (r familyRule) matches(model string) bool {
@@ -217,9 +234,62 @@ func MaxOutputTokens(model string) int {
 	return 0
 }
 
+// MinReasoningEffort returns the lowest reasoning effort a model accepts, or ""
+// when the catalog declares no floor. Adapters clamp against it so a cheap
+// classifier turn can't 400 on a model whose range starts above "none".
+func MinReasoningEffort(model string) string {
+	if m, ok := LookupModel(model); ok {
+		return m.MinReasoningEffort
+	}
+	return ""
+}
+
 // Pricing is APPROXIMATE per-model rates in USD per MILLION tokens. Cache write ≈
 // 1.25× base input; cache read ≈ 0.1× base input unless the catalog overrides it.
 type Pricing struct{ Input, Output, CacheWrite, CacheRead float64 }
+
+// PriceTier is one prompt-size pricing band: once a request's prompt exceeds
+// AbovePromptTokens, every rate on the card is multiplied for the WHOLE request
+// (not just the tokens past the line — that is how vendors actually bill it).
+//
+// A multiplier left at 0 means 1× (unchanged), so a tier states only what it
+// bends. Tiers are independent: the highest threshold a prompt clears wins, so
+// order in JSON doesn't matter and a vendor can declare as many bands as it likes.
+type PriceTier struct {
+	AbovePromptTokens int     `json:"above_prompt_tokens"`
+	In                float64 `json:"in,omitempty"`
+	Out               float64 `json:"out,omitempty"`
+	CacheRead         float64 `json:"cache_read,omitempty"`
+	CacheWrite        float64 `json:"cache_write,omitempty"`
+}
+
+// scale applies one multiplier, treating 0 (absent) as 1×.
+func scale(v, mult float64) float64 {
+	if mult == 0 {
+		return v
+	}
+	return v * mult
+}
+
+// apply bends a base card by every tier the prompt clears, highest threshold winning.
+func applyTiers(p Pricing, tiers []PriceTier, promptTokens int) Pricing {
+	var win *PriceTier
+	for i := range tiers {
+		t := &tiers[i]
+		if promptTokens > t.AbovePromptTokens && (win == nil || t.AbovePromptTokens > win.AbovePromptTokens) {
+			win = t
+		}
+	}
+	if win == nil {
+		return p
+	}
+	return Pricing{
+		Input:      scale(p.Input, win.In),
+		Output:     scale(p.Output, win.Out),
+		CacheWrite: scale(p.CacheWrite, win.CacheWrite),
+		CacheRead:  scale(p.CacheRead, win.CacheRead),
+	}
+}
 
 func makePricing(in, out, cacheRead float64) Pricing {
 	if cacheRead == 0 {
@@ -228,26 +298,45 @@ func makePricing(in, out, cacheRead float64) Pricing {
 	return Pricing{Input: in, Output: out, CacheWrite: in * 1.25, CacheRead: cacheRead}
 }
 
-// ModelPricing returns the rate card for a model id or label: the catalog entry
-// if it declares one, else the first matching family rule, else the default.
-// Both ledgers price against this (the CLI's and the gateway's), so every id
-// that can serve must resolve to a non-zero card — the family floor guarantees
-// Fireworks-served ids are never $0.
-func ModelPricing(model string) Pricing {
+// rateCard resolves the BASE card plus any prompt-size tiers for a model id or
+// label: the catalog entry if it declares one, else the first matching family
+// rule, else the default. Both ledgers price against this (the CLI's and the
+// gateway's), so every id that can serve must resolve to a non-zero card — the
+// family floor guarantees Fireworks-served ids are never $0.
+func rateCard(model string) (Pricing, []PriceTier) {
 	if m, ok := LookupModel(model); ok && m.PriceIn > 0 {
-		return makePricing(m.PriceIn, m.PriceOut, m.PriceCacheRead)
+		return makePricing(m.PriceIn, m.PriceOut, m.PriceCacheRead), m.PriceTiers
 	}
 	for _, r := range modelCatalog.file.Families {
 		if r.PriceIn > 0 && r.matches(model) {
-			return makePricing(r.PriceIn, r.PriceOut, r.PriceCacheRead)
+			return makePricing(r.PriceIn, r.PriceOut, r.PriceCacheRead), r.PriceTiers
 		}
 	}
-	return makePricing(modelCatalog.file.Defaults.PriceIn, modelCatalog.file.Defaults.PriceOut, 0)
+	return makePricing(modelCatalog.file.Defaults.PriceIn, modelCatalog.file.Defaults.PriceOut, 0), nil
 }
 
-// CostUSD prices one response's token usage under its model's rate card.
+// ModelPricing returns a model's BASE rate card — the short-prompt rates, before
+// any prompt-size tier applies. Estimates and rate displays want this; anything
+// billing a real request must use ModelPricingAt so a long prompt prices right.
+func ModelPricing(model string) Pricing {
+	p, _ := rateCard(model)
+	return p
+}
+
+// ModelPricingAt returns the rate card that actually governs a request whose
+// prompt is promptTokens long — base card with the winning tier's multipliers
+// folded in. promptTokens is the WHOLE prompt: fresh input plus cache reads plus
+// cache writes, since vendors measure the threshold against everything they read.
+func ModelPricingAt(model string, promptTokens int) Pricing {
+	p, tiers := rateCard(model)
+	return applyTiers(p, tiers, promptTokens)
+}
+
+// CostUSD prices one response's token usage under its model's rate card. Token
+// counts here are cache-EXCLUSIVE (see compat.applyUsage), so the prompt that
+// decides the tier is the sum of all three input components.
 func CostUSD(model string, inTok, outTok, cacheRead, cacheWrite int) float64 {
-	p := ModelPricing(model)
+	p := ModelPricingAt(model, inTok+cacheRead+cacheWrite)
 	return (float64(inTok)*p.Input + float64(outTok)*p.Output +
 		float64(cacheRead)*p.CacheRead + float64(cacheWrite)*p.CacheWrite) / 1e6
 }
