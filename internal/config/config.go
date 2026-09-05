@@ -486,11 +486,20 @@ func gitToplevel(start string) (string, bool) {
 }
 
 // findRoot walks up from start looking for a directory containing .memcode.
+//
+// The home directory is NEVER a project root. ~/.memcode is memcode's
+// user-global state dir (config.json, state.db, sessions) and is shaped exactly
+// like a project's, so an unguarded walk adopts $HOME as the project for every
+// non-git directory under it — pointing state, indexing and the repo-wide skill
+// walk at the user's entire home tree.
 func findRoot(start string) (string, error) {
+	home, _ := os.UserHomeDir()
 	dir := start
 	for {
-		if info, err := os.Stat(filepath.Join(dir, DirName)); err == nil && info.IsDir() {
-			return dir, nil
+		if dir != home {
+			if info, err := os.Stat(filepath.Join(dir, DirName)); err == nil && info.IsDir() {
+				return dir, nil
+			}
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {

@@ -325,3 +325,46 @@ func TestRememberEndpointModel(t *testing.T) {
 		t.Fatalf("env endpoint must gain an entry: %+v", cfg.Endpoints)
 	}
 }
+
+// A non-git directory under $HOME must NOT adopt $HOME as its project root just
+// because ~/.memcode (memcode's user-global state dir) exists. Doing so pointed
+// state and every repo-wide walk at the user's whole home tree.
+func TestResolveNeverAdoptsHomeAsRoot(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if err := os.MkdirAll(filepath.Join(home, DirName), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	work := filepath.Join(home, "code", "not-a-repo")
+	if err := os.MkdirAll(work, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	root, src, err := Resolve(work)
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if root != work || src != SourceCWD {
+		t.Errorf("Resolve = %q (%s), want %q (%s)", root, src, work, SourceCWD)
+	}
+}
+
+// A real project .memcode below home is still found by walking up.
+func TestResolveFindsProjectBelowHome(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	proj := filepath.Join(home, "code", "proj")
+	if err := os.MkdirAll(filepath.Join(proj, DirName), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sub := filepath.Join(proj, "a", "b")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	root, src, err := Resolve(sub)
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if root != proj || src != SourceExisting {
+		t.Errorf("Resolve = %q (%s), want %q (%s)", root, src, proj, SourceExisting)
+	}
+}

@@ -105,16 +105,35 @@ var prunedDirs = map[string]bool{
 	"out": true, "target": true, ".next": true, ".turbo": true, ".cache": true, ".venv": true,
 }
 
+// The nested walk is BOUNDED. A skill dir lives a few levels down in a monorepo,
+// never twelve; and the root handed to us is not always a repo — a stray root
+// resolution once pointed this walk at the user's entire home directory and cost
+// tens of seconds on every launch, before the prompt appeared. Real installs fit
+// far under these caps; anything that trips them is a tree we shouldn't be
+// crawling for skills anyway.
+const (
+	walkMaxDepth = 8
+	walkMaxDirs  = 20000
+)
+
 // nestedSkillDirs finds every .agents/skills and .claude/skills directory ANYWHERE in the
 // repo — so a monorepo subfolder install (e.g. apps/www/.agents/skills) is discovered from
 // the repo root — while pruning heavy trees so the walk stays cheap.
 func nestedSkillDirs(repoRoot string) []string {
 	var out []string
+	seen := 0
 	_ = filepath.WalkDir(repoRoot, func(path string, d os.DirEntry, err error) error {
 		if err != nil || !d.IsDir() {
 			return nil //nolint:nilerr
 		}
 		if prunedDirs[d.Name()] {
+			return filepath.SkipDir
+		}
+		if seen++; seen > walkMaxDirs {
+			return filepath.SkipAll
+		}
+		if rel, e := filepath.Rel(repoRoot, path); e == nil &&
+			rel != "." && strings.Count(filepath.ToSlash(rel), "/")+1 >= walkMaxDepth {
 			return filepath.SkipDir
 		}
 		if d.Name() == "skills" {

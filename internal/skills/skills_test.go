@@ -231,3 +231,21 @@ func TestRootsExistingOnly(t *testing.T) {
 		t.Errorf("an existing .memcode/skills dir should be a root, got %v", got)
 	}
 }
+
+// The nested walk is depth-bounded so a mis-resolved root (once: the user's whole
+// home directory) can't turn every launch into a full-tree crawl.
+func TestNestedSkillDirsDepthBounded(t *testing.T) {
+	root := t.TempDir()
+	shallow := filepath.Join(root, "apps", "www", ".agents", "skills")
+	if err := os.MkdirAll(shallow, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	deep := filepath.Join(root, strings.Repeat("a/", walkMaxDepth), ".agents", "skills")
+	if err := os.MkdirAll(deep, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	got := nestedSkillDirs(root)
+	if len(got) != 1 || got[0] != shallow {
+		t.Errorf("nestedSkillDirs = %v, want just %q", got, shallow)
+	}
+}
