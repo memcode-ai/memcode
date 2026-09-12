@@ -55,6 +55,12 @@ type UIObserver interface {
 	// the assistant actually replied reads this, never the byte stream handed to
 	// SetOutput, which carries ANSI, tool chrome and routing lines.
 	AssistantText(text string)
+	// Tool reports that a tool ran: its name, what it acted on, and how it
+	// finished ("ok" | "warning" | "failed"). Fires for EVERY tool, including
+	// the quiet tier the terminal declines to draw — whether a line appears in
+	// scrollback is a rendering decision, and a client building its own tool UI
+	// is asking a different question.
+	Tool(name, target, status string)
 }
 
 // SetOutput redirects the session's RENDERED output to w — styled text, tool

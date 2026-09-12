@@ -42,15 +42,16 @@ func (f fakeStreamer) Stream(_ context.Context, _ wire.Request, h wire.StreamHan
 
 type tokenObserver struct{ tokens []int }
 
-func (o *tokenObserver) Routed(input.Route, string) {}
-func (o *tokenObserver) QueueChanged([]string)      {}
-func (o *tokenObserver) Busy(bool)                  {}
-func (o *tokenObserver) Mood(mood.Reading)          {}
-func (o *tokenObserver) Room(room.State)            {}
-func (o *tokenObserver) Todos(todos.List)           {}
-func (o *tokenObserver) Tokens(out int)             { o.tokens = append(o.tokens, out) }
-func (o *tokenObserver) Raw(string)                 {}
-func (o *tokenObserver) AssistantText(string)       {}
+func (o *tokenObserver) Routed(input.Route, string)  {}
+func (o *tokenObserver) QueueChanged([]string)       {}
+func (o *tokenObserver) Busy(bool)                   {}
+func (o *tokenObserver) Mood(mood.Reading)           {}
+func (o *tokenObserver) Room(room.State)             {}
+func (o *tokenObserver) Todos(todos.List)            {}
+func (o *tokenObserver) Tokens(out int)              { o.tokens = append(o.tokens, out) }
+func (o *tokenObserver) Raw(string)                  {}
+func (o *tokenObserver) AssistantText(string)        {}
+func (o *tokenObserver) Tool(string, string, string) {}
 
 // complete() is NON-streaming: one Complete call, the full reply rendered as a single block,
 // and the ↓ token counter snapped to committedOut + the real output count.

@@ -30,6 +30,13 @@ func (d *driver) Raw(text string) {
 	d.emit(d.currentTurn(), wire.MsgDisplay, wire.DisplayData{Text: text})
 }
 
+// Tool reports tool activity structurally, so a client can draw its own tool UI
+// instead of reading glyphs out of the rendered stream.
+func (d *driver) Tool(name, target, status string) {
+	d.emit(d.currentTurn(), wire.MsgToolCall, wire.ToolCallData{Name: name, Target: target})
+	d.emit(d.currentTurn(), wire.MsgToolResult, wire.ToolResultData{Name: name, Status: status})
+}
+
 // AssistantText is the semantic channel: what the model actually said.
 func (d *driver) AssistantText(text string) {
 	d.emit(d.currentTurn(), wire.MsgAssistantDelta, wire.AssistantDeltaData{Text: text})

@@ -41,6 +41,10 @@ func (vxObserver) Tokens(int)                 {} // vxui polls sess.Tokens() eac
 // the same text through SetOutput, with styling.
 func (o vxObserver) AssistantText(string) {}
 
+// Tool is the structured tool signal, which the TUI does not need: it draws the
+// same activity from the rendered line.
+func (o vxObserver) Tool(string, string, string) {}
+
 func (o vxObserver) Raw(block string) {
 	if strings.TrimSpace(stripSGR(block)) == "" {
 		return

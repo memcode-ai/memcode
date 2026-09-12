@@ -53,6 +53,25 @@ func (s *Session) toolLine(shown bool, verb, arg, status string, failed bool) {
 //	hidden   — truly internal machinery (CodeQuery/RepoMap/Memcode): don't call toolLine
 //	         at all. Hiding is the absence of a marker call, never a dropped line here.
 func (s *Session) toolLineStat(shown bool, verb, arg, status string, stat toolStat) {
+	// THE SEMANTIC EVENT FIRST, and for every tier.
+	//
+	// A protocol client renders its own tool UI, so it needs to know a tool ran
+	// even when the terminal chose not to draw a line for it — the quiet-tier
+	// skip below is a decision about scrollback clutter, not about whether the
+	// call happened. Clients relied on the drawn line until 2026-09-12, reading
+	// tool activity out of the rendered stream because this event was declared
+	// and never emitted.
+	if s.observer != nil {
+		status := "ok"
+		switch stat {
+		case statWarn:
+			status = "warning"
+		case statFail:
+			status = "failed"
+		}
+		s.observer.Tool(verb, arg, status)
+	}
+
 	// Quiet-tier research that succeeded is not user-facing signal — skip it, so
 	// Read/List/Search/Glob don't clutter the transcript. Warnings/failures fall
 	// through and still render.
