@@ -209,7 +209,16 @@ func TestBuildSymbolMapOnThisModule(t *testing.T) {
 	// the default map (the exact top-N ordering is rank-dependent; the test pins
 	// presence, not order).
 	central := 0
-	for _, marker := range []string{"internal/store/", "internal/events/", "internal/llm/", "internal/agent/", "internal/config/", "internal/vxui/", "internal/provider/", "internal/gateway/", "internal/channels/"} {
+	// The list is what "central" means in THIS codebase, and it has to move as
+	// the codebase does. internal/wire (the message protocol) was always central
+	// and simply missing; internal/task and internal/taskrun became central when
+	// autonomous tasks landed and now outrank several older subsystems by
+	// connectivity — which the map is correct to reflect.
+	for _, marker := range []string{
+		"internal/store/", "internal/events/", "internal/llm/", "internal/agent/",
+		"internal/config/", "internal/vxui/", "internal/provider/", "internal/gateway/",
+		"internal/channels/", "internal/wire/", "internal/task/", "internal/taskrun/",
+	} {
 		if strings.Contains(digest, marker) {
 			central++
 		}

@@ -3,6 +3,7 @@ package taskrun
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -69,14 +70,14 @@ const maxCheckOutput = 4000
 // Verify runs a task's checks in order, in dir. Every check runs even after one
 // fails: "which of the four broke" is more useful than "the first one broke",
 // and the cost is bounded by checkTimeout.
-func Verify(ctx context.Context, dir string, commands []string) ([]CheckResult, VerificationStatus) {
+func Verify(ctx context.Context, dir string, commands []string, env ...string) ([]CheckResult, VerificationStatus) {
 	if len(commands) == 0 {
 		return nil, VerifyNone
 	}
 	results := make([]CheckResult, 0, len(commands))
 	status := VerifyPass
 	for _, c := range commands {
-		r := runCheck(ctx, dir, c)
+		r := runCheck(ctx, dir, c, env...)
 		results = append(results, r)
 		if !r.OK() {
 			status = VerifyFail
@@ -85,7 +86,7 @@ func Verify(ctx context.Context, dir string, commands []string) ([]CheckResult, 
 	return results, status
 }
 
-func runCheck(ctx context.Context, dir, command string) CheckResult {
+func runCheck(ctx context.Context, dir, command string, env ...string) CheckResult {
 	start := time.Now()
 	cctx, cancel := context.WithTimeout(ctx, checkTimeout)
 	defer cancel()
@@ -95,6 +96,9 @@ func runCheck(ctx context.Context, dir, command string) CheckResult {
 	// output, so it is trusted the way a Makefile is.
 	cmd := exec.CommandContext(cctx, "sh", "-c", command)
 	cmd.Dir = dir
+	if len(env) > 0 {
+		cmd.Env = append(os.Environ(), env...)
+	}
 	out, err := cmd.CombinedOutput()
 
 	res := CheckResult{Command: command, Duration: time.Since(start), Output: tail(string(out), maxCheckOutput)}

@@ -26,6 +26,10 @@ func runStreamJSON(ctx context.Context, mode permissions.Mode, chrome bool) erro
 	// display placeholder. Output is redirected by protocol.Run via SetOutput, so the
 	// io.Discard here is never used for protocol bytes.
 	sess := runtime.New(st, runner, cfg.Root, provider.EffectiveModel(cfg.Models.Coder), mode, io.Discard)
+	// A trial run inside task creation may need a subscription runtime, and only
+	// the CLI knows what this machine has been authorised for. Passed as a
+	// function so a grant made mid-session is visible without a restart.
+	sess.SetRuntimeAuth(loadAuthorizations)
 	if chrome {
 		sess.SetBrowserEnabled(true)
 		defer sess.CloseBrowser()

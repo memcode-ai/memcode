@@ -67,16 +67,13 @@ created without you saying so.`,
 			return err
 		}
 		if len(ready) == 0 {
-			fmt.Println("Nothing to suggest yet. memcode proposes work once it has seen the same")
-			fmt.Println("kind of job come up across a few separate sessions.")
+			fmt.Println("Nothing to suggest. memcode offers work either when it can see a reason")
+			fmt.Println("the job will come round again, or once you have asked for the same kind")
+			fmt.Println("of thing across a few separate sessions.")
 			return nil
 		}
 		for _, c := range ready {
-			d := taskdetect.Decision{
-				Kind: taskdetect.KindRepeated, Proposal: c.Latest,
-				Sessions: c.Sessions, Occasions: c.Signals,
-			}
-			msg := taskdetect.Message(d)
+			msg := taskdetect.Message(taskdetect.ClusterDecision(c))
 			fmt.Printf("\n%s\n", msg.Headline)
 			fmt.Printf("  %s\n", msg.Detail)
 			fmt.Printf("  family   %s\n", c.Family)

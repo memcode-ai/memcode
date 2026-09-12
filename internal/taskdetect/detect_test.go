@@ -44,7 +44,23 @@ func catalogProposal(name, target string, conf float64) Proposal {
 		Verify:         []string{"go test ./catalog/"},
 		SuggestedEvery: "168h", Effect: EffectPossible, Confidence: conf,
 		Bounded: true, Reproducible: true, UnattendedSafe: true, Evaluable: true,
+		// Deliberately WEAK prospective reasoning, so this fixture exercises the
+		// historical path. The prospective path has its own tests.
+		Recurrence: Recurrence{Kind: RecurrenceUncertain, Confidence: 0.3},
 	}
+}
+
+// inherentlyRecurring is the same work with the causal claim a good classifier
+// should actually make about it on first contact.
+func inherentlyRecurring(conf float64) Proposal {
+	p := catalogProposal("refresh-provider-catalogs", "all", 0.8)
+	p.Recurrence = Recurrence{
+		Kind:       RecurrenceExternal,
+		Cause:      "upstream providers add, rename and retire models independently of this repository",
+		Confidence: conf,
+		Value:      "notice catalog drift without anyone having to check",
+	}
+	return p
 }
 
 // THE MILESTONE. Three differently worded provider-catalog requests, across
@@ -140,26 +156,162 @@ func TestRecognisesACapabilityAcrossThreeSessions(t *testing.T) {
 	}
 }
 
-// A single strong turn is offered immediately, with different wording.
-func TestStrongSingleTurnOffersAtOnce(t *testing.T) {
+// THE PRIMARY PATH. Work that recurs for a reason in the world is offered after
+// the FIRST time it is done. Waiting to watch someone repeat it three times
+// makes memcode look less intelligent than it is.
+func TestProspectiveRecurrenceOffersOnFirstContact(t *testing.T) {
 	ctx := context.Background()
 	s := store(t)
-	p := catalogProposal("refresh-catalogs", "all", 0.93)
-	d := &Detector{Store: s, Classifier: &fake{next: map[string]Proposal{"do it": p}}}
+	p := inherentlyRecurring(0.94)
+	d := &Detector{Store: s, Classifier: &fake{next: map[string]Proposal{
+		"update our Anthropic models": p,
+	}}}
 
-	dec, err := d.Evaluate(ctx, Turn{SessionID: "s1", Project: "/repo", Request: "do it"}, start)
+	dec, err := d.Evaluate(ctx, Turn{
+		SessionID: "s1", Project: "/repo",
+		Request: "update our Anthropic models", Summary: "updated four ids",
+	}, start)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if dec.Kind != KindSingleTurn {
-		t.Fatalf("kind = %q (%s), want a single-turn offer", dec.Kind, dec.Why)
+	if dec.Kind != KindProspective {
+		t.Fatalf("kind = %q (%s), want an offer on the first instance", dec.Kind, dec.Why)
 	}
+
+	// The offer leads with the CAUSE, so the user judges the reasoning and not
+	// just the verdict.
 	msg := Message(dec)
-	if strings.Contains(msg.Headline, "You've asked me") {
-		t.Errorf("a single-turn offer must not claim a history it does not have:\n%s", msg.Headline)
+	if !strings.Contains(strings.ToLower(msg.Headline), "upstream providers") {
+		t.Errorf("a prospective offer must state why it will recur:\n%s", msg.Headline)
 	}
-	if !strings.Contains(msg.Headline, "on its own") {
+	if strings.Contains(msg.Headline, "You've asked me") {
+		t.Errorf("a first-contact offer must not claim a history it does not have:\n%s", msg.Headline)
+	}
+	if !strings.Contains(msg.Headline, "Create that task?") {
 		t.Errorf("headline = %q", msg.Headline)
+	}
+}
+
+// A one-off passes every shape gate and is still refused — and, importantly,
+// leaves NO evidence, so being asked twice cannot accumulate it into a pattern.
+func TestOneOffIsNeverOfferedAndNeverRecorded(t *testing.T) {
+	ctx := context.Background()
+	s := store(t)
+	p := catalogProposal("rename-the-company", "product name", 0.95)
+	p.Recurrence = Recurrence{
+		Kind: RecurrenceOneOff, Confidence: 0.97,
+		Cause: "a product is renamed once",
+	}
+	d := &Detector{Store: s, Classifier: &fake{next: map[string]Proposal{"rename": p}}}
+
+	for i := 0; i < 4; i++ {
+		dec, err := d.Evaluate(ctx, Turn{
+			SessionID: "s" + string(rune('a'+i)), Project: "/repo", Request: "rename",
+		}, start.Add(time.Duration(i)*24*time.Hour))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if dec.Kind != KindNone {
+			t.Fatalf("offered a one-off on attempt %d", i)
+		}
+		if !strings.Contains(dec.Why, "one-off") {
+			t.Errorf("why = %q, want the one-off reason", dec.Why)
+		}
+	}
+	if cl, _ := s.Clusters(ctx, "/repo", start); len(cl) != 0 {
+		t.Errorf("a one-off must leave no evidence, got %d cluster(s)", len(cl))
+	}
+}
+
+// A causal claim with no stated cause is a guess wearing a confidence score.
+func TestProspectiveNeedsAStatedCause(t *testing.T) {
+	ctx := context.Background()
+	s := store(t)
+	p := inherentlyRecurring(0.95)
+	p.Recurrence.Cause = ""
+	d := &Detector{Store: s, Classifier: &fake{next: map[string]Proposal{"q": p}}}
+
+	dec, err := d.Evaluate(ctx, Turn{SessionID: "s1", Project: "/repo", Request: "q"}, start)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dec.Kind == KindProspective {
+		t.Error("an offer that cannot say why must not be made on first contact")
+	}
+	if !strings.Contains(dec.Why, "no cause") {
+		t.Errorf("why = %q", dec.Why)
+	}
+}
+
+// A weak causal claim falls through to the historical path rather than being
+// offered outright.
+func TestWeakRecurrenceFallsBackToHistory(t *testing.T) {
+	ctx := context.Background()
+	s := store(t)
+	p := inherentlyRecurring(0.4) // present, but not confident
+	d := &Detector{Store: s, Classifier: &fake{next: map[string]Proposal{"q": p}}}
+
+	dec, err := d.Evaluate(ctx, Turn{SessionID: "s1", Project: "/repo", Request: "q"}, start)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dec.Kind != KindNone {
+		t.Fatalf("kind = %q, want it held back for evidence", dec.Kind)
+	}
+	if !strings.Contains(dec.Why, "0.40") {
+		t.Errorf("why = %q, should name the shortfall", dec.Why)
+	}
+	// But it WAS recorded, so history can still rescue it.
+	if cl, _ := s.Clusters(ctx, "/repo", start); len(cl) != 1 {
+		t.Error("uncertain work must still leave evidence")
+	}
+}
+
+// An explicit "automate this" needs no inference at all.
+func TestExplicitRequestOffersImmediately(t *testing.T) {
+	ctx := context.Background()
+	s := store(t)
+	p := catalogProposal("x", "y", 0.7)
+	p.ExplicitRequest = true
+	p.Recurrence = Recurrence{Kind: RecurrenceUncertain, Confidence: 0.1}
+	d := &Detector{Store: s, Classifier: &fake{next: map[string]Proposal{"automate this": p}}}
+
+	dec, err := d.Evaluate(ctx, Turn{SessionID: "s1", Project: "/repo", Request: "automate this"}, start)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dec.Kind != KindExplicit {
+		t.Fatalf("kind = %q (%s), want an immediate proposal", dec.Kind, dec.Why)
+	}
+	if strings.Contains(Message(dec).Headline, "You've asked me to") {
+		t.Error("an explicit request should not be answered with a history claim")
+	}
+}
+
+// User-pattern recurrence is exactly what history is for: not inherent to the
+// work, but plainly something this person keeps wanting.
+func TestUserPatternUsesTheHistoricalPath(t *testing.T) {
+	ctx := context.Background()
+	s := store(t)
+	p := catalogProposal("tidy-todos", "stale TODOs", 0.7)
+	p.Recurrence = Recurrence{Kind: RecurrenceUserPattern, Confidence: 0.9,
+		Cause: "this user tidies TODOs periodically"}
+	d := &Detector{Store: s, Classifier: &fake{next: map[string]Proposal{"q": p}}}
+
+	for i := 0; i < 2; i++ {
+		dec, _ := d.Evaluate(ctx, Turn{SessionID: "s" + string(rune('a'+i)), Project: "/repo", Request: "q"},
+			start.Add(time.Duration(i)*24*time.Hour))
+		if dec.Kind != KindNone {
+			t.Fatalf("a user pattern must not be offered on sight (attempt %d)", i)
+		}
+		if !strings.Contains(dec.Why, "only if this user keeps asking") {
+			t.Errorf("why = %q", dec.Why)
+		}
+	}
+	dec, _ := d.Evaluate(ctx, Turn{SessionID: "sc", Project: "/repo", Request: "q"},
+		start.Add(48*time.Hour))
+	if dec.Kind != KindRepeated {
+		t.Fatalf("kind = %q (%s), want the historical offer once it is a habit", dec.Kind, dec.Why)
 	}
 }
 
@@ -453,5 +605,183 @@ func TestAcceptedTaskIsNamedForTheCapability(t *testing.T) {
 	}
 	if !strings.Contains(tk.Name, "catalog") {
 		t.Errorf("name = %q, want the capability name", tk.Name)
+	}
+}
+
+// A prospective offer is made mid-session, where nothing may interrupt, so it
+// has to WAIT somewhere. If the suggestion queue only knew about accumulated
+// evidence, the whole first-contact path would be computed and then discarded.
+func TestProspectiveOfferReachesTheQueue(t *testing.T) {
+	ctx := context.Background()
+	s := store(t)
+	p := inherentlyRecurring(0.94)
+	d := &Detector{Store: s, Classifier: &fake{next: map[string]Proposal{"q": p}}}
+
+	dec, err := d.Evaluate(ctx, Turn{SessionID: "s1", Project: "/repo", Request: "q"}, start)
+	if err != nil || dec.Kind != KindProspective {
+		t.Fatalf("kind = %q, %v", dec.Kind, err)
+	}
+	// ONE signal, one session — nowhere near the historical bar.
+	cl, err := s.Clusters(ctx, "/repo", start)
+	if err != nil || len(cl) != 1 {
+		t.Fatalf("clusters = %d, %v", len(cl), err)
+	}
+	if cl[0].Sessions >= repeatSessions && cl[0].Weight >= repeatWeight {
+		t.Fatal("precondition: this must not qualify historically")
+	}
+	if !Ready(cl[0]) {
+		t.Fatal("a prospective offer must still be waiting in the queue")
+	}
+	if got := ClusterDecision(cl[0]); got.Kind != KindProspective {
+		t.Errorf("queued as %q, want prospective", got.Kind)
+	}
+}
+
+// Once evidence exists, the personal claim is the one worth making: "you have
+// asked me this three times" beats "this kind of thing recurs".
+func TestHistoryOutranksProspectiveInTheQueue(t *testing.T) {
+	ctx := context.Background()
+	s := store(t)
+	p := inherentlyRecurring(0.94)
+	for i := 0; i < 3; i++ {
+		if _, err := s.Record(ctx, "s"+string(rune('a'+i)), p, "asked",
+			start.Add(time.Duration(i)*24*time.Hour)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cl, _ := s.Clusters(ctx, "/repo", start.Add(72*time.Hour))
+	if len(cl) != 1 {
+		t.Fatalf("clusters = %d", len(cl))
+	}
+	d := ClusterDecision(cl[0])
+	if d.Kind != KindRepeated {
+		t.Errorf("kind = %q, want the earned historical claim", d.Kind)
+	}
+	if !strings.Contains(Message(d).Headline, "You've asked me") {
+		t.Errorf("headline = %q", Message(d).Headline)
+	}
+}
+
+// The four phrasings a user actually types. Each must either create a task
+// outright or ask a question that genuinely needs answering — never guess at
+// something with consequences, and never interrogate about something inferable.
+func TestExplicitRequestReadiness(t *testing.T) {
+	cases := []struct {
+		name     string
+		p        Proposal
+		wantGaps []string // substrings of the questions expected
+	}{
+		{
+			name: "keep packages up to date — complete",
+			p: Proposal{
+				Name: "dependency-updates", Instructions: "Update Go modules to their latest compatible versions and run the tests.",
+				Verify: []string{"go build ./...", "go test ./..."},
+				Effect: EffectPossible, SuggestedEvery: "168h",
+			},
+		},
+		{
+			// The dangerous shape: it changes code and cannot tell whether the
+			// change is safe. Every run would open a pull request nobody has a
+			// reason to trust.
+			name: "keep packages up to date — no verification",
+			p: Proposal{
+				Name: "dependency-updates", Instructions: "Update Go modules to their latest versions.",
+				Effect: EffectPossible,
+			},
+			wantGaps: []string{"check its change is safe"},
+		},
+		{
+			name: "automatically fix security issues — scope undecided",
+			p: Proposal{
+				Name: "security-fixes", Instructions: "Check advisories and patch affected dependencies.",
+				Verify: []string{"go test ./..."}, Effect: EffectExpected,
+				ClarifyingQuestions: []string{
+					"Should it patch across major versions, or only within the current one?",
+				},
+			},
+			wantGaps: []string{"major versions"},
+		},
+		{
+			// Read-only work needs no verification command: there is nothing to
+			// break, and demanding one would be interrogation.
+			name: "scan for tech debt — read-only, complete",
+			p: Proposal{
+				Name: "tech-debt-scan", Instructions: "Report functions over 100 lines and packages with no tests.",
+				Effect: EffectNone,
+			},
+		},
+		{
+			name: "keep docs updated — complete",
+			p: Proposal{
+				Name: "docs-sync", Instructions: "Check documented CLI flags against the real ones and correct any drift.",
+				Verify: []string{"go build ./..."}, Effect: EffectPossible,
+			},
+		},
+		{
+			name:     "no instructions at all",
+			p:        Proposal{Name: "vague", Effect: EffectNone},
+			wantGaps: []string{"What exactly should this do"},
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			gaps := c.p.Gaps()
+			if len(c.wantGaps) == 0 {
+				if !c.p.Ready() {
+					t.Errorf("should be ready to create, but asks: %+v", gaps)
+				}
+				return
+			}
+			if c.p.Ready() {
+				t.Fatalf("should have asked about %v", c.wantGaps)
+			}
+			for _, want := range c.wantGaps {
+				found := false
+				for _, g := range gaps {
+					if strings.Contains(g.Question, want) {
+						found = true
+					}
+				}
+				if !found {
+					t.Errorf("no question about %q; got %+v", want, gaps)
+				}
+			}
+			// Every question must say why it matters — an unexplained
+			// interrogation is worse than a guess.
+			for _, g := range gaps {
+				if strings.TrimSpace(g.Why) == "" {
+					t.Errorf("question %q gives no reason", g.Question)
+				}
+			}
+		})
+	}
+}
+
+// A complete explicit request produces a task the engine runs, with authority
+// matching what the work actually does.
+func TestExplicitRequestBecomesARunnableTask(t *testing.T) {
+	p := Proposal{
+		Family: "dependency-maintenance", Operation: "update", Target: "Go dependencies",
+		Name: "dependency-updates", Reason: "Keep dependencies current.",
+		Instructions: "Update Go modules to their latest compatible versions and run the tests.",
+		Verify:       []string{"go test ./..."}, Effect: EffectPossible,
+		SuggestedEvery: "168h", ExplicitRequest: true,
+	}
+	if !p.Ready() {
+		t.Fatalf("should be ready: %+v", p.Gaps())
+	}
+	tk, err := p.ToTask(start)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tk.Autonomy.Level != task.LevelBranch {
+		t.Errorf("autonomy = %q, want branch for work that changes code", tk.Autonomy.Level)
+	}
+	if len(tk.Verify.Commands) == 0 || len(tk.Triggers) == 0 {
+		t.Error("verification and cadence must carry through")
+	}
+	if err := tk.Validate(start); err != nil {
+		t.Errorf("must be valid without editing: %v", err)
 	}
 }

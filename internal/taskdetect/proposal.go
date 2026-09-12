@@ -31,6 +31,59 @@ import (
 	"github.com/memcode-ai/memcode/internal/task"
 )
 
+// RecurrenceKind is WHY this work would happen again — the causal claim behind
+// an offer, rather than an observation that it happened twice.
+//
+// This is the difference between a system that notices patterns and one that
+// understands work. "Update our Anthropic models" is obviously recurring the
+// FIRST time it is asked, because upstream vendors change their models whether
+// or not anyone here is watching. Waiting to see it three times before saying
+// so makes memcode look less intelligent than it is.
+type RecurrenceKind string
+
+const (
+	// RecurrenceOneOff will not happen again: renaming the product, fixing one
+	// specific bug. Bounded, reproducible and evaluable — and still not a
+	// standing job, which is exactly why the four gates are not enough on their
+	// own.
+	RecurrenceOneOff RecurrenceKind = "one_off"
+	// RecurrenceExternal recurs because the WORLD changes independently of this
+	// repository: vendors ship models, packages release versions, advisories
+	// appear, certificates expire. The strongest reason to offer immediately.
+	RecurrenceExternal RecurrenceKind = "externally_recurring"
+	// RecurrenceInternal recurs because of this project's own rhythm:
+	// regenerating a report as data lands, re-running a check as code grows.
+	RecurrenceInternal RecurrenceKind = "internally_recurring"
+	// RecurrenceUserPattern is not inherent to the work — it recurs because
+	// THIS person keeps wanting it. Not knowable on first contact; this is what
+	// accumulated history is for.
+	RecurrenceUserPattern RecurrenceKind = "user_pattern"
+	// RecurrenceUncertain: no confident causal claim either way.
+	RecurrenceUncertain RecurrenceKind = "uncertain"
+)
+
+// Recurrence is the structured reason to expect the work again.
+type Recurrence struct {
+	Kind RecurrenceKind `json:"kind"`
+	// Cause states WHAT makes it recur, in the model's own words. Required for
+	// a prospective offer: an offer that cannot say why is a guess, and it goes
+	// in the message so the user can judge the reasoning rather than the verdict.
+	Cause string `json:"cause,omitempty"`
+	// Confidence in the causal claim, distinct from confidence that the work is
+	// well-shaped.
+	Confidence float64 `json:"confidence"`
+	// Value is what automating it buys — usually "notice X without you having
+	// to remember to look".
+	Value string `json:"value,omitempty"`
+}
+
+// Inherent reports whether the work recurs for a reason that exists in the
+// world, independent of this user's habits. These are the offers that can be
+// made on first contact.
+func (r Recurrence) Inherent() bool {
+	return r.Kind == RecurrenceExternal || r.Kind == RecurrenceInternal
+}
+
 // Effect says what a run of this work does to the repository.
 type Effect string
 
@@ -74,8 +127,21 @@ type Proposal struct {
 	SuggestedEvery string `json:"suggested_every,omitempty"`
 	SuggestedCron  string `json:"suggested_cron,omitempty"`
 
-	Effect     Effect  `json:"code_changes"`
+	Effect Effect `json:"code_changes"`
+	// Confidence that the work is well-shaped enough to automate at all.
 	Confidence float64 `json:"confidence"`
+	// Recurrence is the causal claim about whether it will be needed again.
+	// Separate from Confidence on purpose: work can be perfectly automatable and
+	// still never need doing twice.
+	Recurrence Recurrence `json:"recurrence"`
+	// ExplicitRequest is the user actually asking for this to be automated,
+	// which needs no inference at all.
+	ExplicitRequest bool `json:"explicit_request,omitempty"`
+	// ClarifyingQuestions are decisions the model could not make for the user —
+	// usually scope or side effects. "Should major version bumps be included?"
+	// is a different task depending on the answer, and guessing it silently is
+	// how an autonomous job does something nobody asked for.
+	ClarifyingQuestions []string `json:"clarifying_questions,omitempty"`
 
 	// The four eligibility gates. Repetition alone is NOT enough: a password
 	// reset recurs, a vague "make this better" recurs, an emotionally repetitive
@@ -205,6 +271,54 @@ func (p Proposal) SameCapability(q Proposal) bool {
 	}
 	return familySimilarity(p.Family, q.Family) >= mergeSimilarity
 }
+
+// Gap is something that must be settled before a task can safely run
+// unattended, with the question to ask.
+type Gap struct {
+	Field    string
+	Question string
+	Why      string
+}
+
+// Gaps reports what is missing before this task should be created.
+//
+// The point is NOT to interrogate the user. Most of a task is inferable and
+// should be inferred; these are the few things where guessing wrong has
+// consequences that only show up later, at 3am, with nobody watching.
+func (p Proposal) Gaps() []Gap {
+	var out []Gap
+	if strings.TrimSpace(p.Instructions) == "" {
+		out = append(out, Gap{
+			Field:    "instructions",
+			Question: "What exactly should this do each time it runs?",
+			Why:      "an unattended run has only these instructions to work from",
+		})
+	}
+	// A task that changes code and cannot check itself is the dangerous shape:
+	// it will open pull requests nobody has any reason to trust, and the first
+	// sign of trouble is a broken branch. Verification is not a nicety here.
+	if p.Effect != EffectNone && len(p.Verify) == 0 {
+		out = append(out, Gap{
+			Field:    "verify",
+			Question: "How should it check its change is safe — which command should pass?",
+			Why:      "this task changes code, and without a check nothing distinguishes a good run from a broken one",
+		})
+	}
+	// Anything the model itself flagged as needing a decision. Side effects and
+	// scope questions live here: how far a dependency bump may go, whether a
+	// fix should be applied or only reported.
+	for _, q := range p.ClarifyingQuestions {
+		if strings.TrimSpace(q) == "" {
+			continue
+		}
+		out = append(out, Gap{Field: "scope", Question: q,
+			Why: "this changes what the task would do on its own"})
+	}
+	return out
+}
+
+// Ready reports whether the proposal can be created without asking anything.
+func (p Proposal) Ready() bool { return len(p.Gaps()) == 0 }
 
 // ToTask converts a proposal into a real task definition.
 //

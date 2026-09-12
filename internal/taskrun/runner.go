@@ -144,6 +144,70 @@ func FreezeWith(t task.Task, root, triggerKind, triggerID string, occurredAt, no
 	}, nil
 }
 
+// executionContract rides every autonomous run, ahead of the task's own
+// instructions.
+//
+// A scheduled task runs against a repository that has moved since anyone looked
+// at it: files renamed, packages restructured, build and test commands changed,
+// the thing it was written to maintain now living somewhere else. The failure
+// mode is not a crash — it is a run that confidently does the wrong thing
+// because it assumed a layout that no longer exists, and nobody was watching.
+//
+// So the contract is explicit: the goal is durable, everything else is a
+// hypothesis to re-check.
+const executionContract = `You are running unattended. Nobody will answer a question, and nobody is
+watching the output.
+
+The repository has probably changed since this task was written. Before acting:
+- work out the CURRENT state rather than assuming a remembered one
+- do not trust remembered paths, commands or file layouts until you have checked them
+- if something referenced here no longer exists, find its equivalent instead of failing or
+  inventing one
+- treat any recorded approach below as evidence that it worked once, not as instructions
+- if the goal turns out to be already satisfied, change nothing and say so
+
+Judge yourself against the GOAL and the verification commands, never against whether the
+recorded steps ran. If you cannot achieve the goal safely, stop and report why — an honest
+"this needs a human" is worth more than a plausible wrong change nobody reviewed.
+
+---
+
+`
+
+// instructionsFor composes what the agent actually receives: the drift
+// contract, the task's durable goal, and any known-good approach clearly marked
+// as a hint.
+func instructionsFor(t task.Task, project string, targets []string) string {
+	var b strings.Builder
+	b.WriteString(executionContract)
+	// A cross-project run works one checkout at a time, and the agent has to
+	// know which share of the responsibility is its own — otherwise it reads a
+	// goal phrased over two repositories, finds half of it missing here, and
+	// either fails or goes looking outside the worktree it was given.
+	if len(targets) > 1 {
+		fmt.Fprintf(&b, `This responsibility spans several projects: %s.
+
+You are working on %s ONLY. Do this project's share of the goal, here, and leave the others
+alone; they get their own turn. Whether the projects still agree with each other is checked
+separately once every project has been through.
+
+`, strings.Join(targets, ", "), project)
+		if d := strings.TrimSpace(t.Ownership.Discover); d != "" {
+			fmt.Fprintf(&b, `How that set of projects was meant to be determined (verify it still holds; repositories
+move, split and drop out of a concern): %s
+
+`, d)
+		}
+	}
+	b.WriteString(t.Instructions)
+	if kg := strings.TrimSpace(t.Execution.KnownGood); kg != "" {
+		b.WriteString("\n\n--- an approach that worked when this task was created ---\n")
+		b.WriteString(kg)
+		b.WriteString("\n(Evidence, not authority. Check it still applies.)")
+	}
+	return b.String()
+}
+
 // modeFor picks the permission mode a run executes under. Both tiers use
 // ModeAuto: Safe and Medium run unattended, Dangerous and catastrophic still
 // prompt, find nobody, and are therefore refused.
@@ -225,27 +289,38 @@ func (r *Runner) Execute(ctx context.Context, run Run, t task.Task) (Run, error)
 	// run that loses the claim never touches the lease, and released on every
 	// path out — including a panic — so a crash is the only way to leave one
 	// behind, which the expiry rule then handles.
-	key := LeaseKey(t, run.Project)
-	if err := r.Store.Acquire(ctx, key, run.ID, run.Task, time.Now()); err != nil {
-		var held ErrLeaseHeld
-		if errors.As(err, &held) {
-			_ = r.Store.Finish(ctx, run.ID, OutcomeBlocked,
-				"another run holds this project",
-				fmt.Sprintf("Waiting on run %s (task %s). Mutating tasks in one project run "+
-					"one at a time; read-only tasks are free to overlap.", held.Holder.RunID, held.Holder.Task),
-				"", time.Now())
-			return r.Store.Get(ctx, run.ID)
+	keys := LeaseKeys(t, run.Project)
+	var taken []string
+	release := func() {
+		for _, k := range taken {
+			_ = r.Store.Release(context.WithoutCancel(ctx), k, run.ID)
 		}
-		return run, err
 	}
-	defer func() { _ = r.Store.Release(context.WithoutCancel(ctx), key, run.ID) }()
+	defer release()
+	for _, key := range keys {
+		if err := r.Store.Acquire(ctx, key, run.ID, run.Task, time.Now()); err != nil {
+			var held ErrLeaseHeld
+			if errors.As(err, &held) {
+				// Partial acquisition is released by the deferred call, so a run
+				// that loses a race leaves nothing locked behind it.
+				_ = r.Store.Finish(ctx, run.ID, OutcomeBlocked,
+					"another run holds this project",
+					fmt.Sprintf("Waiting on run %s (task %s) for %s. Mutating tasks in one project run "+
+						"one at a time; read-only tasks are free to overlap.", held.Holder.RunID, held.Holder.Task, key),
+					"", time.Now())
+				return r.Store.Get(ctx, run.ID)
+			}
+			return run, err
+		}
+		taken = append(taken, key)
+	}
 
 	// Heartbeat for as long as the work runs. Its absence is how Reconcile
 	// distinguishes a crashed run from a slow one, and the same beat keeps the
 	// lease alive so the two notions of "that process is gone" cannot disagree.
 	hbCtx, stopHB := context.WithCancel(ctx)
 	defer stopHB()
-	go r.heartbeat(hbCtx, run.ID, key)
+	go r.heartbeat(hbCtx, run.ID, taken...)
 
 	runCtx := ctx
 	if run.Timeout > 0 {
@@ -275,7 +350,11 @@ func (r *Runner) Execute(ctx context.Context, run Run, t task.Task) (Run, error)
 // The return value is NAMED so the cleanup defer can clear the recorded
 // worktree path: removing the directory while still reporting where it was
 // would leave every successful run pointing at somewhere that does not exist.
-func (r *Runner) execute(runCtx, storeCtx context.Context, run Run, t task.Task) (res Result) {
+// workIn is one project's share of a run: isolate, work, verify, classify.
+// It deliberately stops short of publishing and of cleaning up its worktree,
+// because on a cross-project run neither decision belongs to a single project
+// (see executeAcross). The caller owns the returned worktree either way.
+func (r *Runner) workIn(runCtx, storeCtx context.Context, run Run, t task.Task, project string) (res Result, wt taskgit.Worktree) {
 	res = Result{Outcome: OutcomeFailed, ExecStatus: ExecFailed, VerifyStatus: VerifySkipped}
 
 	cap, err := t.Capability()
@@ -283,54 +362,43 @@ func (r *Runner) execute(runCtx, storeCtx context.Context, run Run, t task.Task)
 		res.Summary, res.Detail = "capability projection failed", err.Error()
 		res.ExecStatus = ExecBlocked
 		res.Outcome = OutcomeBlocked
-		return res
+		return res, wt
 	}
 
 	// memcode's own state must not turn up in the user's `git status`. An
 	// interactive session does this at launch; an unattended run may be the
 	// first thing that ever touches this repo, so it does it too. Idempotent,
 	// and a no-op when .memcode does not exist.
-	config.EnsureGitignore(run.Project)
+	config.EnsureGitignore(project)
 
 	// ISOLATE. Every autonomous run works somewhere that is not the user's
 	// checkout: a mutating one needs a branch to build on, and a read-only one
 	// still needs its test caches to land off the tree someone is sitting in.
-	dir := run.Project
-	var wt taskgit.Worktree
+	dir := project
 	if cap.ProtectProject {
-		if !taskgit.IsRepo(storeCtx, run.Project) {
+		if !taskgit.IsRepo(storeCtx, project) {
 			if cap.Mutating {
 				res.Summary = "project is not a git repository"
 				res.Detail = "A task that changes code runs in an isolated worktree, which needs git. " +
 					"Initialize the repository, or set autonomy.level: read_only."
 				res.ExecStatus, res.Outcome = ExecBlocked, OutcomeBlocked
-				return res
+				return res, wt
 			}
 			// Read-only work in a non-repo: nothing to isolate into, and nothing
 			// it is allowed to change anyway.
 		} else {
 			branch := taskgit.BranchName(t.Git.Branch, t.Name, run.ID, time.Now())
-			created, cerr := taskgit.Create(storeCtx, run.Project, branch)
+			created, cerr := taskgit.Create(storeCtx, project, branch)
 			if cerr != nil {
 				res.Summary = "could not isolate the run"
 				res.Detail = cerr.Error()
 				res.ExecStatus, res.Outcome = ExecBlocked, OutcomeBlocked
-				return res
+				return res, wt
 			}
 			wt = created
 			dir = wt.Path
 			res.Worktree, res.Branch, res.BaseRev = wt.Path, wt.Branch, wt.Base
 			res.ResultRev = wt.Base
-			// Cleanup is decided by the OUTCOME, at the end: a failed run's
-			// worktree is the evidence someone is about to ask for, and deleting
-			// it to stay tidy destroys it.
-			defer func() {
-				if keepWorktree(res) {
-					return
-				}
-				_ = taskgit.Remove(storeCtx, wt)
-				res.Worktree = ""
-			}()
 		}
 	}
 
@@ -344,7 +412,7 @@ func (r *Runner) execute(runCtx, storeCtx context.Context, run Run, t task.Task)
 			res.Detail = appendLine(res.Detail, fmt.Sprintf(
 				"Runtime %q could not be used (%s) and no authorized fallback remains.", run.RuntimeResolved, why))
 			res.ExecStatus, res.Outcome = ExecBlocked, OutcomeBlocked
-			return res
+			return res, wt
 		}
 		res.Detail = appendLine(res.Detail, fmt.Sprintf(
 			"Runtime %q was unusable (%s); fell back to %q.", run.RuntimeResolved, why, next))
@@ -357,9 +425,9 @@ func (r *Runner) execute(runCtx, storeCtx context.Context, run Run, t task.Task)
 	// WORK.
 	spawn, serr := r.Spawn(runCtx, SpawnRequest{
 		RunID:        run.ID,
-		Project:      run.Project,
+		Project:      project,
 		WorkDir:      dir,
-		Instructions: t.Instructions,
+		Instructions: instructionsFor(t, project, t.TargetsFrom(run.Project)),
 		Mode:         modeFor(t),
 		ReadOnly:     false,
 		Env:          runtimeEnv(run),
@@ -408,16 +476,12 @@ func (r *Runner) execute(runCtx, storeCtx context.Context, run Run, t task.Task)
 		res.Summary = "verification failed"
 	}
 
-	// PUBLISH. Only a verified change is offered for review: publishing work
-	// whose tests failed would put a broken branch in front of someone as if it
-	// were ready. A failure keeps its worktree instead, which is where the
-	// evidence is.
-	if wt.Path != "" && res.OKOutcome() && res.Changed {
-		r.publish(storeCtx, run, t, wt, &res)
-		if res.PRURL != "" {
-			res.Summary = fmt.Sprintf("%s (%s)", res.Summary, res.PRURL)
-		}
-	}
+	return res, wt
+}
+
+// finish is the per-project tail shared by both shapes: fold the checks into
+// the detail and say where the evidence was left.
+func finish(res Result) Result {
 	if strings.TrimSpace(res.Summary) == "" {
 		// An agent that finished without a closing line still needs a legible
 		// row in the history and the inbox.
@@ -464,7 +528,7 @@ func (r *Runner) Run(ctx context.Context, t task.Task, root, triggerKind, trigge
 	return r.Execute(ctx, run, t)
 }
 
-func (r *Runner) heartbeat(ctx context.Context, id, leaseKey string) {
+func (r *Runner) heartbeat(ctx context.Context, id string, leaseKeys ...string) {
 	every := r.HeartbeatEvery
 	if every <= 0 {
 		every = 20 * time.Second
@@ -480,7 +544,9 @@ func (r *Runner) heartbeat(ctx context.Context, id, leaseKey string) {
 			// its last heartbeat rather than look stale to Reconcile.
 			hbCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			_ = r.Store.Heartbeat(hbCtx, id, now)
-			_ = r.Store.Renew(hbCtx, leaseKey, id, now)
+			for _, k := range leaseKeys {
+				_ = r.Store.Renew(hbCtx, k, id, now)
+			}
 			cancel()
 		}
 	}

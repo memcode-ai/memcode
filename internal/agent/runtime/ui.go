@@ -17,6 +17,7 @@ import (
 	"github.com/memcode-ai/memcode/internal/objectives"
 	"github.com/memcode-ai/memcode/internal/policy"
 	"github.com/memcode-ai/memcode/internal/provider"
+	"github.com/memcode-ai/memcode/internal/runtimes"
 	"github.com/memcode-ai/memcode/internal/sessionlog"
 	"github.com/memcode-ai/memcode/internal/todos"
 	"github.com/memcode-ai/memcode/internal/wire"
@@ -205,6 +206,11 @@ func (s *Session) SetReadOnly(on bool) { s.readOnly = on }
 // it may never execute, whatever their risk and whoever approves them. Matched
 // against the parsed AST, so wrappers and compounds cannot smuggle one past.
 func (s *Session) SetDenyCommands(patterns []string) { s.denyCommands = patterns }
+
+// SetRuntimeAuth injects the machine's runtime authorizations, used when a
+// newly created task is trial-run. Kept as an injection because the engine must
+// not read the gateway's configuration itself.
+func (s *Session) SetRuntimeAuth(f func() runtimes.Authorizations) { s.runtimeAuth = f }
 
 // SetEffortOverride forces the per-turn thinking effort from the /effort command: "off",
 // "medium", or "high" pin it every turn; "auto" (or anything else) clears the override and

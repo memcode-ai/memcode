@@ -2,6 +2,7 @@ package task
 
 import (
 	"fmt"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -39,6 +40,9 @@ func (t Task) Validate(now time.Time) error {
 	if err := t.validateExecution(); err != nil {
 		return err
 	}
+	if err := t.validateOwnership(); err != nil {
+		return err
+	}
 	if !ValidLevel(t.Autonomy.Level) {
 		return fmt.Errorf("unknown autonomy level %q (use %s)", t.Autonomy.Level, joinLevels(Levels()))
 	}
@@ -74,6 +78,31 @@ func (t Task) Validate(now time.Time) error {
 			return fmt.Errorf("trigger %d duplicates an earlier trigger (%s)", i+1, key)
 		}
 		seen[key] = true
+	}
+	return nil
+}
+
+// validateOwnership refuses a cross-project task that has not said how its
+// projects relate, or that names a project by a path a scheduler cannot resolve.
+func (t Task) validateOwnership() error {
+	for _, p := range t.Ownership.Projects {
+		if !filepath.IsAbs(p) {
+			return fmt.Errorf("ownership.projects: %q must be an absolute path — an unattended run "+
+				"has no working directory to resolve it against", p)
+		}
+	}
+	switch t.Ownership.Coordination {
+	case "", CoordIndependent, CoordCoordinated:
+	default:
+		return fmt.Errorf("unknown ownership.coordination %q (use independent or coordinated)",
+			t.Ownership.Coordination)
+	}
+	// Coordination on a single-project task is not a harmless extra key: it
+	// says a decision was made about projects that are not there, which usually
+	// means the project list was lost somewhere.
+	if len(t.Ownership.Projects) == 0 && t.Ownership.Coordination != "" {
+		return fmt.Errorf("ownership.coordination is set but ownership.projects is empty — " +
+			"coordination only means something across more than one project")
 	}
 	return nil
 }

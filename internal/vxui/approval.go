@@ -116,7 +116,18 @@ func (s *appState) approvalCard() ui.Widget {
 		rows = append(rows, ui.RichText{Spans: []ui.TextSpan{{Text: "  " + p.Title, Style: s.sty.muted}}, SoftWrap: true, MaxLines: 10, Overflow: ui.TextOverflowEllipsis})
 	}
 	if p.Detail != "" {
-		rows = append(rows, ui.RichText{Spans: []ui.TextSpan{{Text: "  " + p.Detail, Style: s.sty.muted}}, SoftWrap: true, MaxLines: 2})
+		// Two lines is right for a supporting note beside a command. It is
+		// wrong when Detail IS the thing being approved: an autonomous task's
+		// contract — what it will do, how it knows it worked, what it may
+		// change, what was validated — clipped at line two asks for consent to
+		// something the user cannot see. Give a multi-line detail the room it
+		// needs, still bounded so a runaway string cannot eat the screen.
+		max := 2
+		if n := strings.Count(p.Detail, "\n") + 1; n > max {
+			max = min(n, 30)
+		}
+		rows = append(rows, ui.RichText{Spans: []ui.TextSpan{{Text: "  " + p.Detail, Style: s.sty.muted}},
+			SoftWrap: true, MaxLines: max, Overflow: ui.TextOverflowEllipsis})
 	}
 	rows = append(rows,
 		ui.SizedBox{Height: 1},

@@ -53,6 +53,7 @@ type Task struct {
 	Description  string      `yaml:"description,omitempty" json:"description,omitempty"`
 	Enabled      *bool       `yaml:"enabled,omitempty" json:"enabled,omitempty"`
 	Project      string      `yaml:"project,omitempty" json:"project,omitempty"`
+	Ownership    Ownership   `yaml:"ownership,omitempty" json:"ownership"`
 	Triggers     []Trigger   `yaml:"triggers,omitempty" json:"triggers,omitempty"`
 	Instructions string      `yaml:"instructions" json:"instructions"`
 	Execution    Execution   `yaml:"execution,omitempty" json:"execution"`
@@ -68,6 +69,88 @@ type Task struct {
 	Path  string `yaml:"-" json:"-"`
 	Scope Scope  `yaml:"-" json:"-"`
 }
+
+// Ownership answers "whose responsibility is this?", which is not the same
+// question as "where was the conversation happening?".
+//
+// A task created while someone happened to be sitting in one checkout can
+// easily belong to something larger. memcode itself is the example: the model
+// catalog is one responsibility implemented in two repositories, and a task
+// that updated only whichever one was open would be quietly wrong forever.
+//
+// So a task names the projects its responsibility spans, and how their work
+// relates. Project is still where the task is ANCHORED — the repo it was
+// created against, and the one whose worktree a single-project run uses.
+// Projects widens that to the full set when the responsibility is genuinely
+// cross-cutting.
+type Ownership struct {
+	// Projects are the checkouts this responsibility spans. Empty means the
+	// task's own Project and nothing else, which is the common case.
+	Projects []string `yaml:"projects,omitempty" json:"projects,omitempty"`
+
+	// Coordination decides what happens when the work succeeds in some
+	// projects and not others. This is a real product decision, not a detail:
+	// "PR opened in repo A" while repo B could not be updated is a WORSE
+	// outcome than doing nothing, if the two changes only make sense together.
+	Coordination Coordination `yaml:"coordination,omitempty" json:"coordination,omitempty"`
+
+	// Discover is how a future run re-derives which projects participate,
+	// written for someone who was not here. Paths recorded today are evidence
+	// about today's topology: repositories move, split, merge, and drop out of
+	// a concern entirely. Without this a cross-project task is a list of
+	// directories that slowly stops being true.
+	Discover string `yaml:"discover,omitempty" json:"discover,omitempty"`
+}
+
+// Coordination is the publication semantics of a multi-project run.
+type Coordination string
+
+const (
+	// CoordIndependent publishes each project's work on its own merits. Right
+	// when the projects merely share a chore ("keep dependencies current"):
+	// repo B being stuck is no reason to withhold repo A's upgrade.
+	CoordIndependent Coordination = "independent"
+
+	// CoordCoordinated publishes all of it or none of it. Right when the
+	// changes only make sense together, which is the whole reason the task is
+	// cross-project rather than two tasks. A partial success is not a success;
+	// it is a half-applied change to a system that was consistent before.
+	CoordCoordinated Coordination = "coordinated"
+)
+
+// Targets is the set of checkouts a run must work through, anchor first.
+//
+// Always non-empty for a valid task, so callers never special-case the
+// single-project shape.
+func (t Task) Targets() []string { return t.TargetsFrom(t.Project) }
+
+// TargetsFrom is Targets with the anchor supplied by the caller.
+//
+// A definition does not always carry its own project: a global task is anchored
+// by the run, and a file authored without a `project:` key is anchored by where
+// it was loaded from. The anchor is a property of the RUN in those cases, and
+// pretending otherwise silently produces an empty target list — which for the
+// lease means no lock at all.
+func (t Task) TargetsFrom(anchor string) []string {
+	if len(t.Ownership.Projects) == 0 {
+		if anchor == "" {
+			return nil
+		}
+		return []string{anchor}
+	}
+	out := make([]string, 0, len(t.Ownership.Projects)+1)
+	seen := map[string]bool{}
+	for _, p := range append([]string{anchor}, t.Ownership.Projects...) {
+		if p = strings.TrimSpace(p); p != "" && !seen[p] {
+			seen[p] = true
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// CrossProject reports whether this responsibility spans more than one checkout.
+func (t Task) CrossProject() bool { return len(t.Targets()) > 1 }
 
 // Trigger is one way a task becomes eligible to run. Exactly one kind may be
 // set. The list is plural from day one so adding a second kind later is not a
@@ -150,6 +233,12 @@ const (
 type Execution struct {
 	Mode      Mode   `yaml:"mode,omitempty" json:"mode,omitempty"`
 	Procedure string `yaml:"procedure,omitempty" json:"procedure,omitempty"`
+	// KnownGood records an approach that WORKED once, with the date it worked.
+	// It is a hint and never the definition: a repository drifts, and a run
+	// that treats last quarter's steps as authoritative will confidently do the
+	// wrong thing. A run starts here and checks whether the assumptions still
+	// hold before relying on any of it.
+	KnownGood string `yaml:"known_good,omitempty" json:"known_good,omitempty"`
 	// EscalateWhen gates the agent half of a hybrid run.
 	EscalateWhen string `yaml:"escalate_when,omitempty" json:"escalate_when,omitempty"`
 }
@@ -226,6 +315,14 @@ const DefaultBranchPattern = "auto/{name}-{date}"
 // mistaken for "the task worked", which is how autonomous systems quietly rot.
 type Verify struct {
 	Commands []string `yaml:"commands,omitempty" json:"commands,omitempty"`
+
+	// Across are checks that run ONCE, after every project has done its share,
+	// to test that the projects still agree with each other. Per-project checks
+	// cannot answer that: each side can be internally perfect and the pair
+	// still inconsistent, which on a cross-cutting change is precisely the
+	// failure worth catching. They run in the anchor project's working copy
+	// with MEMCODE_TASK_PROJECTS listing every project's working copy.
+	Across []string `yaml:"across,omitempty" json:"across,omitempty"`
 }
 
 // Notify says when an optional sink fires.
@@ -326,6 +423,14 @@ func (t *Task) ApplyDefaults() {
 	}
 	if t.Execution.Mode == "" {
 		t.Execution.Mode = ModeAgent
+	}
+	// A cross-project task must state its publication semantics, because the
+	// question only exists once there is more than one project. Defaulting to
+	// independent is the conservative reading of an unstated intent: it never
+	// withholds work that stands on its own, and a responsibility that truly
+	// needs all-or-nothing has to say so.
+	if t.Ownership.Coordination == "" && len(t.Ownership.Projects) > 0 {
+		t.Ownership.Coordination = CoordIndependent
 	}
 	if t.Execution.Mode == ModeHybrid && t.Execution.EscalateWhen == "" {
 		t.Execution.EscalateWhen = EscalateOnChanges

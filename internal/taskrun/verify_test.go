@@ -350,3 +350,52 @@ func TestJobSpecDefaultsWorkDirToProject(t *testing.T) {
 		t.Errorf("WorkDir = %q, want the project", spec.WorkDir)
 	}
 }
+
+// Every autonomous run is handed the drift contract, not just the task's own
+// words. A scheduled task runs against a repository that has moved, and the
+// failure it must avoid is not a crash — it is confidently doing the wrong
+// thing because it assumed a layout that no longer exists.
+func TestRunsReceiveTheDriftContract(t *testing.T) {
+	tk := sample(t, `version: 1
+name: drifty
+instructions: Keep the provider catalog current.
+`)
+	tk.Execution.KnownGood = "(worked 2026-09-12) edited catalog/models.json directly"
+
+	got := instructionsFor(tk, "/repo", []string{"/repo"})
+	for _, want := range []string{
+		"running unattended",
+		"CURRENT state rather than assuming",
+		"do not trust remembered paths",
+		"evidence that it worked once, not as instructions",
+		"Keep the provider catalog current.",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the composed instructions must contain %q:\n%s", want, got)
+		}
+	}
+	// The known-good approach is included, and labelled so it cannot be read as
+	// authority.
+	if !strings.Contains(got, "catalog/models.json") {
+		t.Error("a recorded approach should be passed along")
+	}
+	if !strings.Contains(got, "Evidence, not authority") {
+		t.Error("a recorded approach must be labelled as a hint")
+	}
+	// The goal must come after the contract, so the contract frames it.
+	if strings.Index(got, "running unattended") > strings.Index(got, "Keep the provider catalog") {
+		t.Error("the contract must precede the task's own instructions")
+	}
+}
+
+// A task with no recorded approach gets the contract and nothing invented.
+func TestDriftContractWithoutKnownGood(t *testing.T) {
+	tk := sample(t, "version: 1\nname: plain\ninstructions: Do the thing.\n")
+	got := instructionsFor(tk, "/repo", []string{"/repo"})
+	if strings.Contains(got, "worked when this task was created") {
+		t.Error("no recorded approach should mean no such section")
+	}
+	if !strings.Contains(got, "Do the thing.") {
+		t.Error("the goal must survive")
+	}
+}

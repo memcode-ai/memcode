@@ -26,8 +26,21 @@ func TestDoctrineBudgets(t *testing.T) {
 		"overview": "Subsystems: a, b", "pack": "{}", "plan": "1. step",
 	}
 	budgets := map[string]int{
-		"chat": 16_100, "exec": 15_100, "plan": 11_100, "apply": 12_300,
-		"review": 2_400, "compact": 1_700, "distill": 1_600, "task_shape": 1_500, "adhere": 1_100, "classify": 900, "extract": 900, "facts": 1_100,
+		// chat/exec/apply raised (2026-09-12) for core law 15, the standing-
+		// responsibility judgement. It earns ~600B in all three because it is
+		// the rule that decides whether a request produces work or produces an
+		// automation, and getting that wrong is invisible: the user is answered,
+		// and then re-asks the same thing next month. apply is the mode least
+		// likely to need it, but the laws are shared on purpose — forking them
+		// per mode is how two prompts drift into disagreeing about the rules.
+		"chat": 17_000, "exec": 16_000, "plan": 11_100, "apply": 13_000,
+		"review": 2_400, "compact": 1_700, "distill": 1_600,
+		// task_shape is the largest judge on purpose: it makes TWO independent
+		// judgements (is this automatable, and is there a causal reason it will
+		// recur) and carries the recurrence taxonomy that keeps the second from
+		// collapsing into "it looks scriptable". Raised deliberately from 1_500
+		// when prospective reasoning was added; it sits just under review's 2_400.
+		"task_shape": 2_800, "adhere": 1_100, "classify": 900, "extract": 900, "facts": 1_100,
 		"turn_intent": 2_500,
 	}
 	for mode, budget := range budgets {

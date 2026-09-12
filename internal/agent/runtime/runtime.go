@@ -43,6 +43,7 @@ import (
 	"github.com/memcode-ai/memcode/internal/mcp"
 	"github.com/memcode-ai/memcode/internal/policy"
 	"github.com/memcode-ai/memcode/internal/provider"
+	"github.com/memcode-ai/memcode/internal/runtimes"
 	"github.com/memcode-ai/memcode/internal/scripts"
 	"github.com/memcode-ai/memcode/internal/sessionlog"
 	"github.com/memcode-ai/memcode/internal/skills"
@@ -183,7 +184,10 @@ type Session struct {
 	lastJudgment     turnJudgment
 	nudgedPlanIntent bool
 	conversational   bool // an interactive multi-turn session (StartChat), not a one-shot run
-	lastCompactAfter int  // est tokens right after the last compaction pass — the back-off baseline (skip re-compaction until real regrowth; see compactIfNeeded/manageInTurnContext)
+	// runtimeAuth supplies the machine's runtime authorizations for a task
+	// trial run. Injected by the host so the engine never reads gateway config.
+	runtimeAuth      func() runtimes.Authorizations
+	lastCompactAfter int // est tokens right after the last compaction pass — the back-off baseline (skip re-compaction until real regrowth; see compactIfNeeded/manageInTurnContext)
 
 	// hotPaths is the cross-turn HOT working set: read_file paths the session
 	// keeps re-reading (fed from each turn's gather counts in runLoop's defer,

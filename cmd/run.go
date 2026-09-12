@@ -126,6 +126,10 @@ for local gateway development. Never store keys in .memcode.`,
 
 		noContext, _ := cmd.Flags().GetBool("no-context")
 		sess := runtime.New(st, runner, cfg.Root, model, mode, userOut())
+		// A trial run inside task creation may need a subscription runtime, and only
+		// the CLI knows what this machine has been authorised for. Passed as a
+		// function so a grant made mid-session is visible without a restart.
+		sess.SetRuntimeAuth(loadAuthorizations)
 		// Headless runs get a model the same way interactive ones do:
 		// --model -> workspace -> user -> the default_model seed. This path used
 		// to set no pin at all and rely on Automatic picking per turn; there is

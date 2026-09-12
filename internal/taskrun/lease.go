@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sort"
 	"time"
 
 	"github.com/memcode-ai/memcode/internal/task"
@@ -62,6 +63,31 @@ func LeaseKey(t task.Task, project string) string {
 	default:
 		return "custom:" + t.Concurrency.Key
 	}
+}
+
+// LeaseKeys is every resource one run must hold exclusively.
+//
+// A cross-project run mutates several checkouts, and leasing only the one it
+// was anchored in leaves the others open to a second run working in them at the
+// same time — which is the failure the lease exists to prevent, just moved one
+// project to the left. A custom concurrency key is one key by definition and
+// stays one key.
+func LeaseKeys(t task.Task, project string) []string {
+	if !t.MayMutate() {
+		return nil
+	}
+	if t.Concurrency.Key != "" && t.Concurrency.Key != task.ConcurrencyKeyProject {
+		return []string{"custom:" + t.Concurrency.Key}
+	}
+	// Sorted, so two runs over the same projects always take their locks in the
+	// same order and cannot deadlock against each other.
+	targets := append([]string(nil), t.TargetsFrom(project)...)
+	sort.Strings(targets)
+	out := make([]string, 0, len(targets))
+	for _, p := range targets {
+		out = append(out, "project:"+p)
+	}
+	return out
 }
 
 // Lease is a held claim on a resource.

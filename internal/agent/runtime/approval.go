@@ -70,7 +70,18 @@ func stdinApprover(out io.Writer) func(context.Context, ApprovalRequest) Approva
 			hint += fmt.Sprintf(", %d=%s", i+1, sc.Label)
 		}
 		hint += ", s=stop, or type what to do differently]"
-		fmt.Fprintf(out, "%s (%s) %s: ", req.Title, req.Risk, hint)
+		// Detail is the case FOR the thing being approved — for an autonomous
+		// task, the whole contract the user is signing off on. Printing only
+		// the title asks someone to authorise unattended work sight unseen,
+		// which is not consent, it is a keystroke.
+		if d := strings.TrimSpace(req.Detail); d != "" {
+			fmt.Fprintf(out, "\n%s\n", d)
+		}
+		if req.Risk != "" {
+			fmt.Fprintf(out, "%s (%s) %s: ", req.Title, req.Risk, hint)
+		} else {
+			fmt.Fprintf(out, "%s %s: ", req.Title, hint)
+		}
 		line, err := reader.ReadString('\n')
 		if err != nil {
 			return ApprovalDecision{} // non-interactive / EOF → deny

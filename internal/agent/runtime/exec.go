@@ -307,6 +307,12 @@ func (s *Session) dispatch(ctx context.Context, u wire.Block) toolResult {
 		return s.useSkill(ctx, u.Input)
 	case tools.Script:
 		return s.useScript(ctx, u.Input)
+	case tools.Task:
+		var in taskToolInput
+		if err := json.Unmarshal(u.Input, &in); err != nil {
+			return errResult("bad task input: " + err.Error())
+		}
+		return textResult(s.useTask(ctx, in))
 	case tools.Knowledge:
 		return s.useKnowledge(u.Input)
 	case tools.EnterPlan:

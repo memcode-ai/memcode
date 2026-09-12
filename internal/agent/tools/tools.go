@@ -38,6 +38,7 @@ const (
 	WebSearch        = "web_search"        // search the web for a query
 	Fetch            = "fetch"             // fetch a specific URL and return its text
 	Skill            = "skill"             // recruit an installed skill's expert guidance on demand (gated)
+	Task             = "task"              // turn recurring work into a durable autonomous task (gated; asks when underspecified)
 	Script           = "script"            // save/find/run/delete a reusable multi-step command sequence (each gated ONCE at the script level, not per inner command)
 	Artifact         = "artifact"          // publish/update/list/delete a self-contained HTML page hosted at memcode.ai (publish gated)
 	Knowledge        = "knowledge"         // consult memcode's baseline facts/idioms for a stack (ungated reference)
@@ -424,6 +425,11 @@ func obj(props map[string]any, required ...string) map[string]any {
 
 func str(desc string) map[string]any { return map[string]any{"type": "string", "description": desc} }
 
+// arr describes a homogeneous list parameter.
+func arr(desc string, item map[string]any) map[string]any {
+	return map[string]any{"type": "array", "description": desc, "items": item}
+}
+
 func integer(desc string) map[string]any {
 	return map[string]any{"type": "integer", "description": desc}
 }
@@ -697,6 +703,40 @@ func Defs() []wire.ToolDef {
 				"find":  str("search query: a stack/framework/service you're working with (e.g. \"vercel\", \"react\") — lists matching knowledge packs"),
 				"topic": str("exact pack name to read its full Facts + Idioms (e.g. \"vercel\", \"next\", \"supabase\")"),
 			}),
+		},
+		{
+			Name: Task,
+			Description: "Create a durable automation memcode runs on a schedule without the user. " +
+				"The judgement is whether they asked you to PERFORM WORK ONCE, or to TAKE ONGOING " +
+				"RESPONSIBILITY for an outcome staying true. Responsibility usually also wants the work done " +
+				"now — do both. Calling this starts a short design phase: it validates the automation against " +
+				"the repo and asks the user to approve a plain-language contract before anything is saved, so " +
+				"inspect the repo and decide for yourself whether you know enough first. Infer what you can; " +
+				"ask only where the answer changes scope, side effects or success criteria. instructions must " +
+				"state the GOAL and how to re-derive current state on a future run, never a replay of the steps " +
+				"you just took: files move and code is refactored, so a task assuming today's layout breaks silently.",
+			InputSchema: obj(map[string]any{
+				"name":                 str("kebab-case capability name, e.g. dependency-updates"),
+				"description":          str("one line: what this keeps true"),
+				"instructions":         str("what it does each run, for someone who was not here"),
+				"family":               str("semantic capability name, e.g. dependency-maintenance"),
+				"operation":            str("the verb, e.g. update"),
+				"target":               str("what it acts on"),
+				"every":                str("Go duration, e.g. 168h"),
+				"cron":                 str("5-field cron instead of every"),
+				"verify":               arr("commands that must pass", str("shell command")),
+				"code_changes":         enum("none | possible | expected", []string{"none", "possible", "expected"}),
+				"clarifying_questions": arr("choices you could NOT make for them", str("question")),
+				"does":                 arr("the contract the user approves: what it WILL DO each run, as outcomes judgeable without reading config", str("behaviour, not steps")),
+				"success_criteria":     str("one line: how a run knows it worked"),
+				"side_effects":         arr("what it may touch OUTSIDE this repo's files (external services, published artifacts). Its branch/commit/PR are handled — never list those", str("plainly")),
+				"known_good":           str("the approach that worked TODAY — a starting hint for later runs, never instructions"),
+				"projects":             arr("absolute paths of EVERY checkout this responsibility spans, when it is not owned by one repo alone (memcode's model catalog lives in two). Decide from the work itself, never from how many repos exist; ask if the set is unclear", str("absolute path")),
+				"coordination":         enum("with projects: independent = publish each project on its own merits; coordinated = all or nothing, for changes that only make sense together", []string{"independent", "coordinated"}),
+				"project_discovery":    str("with projects: how a future run re-derives which participate — today's paths are evidence, not permanent truth"),
+				"verify_across":        arr("with projects: checks that the projects still AGREE with each other, run once after all of them. MEMCODE_TASK_PROJECTS lists each working copy", str("shell command")),
+				"just_completed":       str("ONLY if you already did this exact work successfully above: what you did and what proved it. Used as validation instead of running it twice"),
+			}, "name", "instructions"),
 		},
 		{
 			Name:        Script,

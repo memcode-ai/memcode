@@ -7,14 +7,17 @@ import (
 	"time"
 )
 
-// Thresholds. The two paths answer different questions, so they have different
-// bars.
+// Thresholds. Three paths answer three different questions, so they have three
+// different bars.
 const (
-	// strongConfidence is what one turn must reach to be offered on its own.
-	// High: interrupting someone about a single piece of work is only worth it
-	// when the work is obviously a standing job, and the cost of being wrong is
-	// that the feature reads as noise.
-	strongConfidence = 0.85
+	// prospectiveConfidence is what a CAUSAL claim must reach to be offered on
+	// first contact. The claim is "the world will make this necessary again",
+	// and it is worth interrupting for only when the model can say why.
+	prospectiveConfidence = 0.75
+	// shapedConfidence is the separate bar for "this work is well-formed enough
+	// to hand to a machine". Both must clear for a first-contact offer: work can
+	// be obviously recurring and still too vague to automate.
+	shapedConfidence = 0.6
 
 	// repeatWeight and repeatSessions are the accumulation bar. Weight is
 	// confidence summed with age decay; sessions counts DISTINCT conversations,
@@ -39,12 +42,16 @@ type Kind string
 const (
 	// KindNone: nothing to offer.
 	KindNone Kind = ""
-	// KindSingleTurn: this one piece of work is plainly a standing job.
-	KindSingleTurn Kind = "single_turn"
-	// KindRepeated: the same capability has been asked for across sessions.
-	// The interesting one — memcode recognising something it learned from
-	// working with someone, rather than spotting a candidate for cron.
+	// KindProspective: the work will be needed again for a reason that exists in
+	// the world, said on FIRST contact. The primary path — memcode understanding
+	// the work rather than waiting to watch someone repeat it.
+	KindProspective Kind = "prospective"
+	// KindRepeated: recurrence learned from behaviour instead of inferred. The
+	// fallback, and the right answer when the work has no inherent cadence but
+	// this particular person keeps wanting it.
 	KindRepeated Kind = "repeated"
+	// KindExplicit: the user asked for it to be automated. No inference needed.
+	KindExplicit Kind = "explicit"
 )
 
 // Decision is the outcome of evaluating a turn.
@@ -120,16 +127,40 @@ func (d *Detector) Evaluate(ctx context.Context, in Turn, now time.Time) (Decisi
 		return Decision{Why: "this kind of task was declined durably"}, nil
 	}
 
+	// A ONE-OFF is not recorded at all. Renaming the product passes every
+	// shape gate and will never be wanted again; keeping evidence for it would
+	// let a genuinely unrepeatable job accumulate into a confident-looking
+	// cluster purely by being asked about twice.
+	if p.Recurrence.Kind == RecurrenceOneOff {
+		return Decision{Why: oneOffReason(p)}, nil
+	}
+
 	if _, err := d.Store.Record(ctx, in.SessionID, p, clip(in.Request, 200), now); err != nil {
 		return Decision{}, err
 	}
 
-	// PATH 1 — one turn, strong enough on its own.
-	if p.Confidence >= strongConfidence {
-		return Decision{Kind: KindSingleTurn, Proposal: p}, nil
+	// PATH 1 — the user simply asked for it. No inference required, and
+	// second-guessing an explicit request is just being difficult.
+	if p.ExplicitRequest {
+		return Decision{Kind: KindExplicit, Proposal: p}, nil
 	}
 
-	// PATH 2 — accumulated across sessions.
+	// PATH 2 — PROSPECTIVE. There is a concrete reason to expect this work
+	// again, so it is offered after the first completed instance. This is the
+	// primary path: provider catalogs drift, dependencies release, advisories
+	// appear, certificates expire — all knowable from understanding the work,
+	// none of it requiring anyone to have repeated themselves.
+	if p.Recurrence.Inherent() &&
+		p.Recurrence.Confidence >= prospectiveConfidence &&
+		p.Confidence >= shapedConfidence &&
+		strings.TrimSpace(p.Recurrence.Cause) != "" {
+		return Decision{Kind: KindProspective, Proposal: p}, nil
+	}
+
+	// PATH 3 — HISTORICAL. The causal claim was weak or absent, so evidence
+	// accumulates until this person's behaviour supplies what inference could
+	// not. This is where "clean up the stale TODOs" eventually qualifies: not
+	// inherently recurring, but plainly something they keep wanting.
 	clusters, err := d.Store.Clusters(ctx, p.Project, now)
 	if err != nil {
 		return Decision{}, err
@@ -145,17 +176,83 @@ func (d *Detector) Evaluate(ctx context.Context, in Turn, now time.Time) (Decisi
 			}, nil
 		}
 		return Decision{Why: fmt.Sprintf(
-			"not yet a pattern (%d occasion(s) across %d session(s), weight %.2f)",
-			c.Signals, c.Sessions, c.Weight)}, nil
+			"%s; not yet a pattern either (%d occasion(s) across %d session(s), weight %.2f)",
+			prospectiveShortfall(p), c.Signals, c.Sessions, c.Weight)}, nil
 	}
-	return Decision{Why: "first time seeing this"}, nil
+	return Decision{Why: prospectiveShortfall(p) + "; first time seeing it"}, nil
 }
 
-// Ready reports whether a cluster has enough evidence to be worth offering.
-// The same bar Evaluate applies, exported so the suggestion surface and the
-// detector cannot drift into disagreeing about what counts.
+// oneOffReason explains a refusal to treat unrepeatable work as a standing job.
+func oneOffReason(p Proposal) string {
+	if c := strings.TrimSpace(p.Recurrence.Cause); c != "" {
+		return "one-off — " + c
+	}
+	return "one-off — no reason to expect it again"
+}
+
+// prospectiveShortfall says which half of the first-contact bar was missed, so
+// silence is explainable rather than mysterious.
+func prospectiveShortfall(p Proposal) string {
+	switch {
+	case p.Recurrence.Kind == RecurrenceUserPattern:
+		return "recurs only if this user keeps asking"
+	case !p.Recurrence.Inherent():
+		return "no concrete reason it must happen again"
+	case strings.TrimSpace(p.Recurrence.Cause) == "":
+		return "claimed to recur but gave no cause"
+	case p.Recurrence.Confidence < prospectiveConfidence:
+		return fmt.Sprintf("recurrence only %.2f confident", p.Recurrence.Confidence)
+	case p.Confidence < shapedConfidence:
+		return fmt.Sprintf("shape only %.2f confident", p.Confidence)
+	}
+	return "below the first-contact bar"
+}
+
+// WouldOfferOnFirstContact reports whether a proposal clears the first-contact
+// bar, without touching any store. Exported so the detector evaluation measures
+// the REAL rule rather than a paraphrase of it that can drift.
+func WouldOfferOnFirstContact(p Proposal) bool {
+	if p.Recurrence.Kind == RecurrenceOneOff {
+		return false
+	}
+	if p.ExplicitRequest {
+		return true
+	}
+	return p.Recurrence.Inherent() &&
+		p.Recurrence.Confidence >= prospectiveConfidence &&
+		p.Confidence >= shapedConfidence &&
+		strings.TrimSpace(p.Recurrence.Cause) != ""
+}
+
+// Ready reports whether a cluster is worth offering, by EITHER path.
+//
+// Both are checked here because a prospective offer is made in the middle of a
+// session, where nothing may interrupt — so it waits with the historical ones,
+// and would be silently lost if this only knew about accumulated evidence.
 func Ready(c Cluster) bool {
-	return c.Latest.Eligible() && c.Sessions >= repeatSessions && c.Weight >= repeatWeight
+	if !c.Latest.Eligible() {
+		return false
+	}
+	if WouldOfferOnFirstContact(c.Latest) {
+		return true
+	}
+	return c.Sessions >= repeatSessions && c.Weight >= repeatWeight
+}
+
+// ClusterDecision renders a waiting cluster as the offer it should become.
+//
+// Accumulated evidence wins when it exists: "you have asked me this three
+// times" is a stronger and more personal claim than "this kind of thing
+// recurs", and having earned it, memcode should say it.
+func ClusterDecision(c Cluster) Decision {
+	if c.Sessions >= repeatSessions && c.Weight >= repeatWeight {
+		return Decision{Kind: KindRepeated, Proposal: c.Capability(),
+			Sessions: c.Sessions, Occasions: c.Signals}
+	}
+	if c.Latest.ExplicitRequest {
+		return Decision{Kind: KindExplicit, Proposal: c.Capability()}
+	}
+	return Decision{Kind: KindProspective, Proposal: c.Capability()}
 }
 
 // Offer is the message and choices shown to the user.
@@ -198,15 +295,45 @@ func Message(d Decision) Offer {
 		{ActionNever, "Don't suggest this kind", "Stop offering this kind of task"},
 	}}
 	switch d.Kind {
+	case KindProspective:
+		// Lead with the CAUSE. The claim being made is about the world, not
+		// about the user's habits, and stating it lets them judge the reasoning
+		// rather than just the verdict — including when the reasoning is wrong.
+		o.Headline = fmt.Sprintf("%s I can %s %s and open a PR whenever ours drifts. Create that task?",
+			sentence(p.Recurrence.Cause), checkVerb(p), cadence(p))
 	case KindRepeated:
 		o.Headline = fmt.Sprintf(
 			"You've asked me to %s %s %s. I can turn that into an autonomous task and keep it current.",
 			lower(p.Operation), lower(p.Target), occasions(d.Occasions, d.Sessions))
+	case KindExplicit:
+		o.Headline = fmt.Sprintf("Here's the task for that: %s %s, %s.",
+			lower(p.Operation), lower(p.Target), cadence(p))
 	default:
 		o.Headline = "This looks like something memcode could run on its own."
 	}
 	o.Detail = summary(p)
 	return o
+}
+
+// checkVerb renders how the task would keep watch.
+func checkVerb(p Proposal) string {
+	if p.Effect == EffectNone {
+		return "check"
+	}
+	return "check " + lower(p.Target)
+}
+
+// sentence tidies the model's causal claim into one.
+func sentence(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return "This kind of work comes round again."
+	}
+	s = strings.ToUpper(s[:1]) + s[1:]
+	if !strings.HasSuffix(s, ".") && !strings.HasSuffix(s, "!") {
+		s += "."
+	}
+	return s
 }
 
 // occasions renders the evidence phrase.

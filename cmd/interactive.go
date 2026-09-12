@@ -66,6 +66,10 @@ func runInteractive(ctx context.Context, mode permissions.Mode, modeExplicit boo
 	runner := llm.NewRunner(prov)
 	// os.Stdout is a placeholder; tui.Run redirects output through SetOutput.
 	sess := runtime.New(st, runner, cfg.Root, model, mode, os.Stdout)
+	// A trial run inside task creation may need a subscription runtime, and only
+	// the CLI knows what this machine has been authorised for. Passed as a
+	// function so a grant made mid-session is visible without a restart.
+	sess.SetRuntimeAuth(loadAuthorizations)
 	sess.SetPersonality(cfg.Personality) // remembered agent voice (tone only)
 	sess.SetExtraMile(cfg.ExtraMile)     // remembered "extra mile" mode (above-and-beyond)
 	if ep, onEndpoint := prov.Endpoint(); onEndpoint {
