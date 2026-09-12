@@ -539,6 +539,15 @@ func (s *Session) EndChat(ctx context.Context) {
 		s.outcomeCancel = nil
 		s.outcomeDone = nil
 	}
+	// Turn-boundary background work (task-shape classification). bgCancel above
+	// already aborts its in-flight calls; this waits for the goroutines to have
+	// actually exited, bounded so learning never stalls a quit.
+	waited := make(chan struct{})
+	go func() { s.bgWork.Wait(); close(waited) }()
+	select {
+	case <-waited:
+	case <-time.After(3 * time.Second):
+	}
 	s.runSessionHooks(ctx, hooks.SessionEnd) // fire-and-forget (bounded by the per-hook timeout)
 	s.KillAllJobs()                          // reap background jobs so nothing (dev servers, watchers) orphans
 	s.closeMCP()                             // tear down MCP server connections (subprocesses / HTTP sessions)

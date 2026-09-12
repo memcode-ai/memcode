@@ -139,6 +139,7 @@ type Session struct {
 	bgCancel          context.CancelFunc          // ends the session scope: EndChat cancels so turn-boundary writes stop
 	outcomeCancel     context.CancelFunc          // stops the async post-session learning loop (see EndChat)
 	outcomeDone       chan struct{}               // closed when that loop has fully exited — EndChat joins on it
+	bgWork            sync.WaitGroup              // turn-boundary background work (task-shape classification) — EndChat joins on it
 	testEditIntent    bool                        // user explicitly asked to change tests/specs/behavior this turn
 	lastUserText      string                      // the user's most recent request (ground truth for the authorization judge)
 	redactor          *secrets.Redactor

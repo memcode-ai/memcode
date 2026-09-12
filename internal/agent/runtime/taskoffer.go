@@ -203,7 +203,13 @@ func (s *Session) noteTaskShape(request, summary string) {
 	sessionID, project := s.sessionID, s.root
 	req, sum := request, summary
 
+	// Tracked, not fire-and-forget. This makes an LLM call after the turn has
+	// returned, so an untracked goroutine outlives session teardown and races
+	// whatever tears the provider down next — which is exactly how it showed up:
+	// a data race under -race on CI, invisible without it.
+	s.bgWork.Add(1)
 	go func() {
+		defer s.bgWork.Done()
 		ctx, cancel := context.WithTimeout(s.bgCtx, taskShapeTimeout+15*time.Second)
 		defer cancel()
 

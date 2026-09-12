@@ -266,21 +266,28 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, fmt.Errorf("creating %s: %w", filepath.Dir(path), err)
 	}
-	db, err := sql.Open("sqlite", path)
+	// PRAGMAS IN THE DSN, not as statements afterwards.
+	//
+	// database/sql hands out a POOL. `db.Exec("PRAGMA busy_timeout=5000")` runs
+	// on whichever connection happens to serve it and configures that one only;
+	// every other connection the pool opens later gets the default of zero and
+	// fails the instant it meets a writer, with SQLITE_BUSY.
+	//
+	// This ledger is the most concurrent thing memcode has — a run writing, its
+	// heartbeat goroutine renewing a lease, a poll starting the next one, all
+	// while a separate CLI process reads the inbox. It hid on a fast laptop and
+	// showed up as "database is locked" under -race on CI.
+	dsn := path + "?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)"
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("opening %s: %w", path, err)
-	}
-	for _, pragma := range []string{"PRAGMA busy_timeout=5000", "PRAGMA journal_mode=WAL"} {
-		if _, err := db.ExecContext(ctx, pragma); err != nil {
-			_ = db.Close()
-			return nil, fmt.Errorf("%s: %w", pragma, err)
-		}
 	}
 	if _, err := db.ExecContext(ctx, schema); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("applying task-run schema: %w", err)
 	}
 	if _, err := db.ExecContext(ctx, pauseSchema); err != nil {
+		_ = db.Close()
 		return nil, fmt.Errorf("creating task pause table: %w", err)
 	}
 	if err := migrate(ctx, db); err != nil {

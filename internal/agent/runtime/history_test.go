@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/memcode-ai/memcode/internal/agent/permissions"
@@ -15,12 +16,27 @@ import (
 
 // capturingProvider records the messages it's handed each call and always replies
 // with a tool-less text answer ("answer-N").
-type capturingProvider struct{ calls [][]wire.Message }
+// Locked because the session legitimately calls a provider from more than one
+// goroutine: side judges and turn-boundary classification run alongside the
+// scripted turn. A double that assumes single-threaded use reports a data race
+// that is the double's, not the session's.
+type capturingProvider struct {
+	mu    sync.Mutex
+	calls [][]wire.Message
+}
+
+func (p *capturingProvider) seen() [][]wire.Message {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([][]wire.Message(nil), p.calls...)
+}
 
 func (p *capturingProvider) Complete(_ context.Context, r wire.Request) (wire.Response, error) {
 	if r.Mode == "turn_intent" { // the routing judge is a side call — not part of the scripted turn
 		return wire.Response{StopReason: "end_turn", Blocks: []wire.Block{{Type: "text", Text: "n/a"}}}, nil
 	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	p.calls = append(p.calls, r.Messages)
 	return wire.Response{StopReason: "end_turn", Blocks: []wire.Block{
 		{Type: "text", Text: "answer-" + strconv.Itoa(len(p.calls))}}}, nil
@@ -47,7 +63,7 @@ func TestTextAnswerStaysInHistory(t *testing.T) {
 	s.Submit(ctx, chat, "now kill the shell")
 
 	// Some Complete call must have received turn 1's assistant answer in its history.
-	for _, msgs := range prov.calls {
+	for _, msgs := range prov.seen() {
 		for _, m := range msgs {
 			if m.Role != "assistant" {
 				continue
@@ -59,5 +75,5 @@ func TestTextAnswerStaysInHistory(t *testing.T) {
 			}
 		}
 	}
-	t.Fatalf("turn 1's assistant answer never reached history (%d calls) — tool-less response dropped", len(prov.calls))
+	t.Fatalf("turn 1's assistant answer never reached history (%d calls) — tool-less response dropped", len(prov.seen()))
 }
