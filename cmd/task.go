@@ -60,7 +60,7 @@ and a trigger is something you attach when you want it to happen on its own.
 Definitions live in two places, with the project copy winning a name collision:
 
   <repo>/.memcode/tasks/<name>.yaml    travels with the repo, reviewable in a PR
-  ~/.config/memcode/tasks/<name>.yaml  this machine only`,
+  ~/.config/memcode/tasks/<name>.yaml  responsibilities no single repo owns`,
 	RunE: func(cmd *cobra.Command, args []string) error { return taskListCmd.RunE(cmd, args) },
 }
 
