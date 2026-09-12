@@ -37,6 +37,11 @@ type ChatState struct {
 // saved transcript is re-entered instead of minting a fresh session — the
 // episodic log appends to the same session dir, so memory stays one thread.
 func (s *Session) StartChat(ctx context.Context) *ChatState {
+	// A multi-turn conversation, as opposed to a one-shot `memcode run`. Task
+	// detection only applies here: "you keep asking me to do this" is a claim
+	// about a person working with memcode over time, and a scripted invocation
+	// is not that.
+	s.conversational = true
 	var resumedMsgs []wire.Message
 	if s.resumeID != "" {
 		if msgs, err := loadTranscript(s.root, s.resumeID); err == nil {

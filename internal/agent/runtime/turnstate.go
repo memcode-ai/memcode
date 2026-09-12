@@ -20,6 +20,7 @@ type turnState struct {
 	redirected     bool            // the user denied an action and typed a redirection — skip the sibling tool calls but CONTINUE so the model reads the feedback and responds
 	firstBreak     string          // the FIRST broken-edit nudge this turn — the failure evidence for lesson distillation
 	lessonDone     bool            // a lesson was already distilled this turn (fire once)
+	taskShapeDone  bool            // the task-shape observation already fired this turn
 	// fatalErr is a terminal failure raised from INSIDE a tool — a delegated
 	// worker whose model call cannot succeed on any retry. It aborts the turn
 	// after the batch, with the real cause, instead of being handed back as a

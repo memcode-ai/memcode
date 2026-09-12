@@ -182,7 +182,8 @@ type Session struct {
 	turnBaseEffort   wire.Effort
 	lastJudgment     turnJudgment
 	nudgedPlanIntent bool
-	lastCompactAfter int // est tokens right after the last compaction pass — the back-off baseline (skip re-compaction until real regrowth; see compactIfNeeded/manageInTurnContext)
+	conversational   bool // an interactive multi-turn session (StartChat), not a one-shot run
+	lastCompactAfter int  // est tokens right after the last compaction pass — the back-off baseline (skip re-compaction until real regrowth; see compactIfNeeded/manageInTurnContext)
 
 	// hotPaths is the cross-turn HOT working set: read_file paths the session
 	// keeps re-reading (fed from each turn's gather counts in runLoop's defer,

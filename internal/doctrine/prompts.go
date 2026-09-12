@@ -481,6 +481,8 @@ nothing relevant, say so in one line.`,
 		base = authorizeDoctrine
 	case "compact":
 		base = compactDoctrine
+	case "task_shape":
+		base = taskShapeDoctrine
 	case "distill":
 		base = distillDoctrine
 	case "adhere":
@@ -840,6 +842,32 @@ If you cannot tell, use "unknown". Be conservative: when unsure, do NOT say safe
 // preference-signal promotion rigor (≥3 signals, ≥2 sessions), so a single bad
 // distillation cannot become standing context — but keep the output shape
 // strict: two lines, or the "none" sentinel when there is nothing reusable.
+// taskShapeDoctrine asks whether finished work is a STANDING JOB, and if so
+// describes the task that would do it. It returns a proposal, never a verdict:
+// the expensive part of this question is "what exactly did I just learn how to
+// do", and a boolean throws that away.
+const taskShapeDoctrine = `Decide whether the work just completed is a STANDING JOB — something worth doing again on a
+schedule, without anyone watching — and if it is, describe the task that would do it.
+
+Four gates. ALL must hold, or it is not a standing job however often it comes up:
+- bounded: a clear finish, not open-ended improvement
+- reproducible: the same procedure works next month, not a one-off tied to this moment
+- unattended: safe with nobody to ask; no judgement call only a human can make
+- evaluable: success is checkable by running something, not by someone's opinion
+
+Reject: debugging one incident, exploring an idea, anything needing a decision from the
+user mid-run, and vague requests ("make this better", "clean this up"). Repetition does
+NOT qualify work — people repeat questions that should never be automated.
+
+task_family is the SEMANTIC name of the capability, not of this instance. "Update
+Anthropic's models", "OpenAI shipped models, update ours" and "is the Fireworks catalog
+stale?" are all provider-model-catalog-maintenance. Name the capability so different
+wordings of the same job collapse onto it.
+
+confidence is how sure you are this is a standing job: above 0.85 only when it plainly is.
+
+Report through the tool. If it is not a standing job, say so and stop.`
+
 const distillDoctrine = `You distill ONE strategy-level lesson from a coding agent's learning episode.
 
 The user message names the episode kind and supplies the evidence:

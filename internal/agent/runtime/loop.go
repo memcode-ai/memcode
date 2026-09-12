@@ -400,6 +400,11 @@ func (s *Session) runLoop(ctx context.Context, sys promptSpec, messages *[]wire.
 					s.turn.lessonDone = true
 					s.distillLesson(resp.Text())
 				}
+				// The turn is finishing. Note, asynchronously and invisibly, whether
+				// the work it did looks like a standing job — evidence only; nothing
+				// is shown and nothing is asked, because a turn belongs to the thing
+				// the user actually requested.
+				s.noteTaskShape(s.lastUserText, resp.Text())
 				// A no-tools, no-TEXT response must NOT silently end the turn (the "sat on
 				// idle" hang): surface it so the user sees something happened and can resend,
 				// instead of an empty turn that looks like a freeze.

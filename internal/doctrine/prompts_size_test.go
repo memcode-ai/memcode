@@ -27,7 +27,7 @@ func TestDoctrineBudgets(t *testing.T) {
 	}
 	budgets := map[string]int{
 		"chat": 16_100, "exec": 15_100, "plan": 11_100, "apply": 12_300,
-		"review": 2_400, "compact": 1_700, "distill": 1_600, "adhere": 1_100, "classify": 900, "extract": 900, "facts": 1_100,
+		"review": 2_400, "compact": 1_700, "distill": 1_600, "task_shape": 1_500, "adhere": 1_100, "classify": 900, "extract": 900, "facts": 1_100,
 		"turn_intent": 2_500,
 	}
 	for mode, budget := range budgets {
