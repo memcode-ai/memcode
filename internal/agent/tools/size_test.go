@@ -43,13 +43,19 @@ import (
 // concern (memcode's model catalog spans two repos) becomes a task attached to
 // whichever checkout was open, which then keeps half the product current and
 // reports success.
+//
+// Raised 35KB -> 36KB (2026-09-12) for `revise`. It is what makes Create,
+// Customize, Edit and resolving a pause one operation instead of four flows
+// that would drift apart — one validating, another not; one showing the
+// contract, another a YAML diff. Its length is carrying the rule that an
+// automation which paused resumes on evidence, not on having been answered.
 func TestToolDefsWireBudget(t *testing.T) {
 	core, err := json.Marshal(Defs())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(core) > 35_000 {
-		t.Errorf("core tool defs = %dB (~%d tokens) on the wire — over the 35KB budget; trim descriptions/schemas or raise deliberately", len(core), len(core)/4)
+	if len(core) > 36_000 {
+		t.Errorf("core tool defs = %dB (~%d tokens) on the wire — over the 36KB budget; trim descriptions/schemas or raise deliberately", len(core), len(core)/4)
 	}
 	browser, err := json.Marshal(BrowserDefs())
 	if err != nil {

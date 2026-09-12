@@ -49,10 +49,42 @@ type taskToolInput struct {
 	Coordination        string   `json:"coordination"`
 	Responsibility      string   `json:"responsibility"`
 	VerifyAcross        []string `json:"verify_across"`
+	Revise              string   `json:"revise"`
 }
 
-// useTask creates an autonomous task from an explicit request.
+// origin says what evidence the design phase is starting from. It changes what
+// is shown and what happens afterwards, never how the decision is made.
+type origin int
+
+const (
+	// originCreate: a natural-language responsibility plus the work in front of
+	// us. Nothing exists yet.
+	originCreate origin = iota
+	// originRevise: an existing definition, plus what the user has just told us
+	// to change about it. Covers Customize on an installed task, Edit, and the
+	// resolution of a pause.
+	originRevise
+)
+
+// useTask is the ONE entry point for making or changing an automation.
+//
+// Create, Customize, Resolve and Edit are the same operation with different
+// starting evidence, and building them as separate flows would guarantee they
+// drift: one would validate and another would not, one would show the contract
+// and another a diff of YAML. So they share this engine, and differ only in
+// what they hand it.
 func (s *Session) useTask(ctx context.Context, in taskToolInput) string {
+	from := originCreate
+	var prior *task.Task
+	if name := strings.TrimSpace(in.Revise); name != "" {
+		found, err := s.findTask(name)
+		if err != nil {
+			return err.Error()
+		}
+		prior, from = &found, originRevise
+		in = inheritFrom(found, in)
+	}
+
 	p := taskdetect.Proposal{
 		Family: firstNonBlank(in.Family, in.Name), Operation: in.Operation, Target: in.Target,
 		Scope: "repository", Project: s.root,
@@ -66,8 +98,8 @@ func (s *Session) useTask(ctx context.Context, in taskToolInput) string {
 			Cause: "the user asked for this to run automatically"},
 	}
 
-	// ASK before creating, when there is something real to ask about. Returned
-	// to the model rather than prompted here, so the questions arrive in the
+	// ASK before acting, when there is something real to ask about. Returned to
+	// the model rather than prompted here, so the questions arrive in the
 	// conversation the user is already having.
 	if gaps := p.Gaps(); len(gaps) > 0 {
 		var b strings.Builder
@@ -97,7 +129,16 @@ func (s *Session) useTask(ctx context.Context, in taskToolInput) string {
 	if err := applyOwnership(&t, in, s.root); err != nil {
 		return err.Error()
 	}
+	return s.designPhase(ctx, from, t, prior, in)
+}
 
+// designPhase is the shared body: validate, report, sign off, persist.
+//
+//	validate  prove the strategy works NOW, or say it could not be shown to
+//	report    the contract in outcome language, plus what changed if revising
+//	approve   the user's decision, on evidence rather than on a description
+//	persist   only then, and as a NEW revision when one already existed
+func (s *Session) designPhase(ctx context.Context, from origin, t task.Task, prior *task.Task, in taskToolInput) string {
 	// PROVE IT, THEN ASK. Creating the task and trialling it afterwards gets the
 	// order backwards: the user would be approving a description, and would only
 	// find out whether it actually works once it was already installed and
@@ -117,21 +158,161 @@ func (s *Session) useTask(ctx context.Context, in taskToolInput) string {
 		val = s.trialRun(ctx, trial)
 	}
 
+	label, verb := "Create automation", "Created"
+	if from == originRevise {
+		label, verb = "Update automation", "Updated"
+	}
 	ok, reason := s.gate(ctx, permissions.Medium, false, ApprovalRequest{
-		Title:    "Automation: " + t.Description,
-		Label:    "Create automation",
-		Detail:   taskReport(t, in, val),
+		Title:    "Automation: " + firstNonBlank(t.Description, t.Name),
+		Label:    label,
+		Detail:   taskReport(t, in, val) + changeSummary(prior, t),
 		Editable: false,
 	})
 	if !ok {
-		return "The user declined" + orEmptyReason(reason) + ". Nothing was created."
+		return "The user declined" + orEmptyReason(reason) + ". Nothing was changed."
 	}
 
 	path, err := task.Save(s.root, t, storageScope(t, s.root))
 	if err != nil {
 		return "could not write the task: " + err.Error()
 	}
-	return fmt.Sprintf("Created %s — it runs %s from now on.", path, cadenceOf(t))
+
+	out := fmt.Sprintf("%s %s — it runs %s from now on.", verb, path, cadenceOf(t))
+	if from == originRevise {
+		// A revision is a NEW definition, and the runs that came before it stay
+		// bound to the one they actually ran under. Nothing rewrites history so
+		// a past failure appears to have happened under the repaired task.
+		if rev, rerr := t.Revision(); rerr == nil {
+			out += fmt.Sprintf("\n\nThis is revision %s; earlier runs keep the revision they ran under.",
+				shortRev(rev))
+		}
+		if msg := s.resumeIfPaused(ctx, t.Name, val); msg != "" {
+			out += "\n" + msg
+		}
+	}
+	return out
+}
+
+// resumeIfPaused lifts a suspension once the thing that caused it is fixed —
+// and only then.
+//
+// Answering the question is not the same as the answer working. A revision that
+// still cannot demonstrate itself gets saved (the user approved it) and stays
+// paused, because resuming on the strength of a conversation would put the task
+// straight back into the wall it stopped at.
+func (s *Session) resumeIfPaused(ctx context.Context, name string, val validation) string {
+	store, err := taskrun.OpenDefault(ctx)
+	if err != nil {
+		return ""
+	}
+	defer store.Close()
+	p, paused, err := store.PausedTask(ctx, name, s.root)
+	if err != nil || !paused {
+		return ""
+	}
+	if !val.ok {
+		return fmt.Sprintf("It stays PAUSED: the revision still could not be shown to work, and %q "+
+			"is what stopped it. Fix that and run `memcode task resume %s`.", firstLine(p.Reason), name)
+	}
+	if _, err := store.Resume(ctx, name, s.root); err != nil {
+		return ""
+	}
+	return "It was paused; that is now lifted and it runs again on its next occurrence."
+}
+
+// findTask resolves a name to the definition currently on disk.
+func (s *Session) findTask(name string) (task.Task, error) {
+	tasks, errs := task.Load(s.root, time.Now())
+	if len(tasks) == 0 && len(errs) > 0 {
+		return task.Task{}, fmt.Errorf("could not read the installed tasks: %v", errs[0])
+	}
+	for _, t := range tasks {
+		if t.Name == name {
+			return t, nil
+		}
+	}
+	var names []string
+	for _, t := range tasks {
+		names = append(names, t.Name)
+	}
+	if len(names) == 0 {
+		return task.Task{}, fmt.Errorf("there are no automations to revise")
+	}
+	return task.Task{}, fmt.Errorf("no automation called %q (there is: %s)", name, strings.Join(names, ", "))
+}
+
+// inheritFrom fills a revision's unspecified fields from what is already
+// installed.
+//
+// A revision states what CHANGES. Requiring the model to restate the whole
+// definition to alter one thing is how a cadence quietly resets to the default
+// because nobody mentioned it, and the user approves a report that looks right
+// because the changed line is the only one they were looking at.
+func inheritFrom(prior task.Task, in taskToolInput) taskToolInput {
+	in.Name = prior.Name
+	in.Description = firstNonBlank(in.Description, prior.Description)
+	in.Instructions = firstNonBlank(in.Instructions, prior.Instructions)
+	if len(in.Verify) == 0 {
+		in.Verify = prior.Verify.Commands
+	}
+	if len(in.VerifyAcross) == 0 {
+		in.VerifyAcross = prior.Verify.Across
+	}
+	if in.Every == "" && in.Cron == "" && len(prior.Triggers) > 0 {
+		in.Every, in.Cron = prior.Triggers[0].Every, prior.Triggers[0].Cron
+	}
+	if len(in.Projects) == 0 {
+		in.Projects = prior.Ownership.Projects
+	}
+	in.Coordination = firstNonBlank(in.Coordination, string(prior.Ownership.Coordination))
+	in.Responsibility = firstNonBlank(in.Responsibility, prior.Ownership.Responsibility)
+	in.KnownGood = firstNonBlank(in.KnownGood, prior.Execution.KnownGood)
+	return in
+}
+
+// changeSummary is the part of a revision's report that a create does not have:
+// what is DIFFERENT from what the user already agreed to.
+//
+// Only fields that change the delegation are listed. Some revisions merely
+// supply missing execution knowledge ("use the v3 migration path") and change
+// nothing the user delegated; those should read as exactly that rather than
+// being dressed up as a new authorisation.
+func changeSummary(prior *task.Task, next task.Task) string {
+	if prior == nil {
+		return ""
+	}
+	var lines []string
+	add := func(what, from, to string) {
+		if from != to {
+			lines = append(lines, fmt.Sprintf("  · %s: %s → %s", what, orNone(from, "none"), orNone(to, "none")))
+		}
+	}
+	add("runs", cadenceOf(*prior), cadenceOf(next))
+	add("checks", strings.Join(prior.Verify.Commands, ", "), strings.Join(next.Verify.Commands, ", "))
+	add("cross-project checks", strings.Join(prior.Verify.Across, ", "), strings.Join(next.Verify.Across, ", "))
+	add("projects", strings.Join(prior.Targets(), ", "), strings.Join(next.Targets(), ", "))
+	add("publication", string(prior.Git.PullRequest), string(next.Git.PullRequest))
+	add("authority", string(prior.Autonomy.Level), string(next.Autonomy.Level))
+	add("coordination", string(prior.Ownership.Coordination), string(next.Ownership.Coordination))
+
+	var b strings.Builder
+	if len(lines) == 0 {
+		b.WriteString("\nWhat changes\n  · nothing you delegated — this only tells it how to do the " +
+			"same job\n")
+		return b.String()
+	}
+	b.WriteString("\nWhat changes for you\n")
+	for _, l := range lines {
+		b.WriteString(l + "\n")
+	}
+	return b.String()
+}
+
+func shortRev(s string) string {
+	if len(s) > 8 {
+		return s[:8]
+	}
+	return s
 }
 
 // applyOwnership records the boundary of the responsibility on the task.

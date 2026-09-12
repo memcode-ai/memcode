@@ -716,6 +716,7 @@ func Defs() []wire.ToolDef {
 				"state the GOAL and how to re-derive current state on a future run, never a replay of the steps " +
 				"you just took: files move and code is refactored, so a task assuming today's layout breaks silently.",
 			InputSchema: obj(map[string]any{
+				"revise":               str("name of an EXISTING automation to change instead of creating one: the user is customising it, editing it, or answering what paused it. State only what changes — the rest is inherited. Resolving a pause resumes it, but only if the revision can still be shown to work"),
 				"name":                 str("kebab-case capability name, e.g. dependency-updates"),
 				"description":          str("one line: what this keeps true"),
 				"instructions":         str("what it does each run, for someone who was not here"),

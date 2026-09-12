@@ -161,3 +161,80 @@ func TestReportStatesTheScopeWhenCrossCutting(t *testing.T) {
 		t.Error("a single-project automation should not grow a scope section")
 	}
 }
+
+func priorTask() task.Task {
+	t := sampleTask()
+	t.Project = "/repo/a"
+	return t
+}
+
+// A revision states what CHANGES. If unspecified fields did not carry over, a
+// user asking to alter one thing would silently reset everything else to
+// defaults — and would approve a report that looked right, because the changed
+// line is the only one they were reading.
+func TestRevisionInheritsWhatWasNotRestated(t *testing.T) {
+	prior := priorTask()
+	prior.Ownership = task.Ownership{Projects: []string{"/repo/b"},
+		Coordination: task.CoordCoordinated, Responsibility: "model support"}
+	prior.Execution.KnownGood = "(worked 2026-09-12) edited catalog directly"
+
+	// The user said only: use a different verification command.
+	got := inheritFrom(prior, taskToolInput{Verify: []string{"go test ./catalog/"}})
+
+	if got.Name != prior.Name {
+		t.Errorf("name = %q, want the task being revised", got.Name)
+	}
+	if got.Every != "168h" {
+		t.Errorf("cadence = %q, want the installed cadence carried over", got.Every)
+	}
+	if got.Instructions != prior.Instructions {
+		t.Error("instructions must survive a revision that did not mention them")
+	}
+	if len(got.Projects) != 1 || got.Projects[0] != "/repo/b" {
+		t.Errorf("the approved project set must survive, got %v", got.Projects)
+	}
+	if got.Coordination != string(task.CoordCoordinated) {
+		t.Errorf("coordination = %q, want it carried over", got.Coordination)
+	}
+	if got.KnownGood != prior.Execution.KnownGood {
+		t.Error("a recorded working approach must survive an unrelated revision")
+	}
+	// And what WAS restated wins.
+	if len(got.Verify) != 1 || got.Verify[0] != "go test ./catalog/" {
+		t.Errorf("the stated change must win, got %v", got.Verify)
+	}
+}
+
+// Resolution has two shapes and the report must not confuse them. Supplying
+// missing execution knowledge ("use the v3 migration path") changes nothing the
+// user delegated; widening the project set or dropping PRs does.
+func TestChangeSummarySeparatesKnowledgeFromAuthority(t *testing.T) {
+	prior := priorTask()
+
+	// Same delegation, new know-how.
+	sameDeal := prior
+	sameDeal.Instructions = "Use the v3 migration path when foo needs upgrading."
+	got := changeSummary(&prior, sameDeal)
+	if !strings.Contains(got, "nothing you delegated") {
+		t.Errorf("a knowledge-only revision must say so plainly:\n%s", got)
+	}
+
+	// A different deal.
+	wider := prior
+	wider.Ownership.Projects = []string{"/repo/b"}
+	wider.Git.PullRequest = task.PRNever
+	got = changeSummary(&prior, wider)
+	for _, want := range []string{"What changes for you", "projects", "/repo/b", "publication"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "nothing you delegated") {
+		t.Error("enrolling a second repository is not a knowledge-only change")
+	}
+
+	// A create has nothing to compare against and must not grow the section.
+	if changeSummary(nil, prior) != "" {
+		t.Error("a create has no change summary")
+	}
+}

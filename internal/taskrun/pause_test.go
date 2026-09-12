@@ -164,3 +164,51 @@ func TestPausedTasksDoNotFire(t *testing.T) {
 		t.Errorf("after resume the task should be eligible again, started %d", len(res.Started))
 	}
 }
+
+// A repaired task is a NEW revision. The run that failed stays bound to the
+// definition it actually ran under — never rewritten so the failure appears to
+// have happened under the fixed task, which would make the ledger lie about
+// exactly the thing it exists to answer.
+func TestRepairingATaskDoesNotRewriteHistory(t *testing.T) {
+	s := store(t)
+	ctx := context.Background()
+	root := repo(t)
+	broken := sample(t, "version: 1\nname: deps\ninstructions: Upgrade using the v2 path.\n")
+
+	frozen, err := Freeze(broken, root, TriggerManual, "", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := s.Create(ctx, frozen)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := run.Revision
+	if before == "" {
+		t.Fatal("a run must record the revision it ran under")
+	}
+
+	// The user answers what paused it, and the definition changes.
+	repaired := sample(t, "version: 1\nname: deps\ninstructions: Upgrade using the v3 path.\n")
+	after, err := repaired.Revision()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after == before {
+		t.Fatal("a changed definition must produce a different revision")
+	}
+
+	got, err := s.Get(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Revision != before {
+		t.Errorf("the failed run's revision changed to %s; history must stay bound to %s",
+			got.Revision, before)
+	}
+	// And the definition it ran under is still readable, which is the whole
+	// reason the run carries a frozen copy rather than a pointer to a file.
+	if got.Definition == "" {
+		t.Error("the run must keep the definition it executed")
+	}
+}
