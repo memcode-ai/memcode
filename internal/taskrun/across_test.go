@@ -1,6 +1,7 @@
 package taskrun
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -229,5 +230,69 @@ func TestSingleProjectRunsGetNoBoundaryLecture(t *testing.T) {
 	tk := task.Task{Project: "/repo/a", Instructions: "Do the thing."}
 	if strings.Contains(instructionsFor(tk, "/repo/a", tk.Targets()), "approved boundary") {
 		t.Error("a one-repo task has no boundary to state")
+	}
+}
+
+// Recorded steps are an OPTIMISATION, never a verdict.
+//
+// They may end a run early in exactly one way: by doing the job and finding
+// nothing to do. A step that FAILS means the world moved — a renamed tool, a
+// changed command — and that is precisely when the agent is needed, so failure
+// must escalate rather than report an outcome.
+func TestFailingStepsEscalateRatherThanConclude(t *testing.T) {
+	s := store(t)
+	ctx := context.Background()
+	root := repo(t)
+	tk := sample(t, "version: 1\nname: deps\ninstructions: Keep deps current.\n"+
+		"execution:\n  steps:\n    - exit 3\n")
+
+	var spawned bool
+	r := runner(t, s, func(_ context.Context, req SpawnRequest) (SpawnResult, error) {
+		spawned = true
+		// The agent must be able to SEE what the steps did, or it has to guess
+		// whether they ran.
+		if !strings.Contains(req.Instructions, "the recorded mechanical steps ran first") {
+			t.Error("the agent was not told what the steps did")
+		}
+		if !strings.Contains(req.Instructions, "exit 3") {
+			t.Error("the failing step is missing from what the agent was given")
+		}
+		return SpawnResult{Text: "worked out the new command and upgraded"}, nil
+	})
+	run, err := r.Run(ctx, tk, root, TriggerManual, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !spawned {
+		t.Fatal("a failed step must hand over to the agent, not end the run")
+	}
+	if run.Outcome == OutcomeFailed {
+		t.Errorf("the agent recovered; the run should not be failed: %s — %s", run.Outcome, run.Summary)
+	}
+}
+
+// The payoff case: the mechanical part did the whole job, nothing changed, and
+// no model was paid for the Monday.
+func TestCleanStepsWithNoChangeSkipTheAgentEntirely(t *testing.T) {
+	s := store(t)
+	ctx := context.Background()
+	root := repo(t)
+	tk := sample(t, "version: 1\nname: deps\ninstructions: Keep deps current.\n"+
+		"execution:\n  steps:\n    - true\n")
+
+	var spawned bool
+	r := runner(t, s, func(context.Context, SpawnRequest) (SpawnResult, error) {
+		spawned = true
+		return SpawnResult{Text: "should not have run"}, nil
+	})
+	run, err := r.Run(ctx, tk, root, TriggerManual, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if spawned {
+		t.Error("steps that succeeded and changed nothing must not cost a model call")
+	}
+	if run.Outcome != OutcomeNoChange {
+		t.Errorf("outcome = %s, want no_change", run.Outcome)
 	}
 }

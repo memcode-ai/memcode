@@ -547,7 +547,7 @@ To migrate, in %s:
   - if it should only run when you ask, just delete the `+"`kind:`"+` line
 
 Its home under ~/.memcode/agents/%s — memory, skills, instructions — is
-untouched either way.`, id, agent.LegacyKind, agent.LegacyKind, pathOrDefault(), id)
+untouched either way`, id, agent.LegacyKind, agent.LegacyKind, pathOrDefault(), id)
 		}
 		if agent.Browser != "" && agent.Browser != BrowserEphemeral && agent.Browser != BrowserExistingChrome {
 			return fmt.Errorf("agent %q has unknown browser %q (want %s or %s)", id, agent.Browser, BrowserEphemeral, BrowserExistingChrome)

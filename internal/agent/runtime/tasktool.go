@@ -50,6 +50,7 @@ type taskToolInput struct {
 	Responsibility      string   `json:"responsibility"`
 	VerifyAcross        []string `json:"verify_across"`
 	Revise              string   `json:"revise"`
+	Steps               []string `json:"steps"`
 }
 
 // origin says what evidence the design phase is starting from. It changes what
@@ -118,6 +119,12 @@ func (s *Session) useTask(ctx context.Context, in taskToolInput) string {
 	// What worked today, recorded as a starting point for future runs. Marked
 	// as a hint everywhere it is used: the repository will drift, and a run
 	// that treats this as instructions will eventually be confidently wrong.
+	// The mechanical half, settled here rather than learned from later runs:
+	// the validation trial is where it is obvious which commands needed no
+	// judgement, and the user is about to approve the whole contract anyway.
+	if steps := trimmedNonBlank(in.Steps); len(steps) > 0 {
+		t.Execution.Steps = steps
+	}
 	if kg := strings.TrimSpace(in.KnownGood); kg != "" {
 		t.Execution.KnownGood = fmt.Sprintf("(worked %s) %s", time.Now().UTC().Format("2006-01-02"), kg)
 	}
@@ -264,6 +271,9 @@ func inheritFrom(prior task.Task, in taskToolInput) taskToolInput {
 	if len(in.Projects) == 0 {
 		in.Projects = prior.Ownership.Projects
 	}
+	if len(in.Steps) == 0 {
+		in.Steps = prior.Execution.Steps
+	}
 	in.Coordination = firstNonBlank(in.Coordination, string(prior.Ownership.Coordination))
 	in.Responsibility = firstNonBlank(in.Responsibility, prior.Ownership.Responsibility)
 	in.KnownGood = firstNonBlank(in.KnownGood, prior.Execution.KnownGood)
@@ -289,6 +299,7 @@ func changeSummary(prior *task.Task, next task.Task) string {
 	}
 	add("runs", cadenceOf(*prior), cadenceOf(next))
 	add("checks", strings.Join(prior.Verify.Commands, ", "), strings.Join(next.Verify.Commands, ", "))
+	add("direct steps", strings.Join(prior.Execution.Steps, ", "), strings.Join(next.Execution.Steps, ", "))
 	add("cross-project checks", strings.Join(prior.Verify.Across, ", "), strings.Join(next.Verify.Across, ", "))
 	add("projects", strings.Join(prior.Targets(), ", "), strings.Join(next.Targets(), ", "))
 	add("publication", string(prior.Git.PullRequest), string(next.Git.PullRequest))
@@ -442,6 +453,10 @@ func behaviour(t task.Task, in taskToolInput) []string {
 		out = wrapLines(t.Instructions, 4)
 	}
 	out = append(out, "runs "+cadenceOf(t))
+	if n := len(t.Execution.Steps); n > 0 {
+		out = append(out, fmt.Sprintf("does the mechanical part (%d command%s) directly, and only "+
+			"reasons about what comes back", n, plural(n)))
+	}
 	// Not an implementation detail: it is the reason an unattended run cannot
 	// disturb whatever the user has open at the time.
 	out = append(out, "works in its own checkout, never in your working tree")
@@ -488,6 +503,13 @@ func sideEffects(t task.Task, in taskToolInput) []string {
 		out = append(out, "reads only — it cannot modify files at all")
 	}
 	return out
+}
+
+func plural(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
 }
 
 func trimmedNonBlank(in []string) []string {
@@ -556,19 +578,6 @@ func firstLineOf(s string) string {
 // trialTimeout bounds the proving run so creating a task cannot hang a turn.
 const trialTimeout = 10 * time.Minute
 
-// taskGateDetail shows what the user is actually authorizing: not "write a
-// file" but "this will run by itself, with this authority, on this cadence".
-func taskGateDetail(t task.Task) string {
-	var b strings.Builder
-	fmt.Fprintf(&b, "%s\n\n", t.Description)
-	fmt.Fprintf(&b, "runs      %s\n", cadenceOf(t))
-	fmt.Fprintf(&b, "authority %s (%s)\n", t.Autonomy.Level, prPolicy(t))
-	if len(t.Verify.Commands) > 0 {
-		fmt.Fprintf(&b, "verifies  %s\n", strings.Join(t.Verify.Commands, ", "))
-	}
-	return b.String()
-}
-
 func cadenceOf(t task.Task) string {
 	if len(t.Triggers) == 0 {
 		return "only when you run it"
@@ -584,16 +593,6 @@ func cadenceOf(t task.Task) string {
 		return "every " + tr.Every
 	}
 	return "only when you run it"
-}
-
-func prPolicy(t task.Task) string {
-	if t.Autonomy.Level == task.LevelReadOnly {
-		return "reports only, changes nothing"
-	}
-	if t.Git.PullRequest == task.PRNever {
-		return "commits to a branch, opens no PR"
-	}
-	return "opens a PR when it changes code"
 }
 
 func effectOf(v string) taskdetect.Effect {

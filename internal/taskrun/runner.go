@@ -240,6 +240,20 @@ separately once every project has been through.
 	return b.String()
 }
 
+// procedureNote hands the agent what the mechanical steps just did.
+//
+// Given as OUTPUT, not as instructions: the agent's job from here is to judge
+// what that output means and finish the goal, which it cannot do if it has to
+// guess whether the steps ran.
+func procedureNote(summary string) string {
+	if strings.TrimSpace(summary) == "" {
+		return ""
+	}
+	return "\n\n--- the recorded mechanical steps ran first; this is what they did ---\n" +
+		summary + "\n(A step that FAILED means something moved. Work out the current state and " +
+		"finish the goal; do not simply repeat the step.)"
+}
+
 // modeFor picks the permission mode a run executes under. Both tiers use
 // ModeAuto: Safe and Medium run unattended, Dangerous and catastrophic still
 // prompt, find nobody, and are therefore refused.
@@ -464,12 +478,43 @@ func (r *Runner) workIn(runCtx, storeCtx context.Context, run Run, t task.Task, 
 		}
 	}
 
+	// THE MECHANICAL PART FIRST, if the task has one. Determined when the task
+	// was set up, from the validation run that happened anyway.
+	//
+	// This is an optimisation with one hard rule: it can end a run early only
+	// by doing the job and finding nothing to do. It can never declare success.
+	// A step that fails means the world moved — the tool was renamed, the
+	// command changed — and that is exactly when the agent is needed, so
+	// failure escalates rather than reporting a verdict.
+	var procedure string
+	if steps := t.Execution.Steps; len(steps) > 0 {
+		checks, status := Verify(runCtx, dir, steps)
+		procedure = Summarize(checks)
+		res.Detail = appendLine(res.Detail, "Ran the recorded steps:\n"+procedure)
+
+		changed := false
+		if wt.Path != "" {
+			changed, _ = wt.Changed(storeCtx)
+		}
+		if status == VerifyPass && !changed {
+			// The job was mechanical, it ran, and there was nothing to do. No
+			// agent starts, and the run costs nothing.
+			res.ExecStatus = ExecCompleted
+			res.Summary = "nothing to change"
+			if checksOut, vs := Verify(runCtx, dir, t.Verify.Commands); vs != VerifyNone {
+				res.VerifyStatus, res.Checks = vs, Summarize(checksOut)
+			}
+			res.Outcome = Decide(res.ExecStatus, res.VerifyStatus, false, false)
+			return res, wt
+		}
+	}
+
 	// WORK.
 	spawn, serr := r.Spawn(runCtx, SpawnRequest{
 		RunID:        run.ID,
 		Project:      project,
 		WorkDir:      dir,
-		Instructions: instructionsFor(t, project, t.TargetsFrom(run.Project)),
+		Instructions: instructionsFor(t, project, t.TargetsFrom(run.Project)) + procedureNote(procedure),
 		Mode:         modeFor(t),
 		ReadOnly:     false,
 		Env:          runtimeEnv(run),

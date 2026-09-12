@@ -222,28 +222,3 @@ func (s *Session) noteTaskShape(request, summary string) {
 		}, time.Now())
 	}()
 }
-
-// pendingTaskOffers returns capabilities ready to be offered, for the
-// session-start banner.
-func pendingTaskOffers(ctx context.Context, project string) []taskdetect.Cluster {
-	store, err := taskdetect.OpenDefault(ctx)
-	if err != nil {
-		return nil
-	}
-	defer store.Close()
-	clusters, err := store.Clusters(ctx, project, time.Now())
-	if err != nil {
-		return nil
-	}
-	var out []taskdetect.Cluster
-	for _, c := range clusters {
-		if !taskdetect.Ready(c) {
-			continue
-		}
-		if ok, err := store.Suppressed(ctx, c.Latest); err == nil && ok {
-			continue
-		}
-		out = append(out, c)
-	}
-	return out
-}

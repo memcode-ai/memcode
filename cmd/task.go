@@ -246,11 +246,13 @@ var taskShowCmd = &cobra.Command{
 				fmt.Printf("  next fire   %s (%s)\n", n.Local().Format(time.RFC3339), tr.Missed)
 			}
 		}
-		fmt.Printf("  execution   %s", t.Execution.Mode)
-		if t.Execution.Procedure != "" {
-			fmt.Printf(" (procedure %s)", t.Execution.Procedure)
+		if n := len(t.Execution.Steps); n > 0 {
+			fmt.Printf("  direct      %d step(s) run without a model:\n", n)
+			for _, step := range t.Execution.Steps {
+				fmt.Printf("                %s\n", step)
+			}
 		}
-		fmt.Printf("\n  runtime     %s\n", t.Runtime.Strategy)
+		fmt.Printf("  runtime     %s\n", t.Runtime.Strategy)
 		fmt.Printf("  allowed     %s\n", strings.Join(t.Runtime.Allowed, " > "))
 		fmt.Printf("  model       %s\n", t.Runtime.Model)
 		fmt.Printf("  timeout     %s\n", t.Timeout())

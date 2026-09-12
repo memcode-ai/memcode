@@ -42,7 +42,7 @@ func TestDoctrineBudgets(t *testing.T) {
 		// after review, a model that PASTES the block. Its labels and run ids
 		// are internal plumbing; shown to a user they are unreadable noise, and
 		// nothing but this rule stops "mention it" being read as "print it".
-		"chat": 18_000, "exec": 16_000, "plan": 11_100, "apply": 13_000,
+		"chat": 18_000, "exec": 16_000, "plan": 11_100, "apply": 13_100,
 		"review": 2_400, "compact": 1_700, "distill": 1_600,
 		// task_shape is the largest judge on purpose: it makes TWO independent
 		// judgements (is this automatable, and is there a causal reason it will

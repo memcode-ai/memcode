@@ -222,38 +222,31 @@ const (
 	HardMaxCatchUp    = 100
 )
 
-// Mode is how the task's work gets done.
-type Mode string
-
-const (
-	// ModeAgent reasons through the whole task every run.
-	ModeAgent Mode = "agent"
-	// ModeProcedure runs a learned deterministic procedure and nothing else.
-	ModeProcedure Mode = "procedure"
-	// ModeHybrid runs the procedure first and escalates to the agent only when
-	// the procedure reports there is something to think about. This is the
-	// difference between a 40k-token Monday and a free one.
-	ModeHybrid Mode = "hybrid"
-)
-
 // Execution selects the work strategy. Procedure names an entry in the repo's
 // procedure store; the concept is deliberately not "shell script", because a
 // procedure may later be an HTTP call, a tool sequence or a Go helper.
 type Execution struct {
-	Mode      Mode   `yaml:"mode,omitempty" json:"mode,omitempty"`
-	Procedure string `yaml:"procedure,omitempty" json:"procedure,omitempty"`
+	// Steps are the mechanical part of the job, worked out when the task was
+	// SET UP rather than learned from it later. The design phase already runs
+	// the work once to validate it, and that run is where it becomes obvious
+	// which commands are deterministic — `go get -u ./...`, fetch, normalise,
+	// build — and which needed someone to think.
+	//
+	// A run does the mechanical part directly and pays no model for it. If the
+	// steps do everything the goal needed and nothing changed, the run is over
+	// and no agent starts at all: the common Monday costs nothing.
+	//
+	// They are an OPTIMISATION and never the definition. A step that fails is
+	// drift, not a verdict — the agent takes over and works out the current
+	// state. Nothing here can make a run succeed; only verification does that.
+	Steps []string `yaml:"steps,omitempty" json:"steps,omitempty"`
 	// KnownGood records an approach that WORKED once, with the date it worked.
 	// It is a hint and never the definition: a repository drifts, and a run
 	// that treats last quarter's steps as authoritative will confidently do the
 	// wrong thing. A run starts here and checks whether the assumptions still
 	// hold before relying on any of it.
 	KnownGood string `yaml:"known_good,omitempty" json:"known_good,omitempty"`
-	// EscalateWhen gates the agent half of a hybrid run.
-	EscalateWhen string `yaml:"escalate_when,omitempty" json:"escalate_when,omitempty"`
 }
-
-// EscalateOnChanges is the only escalation condition implemented today.
-const EscalateOnChanges = "procedure_reports_changes"
 
 // Runtime is where the task's inference runs. It is four separate decisions
 // rather than one string, because "use my Claude subscription" quietly bundles
@@ -430,9 +423,6 @@ func (t *Task) ApplyDefaults() {
 		on := true
 		t.Enabled = &on
 	}
-	if t.Execution.Mode == "" {
-		t.Execution.Mode = ModeAgent
-	}
 	// A cross-project task must state its publication semantics, because the
 	// question only exists once there is more than one project. Defaulting to
 	// independent is the conservative reading of an unstated intent: it never
@@ -440,9 +430,6 @@ func (t *Task) ApplyDefaults() {
 	// needs all-or-nothing has to say so.
 	if t.Ownership.Coordination == "" && len(t.Ownership.Projects) > 0 {
 		t.Ownership.Coordination = CoordIndependent
-	}
-	if t.Execution.Mode == ModeHybrid && t.Execution.EscalateWhen == "" {
-		t.Execution.EscalateWhen = EscalateOnChanges
 	}
 	if t.Runtime.Strategy == "" {
 		t.Runtime.Strategy = string(runtimes.StrategyPreferAuthorized)

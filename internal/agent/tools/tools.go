@@ -732,6 +732,7 @@ func Defs() []wire.ToolDef {
 				"success_criteria":     str("one line: how a run knows it worked"),
 				"side_effects":         arr("what it may touch OUTSIDE this repo's files (external services, published artifacts). Its branch/commit/PR are handled — never list those", str("plainly")),
 				"known_good":           str("the approach that worked TODAY — a starting hint for later runs, never instructions"),
+				"steps":                arr("the MECHANICAL part of this job, from what you just did: commands that need no judgement and can run directly (`go get -u ./...`, a fetch, a build). Future runs execute these and pay no model for them, then reason about the result. Leave empty if the work was all judgement", str("shell command")),
 				"projects":             arr("absolute paths of EVERY checkout this responsibility spans, when it is not owned by one repo alone (memcode's model catalog lives in two). Decide from the work itself, never from how many repos exist; ask if the set is unclear", str("absolute path")),
 				"coordination":         enum("with projects: independent = publish each project on its own merits; coordinated = all or nothing, for changes that only make sense together", []string{"independent", "coordinated"}),
 				"responsibility":       str("with projects: what the task is responsible FOR, independent of today's layout. The project set itself is fixed once approved"),

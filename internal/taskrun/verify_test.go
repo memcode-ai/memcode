@@ -21,9 +21,6 @@ func TestVerifyReadsExitCodes(t *testing.T) {
 	if len(checks) != 3 {
 		t.Fatalf("ran %d checks, want all 3 — knowing WHICH broke matters", len(checks))
 	}
-	if checks[0].OK() || !checks[1].OK() {
-		// index 1 is `false`
-	}
 	if !checks[0].OK() || checks[1].OK() || !checks[2].OK() {
 		t.Errorf("results = %+v, want ok/fail/ok", checks)
 	}

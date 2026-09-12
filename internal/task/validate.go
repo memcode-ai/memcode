@@ -34,7 +34,7 @@ func (t Task) Validate(now time.Time) error {
 	if !ValidName(t.Name) {
 		return fmt.Errorf("bad name %q: use lowercase words joined by hyphens, e.g. upgrade-model-catalog", t.Name)
 	}
-	if t.Instructions == "" && t.Execution.Mode == ModeAgent {
+	if t.Instructions == "" {
 		return fmt.Errorf("an agent task needs instructions")
 	}
 	if err := t.validateExecution(); err != nil {
@@ -107,24 +107,18 @@ func (t Task) validateOwnership() error {
 	return nil
 }
 
+// validateExecution checks the mechanical half.
+//
+// There is no execution MODE. A task has instructions, and optionally some
+// commands that need no judgement; "run this, then work out what it means" is
+// an ordinary instruction, not a third kind of task. An enum over agent /
+// procedure / hybrid only created states that had to be kept consistent with
+// the fields they described.
 func (t Task) validateExecution() error {
-	switch t.Execution.Mode {
-	case ModeAgent:
-		if t.Execution.Procedure != "" {
-			return fmt.Errorf("execution.procedure is set but mode is agent (use mode: procedure or hybrid)")
+	for i, step := range t.Execution.Steps {
+		if strings.TrimSpace(step) == "" {
+			return fmt.Errorf("execution.steps[%d] is empty", i)
 		}
-	case ModeProcedure, ModeHybrid:
-		if t.Execution.Procedure == "" {
-			return fmt.Errorf("mode %s needs execution.procedure", t.Execution.Mode)
-		}
-		if t.Execution.Mode == ModeHybrid && t.Execution.EscalateWhen != EscalateOnChanges {
-			return fmt.Errorf("unknown escalate_when %q (only %q is implemented)", t.Execution.EscalateWhen, EscalateOnChanges)
-		}
-		if t.Execution.Mode == ModeHybrid && t.Instructions == "" {
-			return fmt.Errorf("a hybrid task needs instructions for the agent half")
-		}
-	default:
-		return fmt.Errorf("unknown execution mode %q (use agent, procedure or hybrid)", t.Execution.Mode)
 	}
 	return nil
 }

@@ -57,7 +57,6 @@ func TestTaskWithoutTriggersIsValid(t *testing.T) {
 func TestDefaults(t *testing.T) {
 	tk := mustParse(t, minimal)
 	for _, c := range []struct{ got, want string }{
-		{string(tk.Execution.Mode), string(ModeAgent)},
 		{tk.Runtime.Strategy, "prefer_authorized_subscription"},
 		{tk.Runtime.Model, ModelAuto},
 		{string(tk.Autonomy.Level), string(LevelBranch)},
@@ -206,14 +205,18 @@ func TestPRBeyondAutonomyRejected(t *testing.T) {
 	}
 }
 
-func TestExecutionModeValidation(t *testing.T) {
-	cases := []struct{ name, yaml, wantErr string }{
-		{"procedure without name", "execution:\n  mode: procedure\n", "needs execution.procedure"},
-		{"agent with procedure", "execution:\n  mode: agent\n  procedure: p\n", "mode is agent"},
-		{"unknown mode", "execution:\n  mode: telepathy\n", "unknown execution mode"},
-		{"bad escalate", "execution:\n  mode: hybrid\n  procedure: p\n  escalate_when: vibes\n", "unknown escalate_when"},
-	}
-	for _, c := range cases {
+func TestExecutionValidation(t *testing.T) {
+	// The mode enum is gone: a task has instructions, and optionally commands
+	// that need no judgement. "Run this, then work out what it means" is an
+	// ordinary instruction, not a third kind of task.
+	//
+	// A file written against the old schema must fail LOUDLY rather than load
+	// with its execution settings silently ignored.
+	for _, c := range []struct{ name, yaml, wantErr string }{
+		{"old mode key", "execution:\n  mode: hybrid\n", "field mode not found"},
+		{"old procedure key", "execution:\n  procedure: check-models\n", "field procedure not found"},
+		{"empty step", "execution:\n  steps:\n    - \"\"\n", "is empty"},
+	} {
 		t.Run(c.name, func(t *testing.T) {
 			_, err := parse(t, minimal+c.yaml)
 			if err == nil || !strings.Contains(err.Error(), c.wantErr) {
@@ -221,10 +224,9 @@ func TestExecutionModeValidation(t *testing.T) {
 			}
 		})
 	}
-	// Hybrid defaults its escalation condition.
-	tk := mustParse(t, minimal+"execution:\n  mode: hybrid\n  procedure: check-models\n")
-	if tk.Execution.EscalateWhen != EscalateOnChanges {
-		t.Errorf("escalate_when = %q, want %q", tk.Execution.EscalateWhen, EscalateOnChanges)
+	tk := mustParse(t, minimal+"execution:\n  steps:\n    - go get -u ./...\n    - go mod tidy\n")
+	if len(tk.Execution.Steps) != 2 {
+		t.Errorf("steps = %v, want both", tk.Execution.Steps)
 	}
 }
 
