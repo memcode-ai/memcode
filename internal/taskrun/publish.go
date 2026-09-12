@@ -10,33 +10,44 @@ import (
 	"github.com/memcode-ai/memcode/internal/taskgit"
 )
 
-// publish turns a verified change into something a human can review.
+// Publication is TWO phases, and the split is load-bearing.
 //
-// The order is fixed and every step is a real check against the repository:
+//	prepare   no-change check, grants, commit          — entirely LOCAL
+//	publish   drift check, push, pull request          — REMOTE, irreversible
 //
-//	no-change?  -> stop, publish nothing
-//	commit      -> from the worktree diff, deterministic message
-//	drift       -> refuse to rewrite history; surface a conflict instead
-//	push        -> new branch only, never the default, never forced
-//	pull request-> idempotent, carrying its own provenance
+// A single-project run does both back to back and cannot tell the difference. A
+// coordinated cross-project run must not: nothing may become visible to anyone
+// until every project has passed, or "all or nothing" is a slogan rather than a
+// property. Keeping the local half separately callable is what makes that
+// achievable rather than aspirational (see executeAcross).
 //
-// Nothing the model wrote reaches a git argument. It decided the diff; from
-// here the plumbing is ours.
-func (r *Runner) publish(ctx context.Context, run Run, t task.Task, wt taskgit.Worktree, res *Result) {
+// The honest limit is stated where it bites: once the remote phase starts,
+// there is no transaction across two git remotes. Push A can succeed and push B
+// can fail, and when it does we say so rather than reporting the atomicity we
+// no longer have.
+//
+// The order within each phase is fixed and every step is a real check against
+// the repository. Nothing the model wrote reaches a git argument: it decided
+// the diff; from here the plumbing is ours.
+
+// prepare does the local half: commit the verified change, or explain why not.
+// It reports whether the run has something a remote phase could publish.
+func (r *Runner) prepare(ctx context.Context, run Run, t task.Task, wt taskgit.Worktree, res *Result) bool {
+
 	// NO-CHANGE SHORT-CIRCUITS. A run that produced no diff publishes nothing —
 	// not a branch, not an empty commit, not a pull request. `pull_request:
 	// always` means always for a produced commit; manufacturing an empty
 	// artifact to satisfy a configuration word helps nobody and leaves a repo
 	// full of PRs that say nothing happened.
 	if !res.Changed {
-		return
+		return false
 	}
 	if t.Git.PullRequest == task.PRNever && !t.MayOpenPR() {
 		// Nothing to publish to: the task keeps its work in the worktree.
-		return
+		return false
 	}
 	if !t.HasGrant(task.GrantGitCommit) {
-		return
+		return false
 	}
 
 	remote := t.Git.Remote
@@ -45,6 +56,38 @@ func (r *Runner) publish(ctx context.Context, run Run, t task.Task, wt taskgit.W
 	}
 	res.Remote = remote
 
+	// COMMIT.
+	prov := provenanceFor(run, t, wt, res)
+	sha, createdCommit, err := taskgit.Commit(ctx, wt, taskgit.CommitMessage(prov))
+	if err != nil {
+		res.Outcome = OutcomeNeedsAttention
+		res.Detail = appendLine(res.Detail, "Could not commit the change: "+err.Error())
+		return false
+	}
+	res.CommitSHA, res.CreatedCommit, res.ResultRev = sha, createdCommit, sha
+
+	if !t.HasGrant(task.GrantGitPushBranch) {
+		res.Detail = appendLine(res.Detail, fmt.Sprintf(
+			"Committed %s on %s in the worktree. This task's authority stops short of pushing, "+
+				"so the branch stays local.", short(sha), wt.Branch))
+		return false
+	}
+	if !taskgit.RemoteExists(ctx, wt.Repo, remote) {
+		// A local-only repository. The work is committed and the worktree is
+		// kept, which is everything that can be done; failing the run over a
+		// missing remote would punish a normal local setup.
+		res.Detail = appendLine(res.Detail, fmt.Sprintf(
+			"Committed %s on %s. There is no %q remote, so nothing was pushed and no pull "+
+				"request was opened. The branch is in the worktree: %s",
+			short(sha), wt.Branch, remote, wt.Path))
+		return false
+	}
+	return true
+}
+
+// provenanceFor is what a commit message and pull request body are built from:
+// facts about the run, never model prose.
+func provenanceFor(run Run, t task.Task, wt taskgit.Worktree, res *Result) taskgit.Provenance {
 	prov := taskgit.Provenance{
 		Task:         t.Name,
 		RunID:        run.ID,
@@ -56,33 +99,16 @@ func (r *Runner) publish(ctx context.Context, run Run, t task.Task, wt taskgit.W
 	if !run.OccurredAt.IsZero() && run.TriggerKind != TriggerManual {
 		prov.Occurrence = run.TriggerID
 	}
+	return prov
+}
 
-	// COMMIT.
-	sha, createdCommit, err := taskgit.Commit(ctx, wt, taskgit.CommitMessage(prov))
-	if err != nil {
-		res.Outcome = OutcomeNeedsAttention
-		res.Detail = appendLine(res.Detail, "Could not commit the change: "+err.Error())
-		return
-	}
-	res.CommitSHA, res.CreatedCommit, res.ResultRev = sha, createdCommit, sha
-
-	if !t.HasGrant(task.GrantGitPushBranch) {
-		res.Detail = appendLine(res.Detail, fmt.Sprintf(
-			"Committed %s on %s in the worktree. This task's authority stops short of pushing, "+
-				"so the branch stays local.", short(sha), wt.Branch))
-		return
-	}
-	if !taskgit.RemoteExists(ctx, wt.Repo, remote) {
-		// A local-only repository. The work is committed and the worktree is
-		// kept, which is everything that can be done; failing the run over a
-		// missing remote would punish a normal local setup.
-		res.Detail = appendLine(res.Detail, fmt.Sprintf(
-			"Committed %s on %s. There is no %q remote, so nothing was pushed and no pull "+
-				"request was opened. The branch is in the worktree: %s",
-			short(sha), wt.Branch, remote, wt.Path))
-		return
-	}
-
+// publish does the remote half: drift check, push, pull request. Irreversible
+// from the push onward, which is why nothing calls it until the whole set of
+// work it belongs to has been prepared.
+func (r *Runner) publish(ctx context.Context, run Run, t task.Task, wt taskgit.Worktree, res *Result) {
+	sha := res.CommitSHA
+	remote := res.Remote
+	prov := provenanceFor(run, t, wt, res)
 	// DRIFT. Refresh the remote view first, or the checks below judge a stale
 	// picture of what the branch would merge into.
 	_ = taskgit.Fetch(ctx, wt.Repo, remote)

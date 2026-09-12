@@ -92,6 +92,11 @@ func TestContractAlwaysStatesIsolationAndDrift(t *testing.T) {
 	if !strings.Contains(got, "re-checks the current state each run") {
 		t.Errorf("drift promise missing:\n%s", got)
 	}
+	// The bound on the whole commitment: unattended forever is only agreeable
+	// because the worst case is that it stops and says why.
+	if !strings.Contains(got, "stops and asks rather than guessing") {
+		t.Errorf("pause promise missing:\n%s", got)
+	}
 }
 
 // read_only is the one authority claim in the report that would be actively
@@ -134,16 +139,16 @@ func TestReportStatesTheScopeWhenCrossCutting(t *testing.T) {
 	tk := sampleTask()
 	tk.Project = "/repo/memcode"
 	tk.Ownership = task.Ownership{
-		Projects:     []string{"/repo/memcode-www"},
-		Coordination: task.CoordCoordinated,
-		Discover:     "the repos that implement the product",
+		Projects:       []string{"/repo/memcode-www"},
+		Coordination:   task.CoordCoordinated,
+		Responsibility: "keeping the product's model support consistent",
 	}
 	got := taskReport(tk, taskToolInput{}, validation{ok: true, how: "x", detail: "y"})
 	for _, want := range []string{
 		"Scope", "/repo/memcode", "/repo/memcode-www",
 		"all of them together, or none of them",
 		"no one repo owns this",
-		"re-confirms which projects are involved",
+		"reaching a new one needs your approval",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q:\n%s", want, got)

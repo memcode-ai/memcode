@@ -47,7 +47,7 @@ type taskToolInput struct {
 	JustCompleted       string   `json:"just_completed"`
 	Projects            []string `json:"projects"`
 	Coordination        string   `json:"coordination"`
-	ProjectDiscovery    string   `json:"project_discovery"`
+	Responsibility      string   `json:"responsibility"`
 	VerifyAcross        []string `json:"verify_across"`
 }
 
@@ -162,7 +162,7 @@ func applyOwnership(t *task.Task, in taskToolInput, root string) error {
 		return nil
 	}
 	t.Ownership.Projects = projects
-	t.Ownership.Discover = strings.TrimSpace(in.ProjectDiscovery)
+	t.Ownership.Responsibility = strings.TrimSpace(in.Responsibility)
 	t.Verify.Across = trimmedNonBlank(in.VerifyAcross)
 	switch c := task.Coordination(strings.TrimSpace(in.Coordination)); c {
 	case task.CoordIndependent, task.CoordCoordinated:
@@ -266,8 +266,12 @@ func behaviour(t task.Task, in taskToolInput) []string {
 	out = append(out, "works in its own checkout, never in your working tree")
 	// The drift contract, stated where they can hold us to it.
 	out = append(out, "re-checks the current state each run instead of replaying today's steps")
-	if t.CrossProject() && strings.TrimSpace(t.Ownership.Discover) != "" {
-		out = append(out, "re-confirms which projects are involved rather than trusting today's list")
+	// The promise that makes the rest safe to agree to. Without it, "runs
+	// unattended forever" is an open-ended commitment; with it, the worst case
+	// is that it stops and tells you why.
+	out = append(out, "stops and asks rather than guessing, if it meets a decision that is yours")
+	if t.CrossProject() {
+		out = append(out, "works only in the projects listed above; reaching a new one needs your approval")
 	}
 	return out
 }

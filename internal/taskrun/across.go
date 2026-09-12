@@ -44,7 +44,9 @@ func (r *Runner) execute(runCtx, storeCtx context.Context, run Run, t task.Task)
 	if len(targets) <= 1 {
 		res, wt := r.workIn(runCtx, storeCtx, run, t, run.Project)
 		if wt.Path != "" && res.OKOutcome() && res.Changed {
-			r.publish(storeCtx, run, t, wt, &res)
+			if r.prepare(storeCtx, run, t, wt, &res) {
+				r.publish(storeCtx, run, t, wt, &res)
+			}
 			if res.PRURL != "" {
 				res.Summary = fmt.Sprintf("%s (%s)", res.Summary, res.PRURL)
 			}
@@ -92,24 +94,61 @@ func (r *Runner) executeAcross(runCtx, storeCtx context.Context, run Run, t task
 		agg.Checks = strings.TrimSpace(agg.Checks + "\n\nacross projects:\n" + Summarize(checks))
 	}
 
-	// PUBLISH, under the task's own semantics.
-	publish := agg.OKOutcome()
-	if t.Ownership.Coordination == task.CoordCoordinated && !allOK(works, len(targets)) {
-		publish = false
+	// PUBLICATION, in two phases, because only one of them can be undone.
+	//
+	// LOCAL FIRST. Committing is reversible and invisible to everyone else, so
+	// every project commits before any project pushes. Without this ordering a
+	// "coordinated" task could push repo A, then discover repo B cannot even
+	// commit — with A already visible to the world.
+	coordinated := t.Ownership.Coordination == task.CoordCoordinated
+	ready := make([]int, 0, len(works))
+	for i := range works {
+		w := &works[i]
+		if w.WT.Path == "" || !w.Res.OKOutcome() || !w.Res.Changed {
+			continue
+		}
+		sub := run
+		sub.Project = w.Project
+		if r.prepare(storeCtx, sub, t, w.WT, &w.Res) {
+			ready = append(ready, i)
+		}
+	}
+
+	// THE GATE. A coordinated responsibility publishes only when the whole set
+	// came through. Anything less and the remote phase never starts, so nothing
+	// leaves this machine.
+	gate := agg.OKOutcome()
+	if coordinated && !allOK(works, len(targets)) {
+		gate = false
 		agg.Outcome = OutcomeNeedsAttention
 		agg.Detail = appendLine(agg.Detail, "Nothing was published: this responsibility is coordinated, "+
 			"so a change that only lands in some of its projects would leave the system in a state "+
-			"neither half expects. The prepared work is kept in the worktrees listed above.")
+			"neither half expects. The prepared work is committed in the worktrees listed below, and "+
+			"a later run can pick it up from there.")
 	}
-	if publish {
-		for i := range works {
+
+	if gate {
+		// REMOTE. From here it is irreversible and, across two git remotes,
+		// genuinely not atomic: push A can succeed while push B fails. So the
+		// claim changes the moment it stops being true — a partial publication
+		// is reported as partial, never as the all-or-nothing it was until the
+		// first push landed.
+		for _, i := range ready {
 			w := &works[i]
-			if w.WT.Path == "" || !w.Res.OKOutcome() || !w.Res.Changed {
-				continue
-			}
 			sub := run
 			sub.Project = w.Project
 			r.publish(storeCtx, sub, t, w.WT, &w.Res)
+		}
+		if coordinated {
+			if partial := unpublished(works, ready); len(partial) > 0 {
+				agg.Outcome = OutcomeNeedsAttention
+				agg.Detail = appendLine(agg.Detail, fmt.Sprintf(
+					"PARTIALLY PUBLISHED. There is no transaction across git remotes, so this run "+
+						"could not take back what it had already pushed when %s failed to publish. "+
+						"The remote state is inconsistent and needs a human. Every project's commit "+
+						"is kept, and re-running this task republishes only what is still missing.",
+					strings.Join(partial, ", ")))
+			}
 		}
 		agg = mergePublication(agg, works)
 	}
@@ -160,6 +199,20 @@ func aggregate(works []projectWork, expected int) Result {
 		out.Summary = fmt.Sprintf("updated %d of %d projects", changedIn, expected)
 	default:
 		out.Summary = fmt.Sprintf("nothing to change in %d projects", expected)
+	}
+	return out
+}
+
+// unpublished names the projects that were prepared and expected to publish but
+// did not. Its emptiness is the only evidence that a coordinated publication
+// actually held.
+func unpublished(works []projectWork, ready []int) []string {
+	var out []string
+	for _, i := range ready {
+		w := works[i]
+		if w.Res.PRURL == "" && !w.Res.CreatedBranch {
+			out = append(out, filepath.Base(w.Project))
+		}
 	}
 	return out
 }

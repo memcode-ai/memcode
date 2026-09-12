@@ -94,12 +94,21 @@ type Ownership struct {
 	// outcome than doing nothing, if the two changes only make sense together.
 	Coordination Coordination `yaml:"coordination,omitempty" json:"coordination,omitempty"`
 
-	// Discover is how a future run re-derives which projects participate,
-	// written for someone who was not here. Paths recorded today are evidence
-	// about today's topology: repositories move, split, merge, and drop out of
-	// a concern entirely. Without this a cross-project task is a list of
-	// directories that slowly stops being true.
-	Discover string `yaml:"discover,omitempty" json:"discover,omitempty"`
+	// Responsibility states what this task is responsible FOR, independently of
+	// today's file layout. It is what a run judges its own share against when
+	// the repository has moved under it.
+	//
+	// It is NOT a licence to go looking for more projects. The approved project
+	// set is fixed at creation and changes only when the user changes the
+	// automation. Drift is allowed WITHIN an approved boundary — paths, build
+	// commands, package managers, moved code, refactors, whatever the run finds
+	// there. Expanding the boundary is not drift; it is new authority, and
+	// authority comes from a person.
+	//
+	// So if the responsibility grows into a repository nobody approved, the run
+	// stops and says so. Discovery is not authorization, the same way a login
+	// found in another tool's files is not consent to use it.
+	Responsibility string `yaml:"responsibility,omitempty" json:"responsibility,omitempty"`
 }
 
 // Coordination is the publication semantics of a multi-project run.

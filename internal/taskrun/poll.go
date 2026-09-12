@@ -52,6 +52,18 @@ func (r *Runner) pollTask(ctx context.Context, t task.Task, root string, now tim
 	var errs []error
 	skipped := 0
 
+	// A paused task does not fire. It stopped because something needed a
+	// person, and that has not changed just because the clock came round again
+	// — firing anyway would rebuild the identical failure every week and bury
+	// the decision under copies of itself.
+	if p, ok, err := r.Store.PausedTask(ctx, t.Name, root); err != nil {
+		errs = append(errs, fmt.Errorf("%s: %w", t.Name, err))
+		return nil, 0, errs
+	} else if ok {
+		_ = p
+		return nil, 0, nil
+	}
+
 	for _, tr := range t.Triggers {
 		if tr.Manual {
 			continue

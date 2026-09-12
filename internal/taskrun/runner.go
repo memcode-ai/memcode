@@ -170,7 +170,41 @@ Judge yourself against the GOAL and the verification commands, never against whe
 recorded steps ran. If you cannot achieve the goal safely, stop and report why — an honest
 "this needs a human" is worth more than a plausible wrong change nobody reviewed.
 
+End your final message with exactly one line saying what this means for FUTURE runs:
+
+  ESCALATION: continue        nothing to raise, or you fixed it yourself
+  ESCALATION: retry_later     a passing problem — an outage, a flaky network, a locked file
+  ESCALATION: needs_attention someone should look at this run, but next week is still worth running
+  ESCALATION: pause_task <why>  stop running this until a person decides
+
+Choose pause_task when continuing would need you to invent intent the task does not contain,
+take authority it was not given, or make a consequential architectural choice on someone's
+behalf — a dependency that only upgrades via one of two incompatible migrations, a goal that
+now lives in a repository outside your boundary, a check that has become impossible to
+evaluate. Those conditions do not clear on their own, and running into the same wall every
+week is worse than stopping: it buries a real decision under identical failures nobody reads.
+
 ---
+
+`
+
+// boundaryContract is where self-healing stops.
+//
+// A run may adapt to anything it finds INSIDE the projects it was given: files
+// move, packages get renamed, build commands change, the code it maintains ends
+// up three directories over. That is drift, and handling it is the point.
+//
+// Reaching into a project nobody approved is not drift. It is the task growing
+// its own authority, unattended, on the strength of its own reasoning about
+// where the work now lives — which is exactly the decision a person is supposed
+// to make. So the boundary is stated to the agent as a hard edge with a defined
+// exit: stop, and say what it found.
+const boundaryContract = `Your approved boundary is the projects listed above and nothing else.
+
+Inside them, adapt freely. Outside them, do not act at all: if satisfying the goal now seems
+to require changing a repository that is not listed, make no change there, do not clone it,
+and do not work around it. Say clearly that this NEEDS ATTENTION, name the repository, and
+explain what appears to have moved. Someone will widen the task if that is right.
 
 `
 
@@ -192,12 +226,10 @@ alone; they get their own turn. Whether the projects still agree with each other
 separately once every project has been through.
 
 `, strings.Join(targets, ", "), project)
-		if d := strings.TrimSpace(t.Ownership.Discover); d != "" {
-			fmt.Fprintf(&b, `How that set of projects was meant to be determined (verify it still holds; repositories
-move, split and drop out of a concern): %s
-
-`, d)
+		if d := strings.TrimSpace(t.Ownership.Responsibility); d != "" {
+			fmt.Fprintf(&b, "What this task is responsible for, whatever the current layout: %s\n\n", d)
 		}
+		b.WriteString(boundaryContract)
 	}
 	b.WriteString(t.Instructions)
 	if kg := strings.TrimSpace(t.Execution.KnownGood); kg != "" {
@@ -332,6 +364,16 @@ func (r *Runner) Execute(ctx context.Context, run Run, t task.Task) (Run, error)
 	res := r.execute(runCtx, ctx, run, t)
 	if ferr := r.Store.FinishResult(ctx, run.ID, res, time.Now()); ferr != nil {
 		return run, ferr
+	}
+	// SUSPEND, if this run concluded the condition will still be here next
+	// time. Recorded after the run so the pause can point at the evidence, and
+	// never for a manual run: a person is already here, watching, and can
+	// decide for themselves whether to try again.
+	if res.Escalation == EscalatePause && run.TriggerKind != TriggerManual {
+		_ = r.Store.Pause(ctx, Pause{
+			Task: run.Task, Project: run.Project, RunID: run.ID,
+			Reason: firstNonEmpty(res.EscalationWhy, res.Summary), Since: time.Now(),
+		})
 	}
 	return r.Store.Get(ctx, run.ID)
 }
@@ -471,7 +513,10 @@ func (r *Runner) workIn(runCtx, storeCtx context.Context, run Run, t task.Task, 
 
 	// CLASSIFY, from facts. The agent's only entry point is raising
 	// needs_attention, which can make the verdict more cautious and never less.
-	res.Outcome = Decide(res.ExecStatus, res.VerifyStatus, res.Changed, mentionsNeedsAttention(spawn.Text))
+	esc, why := ParseEscalation(spawn.Text)
+	res.Escalation, res.EscalationWhy = esc, why
+	res.Outcome = Decide(res.ExecStatus, res.VerifyStatus, res.Changed,
+		mentionsNeedsAttention(spawn.Text) || esc == EscalateAttention || esc == EscalatePause)
 	if res.VerifyStatus == VerifyFail {
 		res.Summary = "verification failed"
 	}
@@ -560,6 +605,12 @@ func (r *Runner) heartbeat(ctx context.Context, id string, leaseKeys ...string) 
 // Reading prose at all is a compromise, kept deliberately narrow. Everything
 // that decides whether a run WORKED is now a fact; this only decides whether to
 // escalate something that already worked.
+//
+// The boundary case rides on this too: boundaryContract tells a run that found
+// its work outside the approved projects to say NEEDS ATTENTION, which lands
+// here. No new marker was added for it — a boundary word like "outside" appears
+// in ordinary prose constantly, and a matcher that fires on it would escalate
+// every run that mentioned a file outside a package.
 func mentionsNeedsAttention(s string) bool {
 	l := strings.ToLower(s)
 	for _, p := range []string{"needs attention", "needs your", "requires a human",
@@ -573,6 +624,15 @@ func mentionsNeedsAttention(s string) bool {
 		}
 	}
 	return false
+}
+
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 func firstLine(s string) string {

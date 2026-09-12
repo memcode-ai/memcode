@@ -280,6 +280,9 @@ func Open(ctx context.Context, path string) (*Store, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("applying task-run schema: %w", err)
 	}
+	if _, err := db.ExecContext(ctx, pauseSchema); err != nil {
+		return nil, fmt.Errorf("creating task pause table: %w", err)
+	}
 	if err := migrate(ctx, db); err != nil {
 		_ = db.Close()
 		return nil, err
@@ -452,6 +455,12 @@ type Result struct {
 	CreatedBranch bool
 	CreatedCommit bool
 	CreatedPR     bool
+
+	// Escalation is what the run concluded about FUTURE runs, as distinct from
+	// this one. Not persisted on the run row: its consequence is a task pause,
+	// which is its own durable record.
+	Escalation    Escalation
+	EscalationWhy string
 }
 
 // FinishResult closes a run with its full structured verdict.

@@ -733,7 +733,7 @@ func Defs() []wire.ToolDef {
 				"known_good":           str("the approach that worked TODAY — a starting hint for later runs, never instructions"),
 				"projects":             arr("absolute paths of EVERY checkout this responsibility spans, when it is not owned by one repo alone (memcode's model catalog lives in two). Decide from the work itself, never from how many repos exist; ask if the set is unclear", str("absolute path")),
 				"coordination":         enum("with projects: independent = publish each project on its own merits; coordinated = all or nothing, for changes that only make sense together", []string{"independent", "coordinated"}),
-				"project_discovery":    str("with projects: how a future run re-derives which participate — today's paths are evidence, not permanent truth"),
+				"responsibility":       str("with projects: what the task is responsible FOR, independent of today's layout. The project set itself is fixed once approved"),
 				"verify_across":        arr("with projects: checks that the projects still AGREE with each other, run once after all of them. MEMCODE_TASK_PROJECTS lists each working copy", str("shell command")),
 				"just_completed":       str("ONLY if you already did this exact work successfully above: what you did and what proved it. Used as validation instead of running it twice"),
 			}, "name", "instructions"),

@@ -139,9 +139,9 @@ func TestEveryProjectIsLeased(t *testing.T) {
 // worktree.
 func TestCrossProjectInstructionsScopeTheAgentToOneProject(t *testing.T) {
 	tk := task.Task{Instructions: "Keep the model catalog current.",
-		Ownership: task.Ownership{Projects: []string{"/repo/b"}, Discover: "the repos that build the product"}}
+		Ownership: task.Ownership{Projects: []string{"/repo/b"}, Responsibility: "keeping model support consistent"}}
 	got := instructionsFor(tk, "/repo/a", []string{"/repo/a", "/repo/b"})
-	for _, want := range []string{"/repo/a ONLY", "/repo/b", "the repos that build the product"} {
+	for _, want := range []string{"/repo/a ONLY", "/repo/b", "keeping model support consistent"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q in:\n%s", want, got)
 		}
@@ -150,5 +150,84 @@ func TestCrossProjectInstructionsScopeTheAgentToOneProject(t *testing.T) {
 	solo := instructionsFor(tk, "/repo/a", []string{"/repo/a"})
 	if strings.Contains(solo, "ONLY") {
 		t.Errorf("a single-project run must not be told about a scope it does not have:\n%s", solo)
+	}
+}
+
+// PRE-PUBLICATION ATOMICITY. Coordinated means nothing becomes visible to
+// anyone until the whole set has passed. The property that makes it achievable
+// is that committing is separable from pushing — if the two were one call, repo
+// A would already be public by the time repo B was found to be uncommittable.
+func TestLocalAndRemotePublicationAreSeparable(t *testing.T) {
+	// prepare and publish must be distinct methods on the runner. This looks
+	// like a tautology; it is a guard. Merging them back together would silently
+	// turn coordinated publication into a slogan, and nothing else would fail.
+	var r *Runner
+	_ = r.prepare
+	_ = r.publish
+}
+
+// unpublished is the ONLY evidence that a coordinated publication actually
+// held. If it is wrong, a partial push gets reported as all-or-nothing.
+func TestUnpublishedNamesWhatDidNotLand(t *testing.T) {
+	pushed := work("/x/alpha", OutcomeSuccess, true)
+	pushed.Res.PRURL = "https://example.test/pr/1"
+	stuck := work("/x/beta", OutcomeSuccess, true)
+	branched := work("/x/gamma", OutcomeSuccess, true)
+	branched.Res.CreatedBranch = true
+
+	works := []projectWork{pushed, stuck, branched}
+	got := unpublished(works, []int{0, 1, 2})
+	if len(got) != 1 || got[0] != "beta" {
+		t.Fatalf("only the project that published nothing should be named, got %v", got)
+	}
+	// A project that was never prepared is not "unpublished" — it was never
+	// expected to publish, and naming it would report a partial failure that
+	// did not happen.
+	if n := unpublished(works, []int{0}); len(n) != 0 {
+		t.Errorf("only prepared projects count, got %v", n)
+	}
+}
+
+// THE BOUNDARY RULE. Drift inside an approved project is the whole point;
+// growing into a new repository is new authority and must come from a person.
+// The structural half of that guarantee is that the runner only ever visits the
+// approved set — a discovered project has no path into Targets.
+func TestApprovedProjectSetIsTheOnlyThingTheRunnerVisits(t *testing.T) {
+	tk := task.Task{Project: "/repo/a", Ownership: task.Ownership{
+		Projects:       []string{"/repo/b"},
+		Responsibility: "keeping model support consistent across the product",
+	}}
+	got := tk.Targets()
+	if len(got) != 2 {
+		t.Fatalf("targets = %v, want exactly the approved pair", got)
+	}
+	for _, p := range got {
+		if p == "/repo/c" {
+			t.Fatal("a project nobody approved must never be a target")
+		}
+	}
+
+	// And the agent is told where the edge is, with the exit that replaces
+	// crossing it. Six months from now the work may have moved from B to C; the
+	// run must stop and say so rather than enrolling C on its own reasoning.
+	inst := instructionsFor(tk, "/repo/b", got)
+	for _, want := range []string{
+		"approved boundary is the projects listed above",
+		"do not clone it",
+		"NEEDS ATTENTION",
+		"keeping model support consistent across the product",
+	} {
+		if !strings.Contains(inst, want) {
+			t.Errorf("boundary contract missing %q:\n%s", want, inst)
+		}
+	}
+}
+
+// The boundary contract belongs to cross-project runs. A single-project task
+// should not be lectured about a boundary it cannot cross.
+func TestSingleProjectRunsGetNoBoundaryLecture(t *testing.T) {
+	tk := task.Task{Project: "/repo/a", Instructions: "Do the thing."}
+	if strings.Contains(instructionsFor(tk, "/repo/a", tk.Targets()), "approved boundary") {
+		t.Error("a one-repo task has no boundary to state")
 	}
 }

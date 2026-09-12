@@ -448,9 +448,15 @@ Listing marks runs as seen. Seen is not the same as dealt with: use ` + "`task a
 			return err
 		}
 		if len(runs) == 0 {
-			fmt.Println("Nothing new.")
+			// A suspended responsibility outranks an empty inbox. "Nothing new"
+			// on a task memcode has quietly stopped fulfilling is the most
+			// misleading thing this command could say.
+			if n := printPaused(ctx, store); n == 0 {
+				fmt.Println("Nothing new.")
+			}
 			return nil
 		}
+		printPaused(ctx, store)
 		fmt.Printf("Autonomous activity — %d run(s) since you last looked\n", len(runs))
 		ids := make([]string, 0, len(runs))
 		for _, r := range runs {
@@ -467,6 +473,94 @@ Listing marks runs as seen. Seen is not the same as dealt with: use ` + "`task a
 			fmt.Printf("\n%d need your attention — `memcode task show-run <id>` for the detail.\n", needs)
 		}
 		return store.MarkSeen(ctx, ids)
+	},
+}
+
+// printPaused surfaces suspended tasks ABOVE ordinary run summaries.
+//
+// A paused automation is something the user delegated and memcode has stopped
+// doing. That outranks "three automations ran" every time, and it is the one
+// piece of state that will not resolve itself while it waits.
+func printPaused(ctx context.Context, store *taskrun.Store) int {
+	paused, err := store.Paused(ctx)
+	if err != nil || len(paused) == 0 {
+		return 0
+	}
+	fmt.Printf("⏸ %d automation(s) need your input\n", len(paused))
+	for _, p := range paused {
+		fmt.Printf("\n  %s — paused %s\n", p.Task, humanSince(p.Since))
+		for _, line := range strings.Split(strings.TrimSpace(p.Reason), "\n") {
+			fmt.Printf("    %s\n", line)
+		}
+		if p.RunID != "" {
+			fmt.Printf("\n    evidence  memcode task show-run %s\n", p.RunID)
+		}
+		fmt.Printf("    resume    memcode task resume %s\n", p.Task)
+	}
+	fmt.Println()
+	return len(paused)
+}
+
+func humanSince(t time.Time) string {
+	d := time.Since(t)
+	switch {
+	case d < time.Hour:
+		return "just now"
+	case d < 48*time.Hour:
+		return fmt.Sprintf("%dh ago", int(d.Hours()))
+	default:
+		return fmt.Sprintf("%d days ago", int(d.Hours()/24))
+	}
+}
+
+var taskPausedCmd = &cobra.Command{
+	Use:   "paused",
+	Short: "Automations that stopped and need a decision",
+	Long: `A task suspends itself when carrying on would mean inventing intent it does not have,
+taking authority it was not given, or making a consequential choice on your behalf. Those
+conditions do not clear on their own, so it stops rather than rebuilding the same failure
+every week.
+
+Resolve it and run ` + "`memcode task resume <name>`" + `.`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		ctx := cmd.Context()
+		store, err := openRuns(ctx)
+		if err != nil {
+			return err
+		}
+		defer store.Close()
+		if n := printPaused(ctx, store); n == 0 {
+			fmt.Println("Nothing paused.")
+		}
+		return nil
+	},
+}
+
+var taskResumeCmd = &cobra.Command{
+	Use:   "resume <name>",
+	Short: "Lift a suspension and let a task run again",
+	Long: `Use this once you have resolved what stopped it. Nothing is re-run immediately: the task
+becomes eligible again and fires on its next occurrence.
+
+If the answer changed what the task should DO, edit its instructions before resuming —
+otherwise the next run walks into the same wall.`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		ctx := cmd.Context()
+		store, err := openRuns(ctx)
+		if err != nil {
+			return err
+		}
+		defer store.Close()
+		lifted, err := store.Resume(ctx, args[0], taskRoot())
+		if err != nil {
+			return err
+		}
+		if !lifted {
+			return fmt.Errorf("%s is not paused", args[0])
+		}
+		fmt.Printf("%s will run again on its next occurrence.\n", args[0])
+		return nil
 	},
 }
 
@@ -585,6 +679,7 @@ var taskShowRunCmd = &cobra.Command{
 
 func init() {
 	taskCmd.AddCommand(taskListCmd, taskShowCmd, taskCheckCmd,
-		taskRunCmd, taskPollCmd, taskHistoryCmd, taskInboxCmd, taskAckCmd, taskShowRunCmd)
+		taskRunCmd, taskPollCmd, taskHistoryCmd, taskInboxCmd, taskAckCmd, taskShowRunCmd,
+		taskPausedCmd, taskResumeCmd)
 	rootCmd.AddCommand(taskCmd)
 }
