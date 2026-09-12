@@ -123,6 +123,14 @@ func (s *Session) StartChat(ctx context.Context) *ChatState {
 	if lessonBlock != "" {
 		sys = sys.withExtra(lessonBlock)
 	}
+	// What memcode is doing, or has stopped doing, unattended. Injected as
+	// context rather than presented as a card: the answer to "should I automate
+	// this?" is rarely one of four buttons — it is "yes but monthly", "only the
+	// CLI repo", "use the v3 path" — and every one of those is a sentence the
+	// task tool already takes.
+	if ab := s.inlineAutomations(ctx); ab != "" {
+		sys = sys.withExtra(ab)
+	}
 	// Record WHICH rules rode this session's prompt — the adherence judge may
 	// only score rules the model actually saw. Dual-write like every signal:
 	// SQLite event (queried by processOutcomes) + canonical session-log record.
