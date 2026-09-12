@@ -75,6 +75,39 @@ It can also delegate real work to a scoped worker with browser, MCP, shell and
 filesystem access, and drive your own signed-in Chrome rather than a
 logged-out profile. See `docs/autonomous-agents.md`.
 
+## Work that keeps itself done
+
+Some things you ask for are jobs. Others are standing responsibilities: keep
+dependencies current, keep security advisories triaged, keep the docs matching
+the code. Memcode notices the difference, does the work now, and offers to keep
+doing it.
+
+Say yes and it validates the automation against your repo first, then shows you
+what you are agreeing to: what it will do, how it knows it worked, what it may
+change, and what it just proved. One signoff, no configuration form. If the
+work was already done in that conversation, that counts as the proof rather
+than doing it twice.
+
+**It adapts.** Every run works out the current state instead of replaying the
+steps that worked the day it was created. Files move, packages get renamed,
+build commands change; the goal is what's durable.
+
+**It works somewhere else.** Each run gets its own checkout, never your working
+tree, and opens a pull request for you to review.
+
+**It stops rather than guessing.** If carrying on would mean inventing intent
+it does not have, taking authority you did not give it, or picking between two
+migration paths on your behalf, it suspends itself and tells you what it needs.
+It does not fail the same way every week.
+
+**One responsibility can span repos.** If the work genuinely lives in two
+projects, the automation covers both as one job, and it never grows into a
+third without asking.
+
+`memcode task list`, `show`, `run`, `history`, `inbox`, `paused`, `resume`.
+Project tasks live in `.memcode/tasks/*.yaml` and are meant to be reviewed and
+committed.
+
 ## Install
 
 ```bash
@@ -125,6 +158,7 @@ Internals and reference docs live in this repo:
 - [HOOKS.md](HOOKS.md): the hook surface.
 - [COMPACTION.md](COMPACTION.md): context compaction.
 - [docs/gateway/README.md](docs/gateway/README.md): gateway operations and channel secrets.
+- [docs/autonomous-tasks.md](docs/autonomous-tasks.md): the task file format, authority levels, and how runs are recorded.
 - [protocol/PROTOCOL.md](protocol/PROTOCOL.md): the wire protocol every backend speaks.
 
 ## Architecture
