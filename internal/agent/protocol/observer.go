@@ -24,8 +24,14 @@ func (d *driver) Tokens(output int) {
 	d.emit(d.currentTurn(), wire.MsgUsage, wire.UsageData{OutputTokens: output})
 }
 
-// Raw output (the `$` direct-shell lane) rides as a verbatim assistant delta.
+// Raw output (the `$` direct-shell lane) is terminal output, not something the
+// model said, so it rides the display channel.
 func (d *driver) Raw(text string) {
+	d.emit(d.currentTurn(), wire.MsgDisplay, wire.DisplayData{Text: text})
+}
+
+// AssistantText is the semantic channel: what the model actually said.
+func (d *driver) AssistantText(text string) {
 	d.emit(d.currentTurn(), wire.MsgAssistantDelta, wire.AssistantDeltaData{Text: text})
 }
 

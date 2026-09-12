@@ -1080,6 +1080,15 @@ func (s *Session) complete(ctx context.Context, purpose llm.Purpose, req wire.Re
 		s.notifyTokens(committedOut + resp.OutputTokens) // snap the ↓ estimate to the real count
 		if !suppressText {
 			if txt := strings.TrimSpace(resp.Text()); txt != "" {
+				// The SEMANTIC channel first, then the rendered one. A protocol
+				// consumer gets the model's words here; s.printf below is the
+				// presentation of the same thing and carries styling with it.
+				if s.turn != nil {
+					s.turn.assistantText, s.turn.spoke = txt, true
+				}
+				if s.observer != nil {
+					s.observer.AssistantText(txt)
+				}
 				s.printf("\n%s\n\n", txt) // the reply as ONE block (→ absorb → wrapScrollback)
 			}
 		}

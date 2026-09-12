@@ -21,6 +21,13 @@ type turnState struct {
 	firstBreak     string          // the FIRST broken-edit nudge this turn — the failure evidence for lesson distillation
 	lessonDone     bool            // a lesson was already distilled this turn (fire once)
 	taskShapeDone  bool            // the task-shape observation already fired this turn
+	// assistantText is the last thing the MODEL said this turn, and spoke says
+	// whether it said anything at all. Kept per-turn, unlike Session.lastText,
+	// which persists across turns: a protocol consumer asking "what did this
+	// turn answer?" must not be handed the previous turn's reply because this
+	// one ended on a tool call.
+	assistantText string
+	spoke         bool
 	// fatalErr is a terminal failure raised from INSIDE a tool — a delegated
 	// worker whose model call cannot succeed on any retry. It aborts the turn
 	// after the batch, with the real cause, instead of being handed back as a

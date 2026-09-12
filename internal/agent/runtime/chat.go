@@ -248,7 +248,15 @@ func (s *Session) Submit(ctx context.Context, st *ChatState, line string) {
 		s.startTurnJudge(ctx, dec.Bundle.Text)
 	}
 
-	s.printf("  ↳ %s — %s\n", dec.Route, dec.Reason)
+	// NOT dec.Route. The intake gate below deliberately ignores the parsed route
+	// (input.Parse's default is Steer, which cannot stand in for user intent —
+	// see the comment on gateRoute), so printing it announced a decision the
+	// code then discarded. "↳ steer — default: refine active objective" on a
+	// perfectly ordinary first prompt sent a real debugging session hunting the
+	// intake gate for a failure that was in the protocol layer.
+	if dec.Route != input.Steer {
+		s.printf("  ↳ %s — %s\n", dec.Route, dec.Reason)
+	}
 	if s.observer != nil {
 		s.observer.Routed(dec.Route, dec.Reason)
 		s.observer.Mood(reading)

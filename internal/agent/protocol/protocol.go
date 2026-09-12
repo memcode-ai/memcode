@@ -73,8 +73,14 @@ func Run(ctx context.Context, sess *runtime.Session, in io.Reader, out io.Writer
 	}
 
 	// Bind the runtime seams to the protocol (the same hooks the TUI uses).
+	// RENDERED output, on its own channel. This is the styled terminal stream —
+	// ANSI, tool chrome, routing lines — and it is presentation, not the
+	// assistant's words. It rode as assistant_delta until 2026-09-12, which
+	// meant a programmatic consumer could not tell what the model said from how
+	// the terminal drew it, and quietly received a transcript instead of an
+	// answer whenever a turn ended on a tool call.
 	sess.SetOutput(writerFunc(func(p []byte) (int, error) {
-		d.emit("", wire.MsgAssistantDelta, wire.AssistantDeltaData{Text: string(p)})
+		d.emit("", wire.MsgDisplay, wire.DisplayData{Text: string(p)})
 		return len(p), nil
 	}))
 	sess.SetApprover(d.approve)
@@ -229,7 +235,11 @@ func (d *driver) runTurn(ctx context.Context, st *runtime.ChatState, text string
 	tid := d.turnID
 	d.cancelMu.Unlock()
 
-	d.emit(tid, wire.MsgResult, wire.ResultData{Text: d.sess.LastText(), Completed: completed})
+	// From the SEMANTIC state, never from what was rendered. An empty Text with
+	// Spoke=false is a real answer to "what did this turn say?": nothing. A
+	// consumer must not paper over that with whatever else it captured.
+	text, spoke := d.sess.TurnText()
+	d.emit(tid, wire.MsgResult, wire.ResultData{Text: text, Completed: completed, Spoke: spoke})
 }
 
 func (d *driver) cancelTurn() {

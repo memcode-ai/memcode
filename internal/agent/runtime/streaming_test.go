@@ -50,6 +50,7 @@ func (o *tokenObserver) Room(room.State)            {}
 func (o *tokenObserver) Todos(todos.List)           {}
 func (o *tokenObserver) Tokens(out int)             { o.tokens = append(o.tokens, out) }
 func (o *tokenObserver) Raw(string)                 {}
+func (o *tokenObserver) AssistantText(string)       {}
 
 // complete() is NON-streaming: one Complete call, the full reply rendered as a single block,
 // and the ↓ token counter snapped to committedOut + the real output count.

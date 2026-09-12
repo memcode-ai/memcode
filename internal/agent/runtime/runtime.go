@@ -697,6 +697,21 @@ func (s *Session) Room() room.State { return s.room }
 // no session access, so without this the plan would never reach it.
 func (s *Session) LastText() string { return s.lastText }
 
+// TurnText is what the model said during the CURRENT turn, and whether it said
+// anything at all.
+//
+// Distinct from LastText, which is the newest non-empty reply anywhere in the
+// session. A turn that spent every iteration on tool calls answered nothing,
+// and reporting the previous turn's words as this turn's result is how a
+// consumer ends up acting on a stale answer. spoke=false says "no answer" out
+// loud so the caller can treat it as the incomplete run it is.
+func (s *Session) TurnText() (text string, spoke bool) {
+	if s.turn == nil {
+		return "", false
+	}
+	return s.turn.assistantText, s.turn.spoke
+}
+
 // LastError returns the terminal error of the most recent turn (nil on success). Meaningful
 // on the synchronous one-shot path (agent -c / resumed one-shot), where a non-nil result must
 // surface as a non-zero exit code for scripting/CI.

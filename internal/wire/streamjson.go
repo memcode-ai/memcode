@@ -33,7 +33,8 @@ const (
 
 	// CLI → client (events)
 	MsgInitialized       = "initialized"        // session ready; carries session id
-	MsgAssistantDelta    = "assistant_delta"    // a chunk of assistant text
+	MsgAssistantDelta    = "assistant_delta"    // SEMANTIC assistant text — what the model said
+	MsgDisplay           = "display"            // rendered terminal output (ANSI, tool chrome) — presentation only
 	MsgToolCall          = "tool_call"          // a tool is running
 	MsgToolResult        = "tool_result"        // a tool finished (summary)
 	MsgPermissionRequest = "permission_request" // the turn is blocked awaiting approval
@@ -64,8 +65,25 @@ type UserTurnData struct {
 	Text string `json:"text"`
 }
 
-// AssistantDeltaData is a chunk of streamed assistant text (CLI → client).
+// AssistantDeltaData is assistant-generated text: what the MODEL said, and
+// nothing else (CLI → client).
+//
+// Never rendering. A consumer must not have to strip ANSI, tool chrome, routing
+// lines or spinners to discover the assistant's words — that is what DisplayData
+// is for. These were one channel until 2026-09-12, and the reviewer that
+// consumed it silently received a styled terminal transcript in place of the
+// model's answer whenever a turn ended on a tool call.
 type AssistantDeltaData struct {
+	Text string `json:"text"`
+}
+
+// DisplayData is rendered terminal output: ANSI styling, tool-call chrome,
+// routing lines, banners (CLI → client).
+//
+// For clients that want to SHOW what the terminal would show. Anything deciding
+// what the model actually said wants AssistantDeltaData, or the final text on
+// ResultData.
+type DisplayData struct {
 	Text string `json:"text"`
 }
 
@@ -119,9 +137,19 @@ type SessionStateData struct {
 }
 
 // ResultData ends a turn (CLI → client).
+//
+// Text is the turn's final SEMANTIC assistant text, derived from what the model
+// said and never from rendered output. It is legitimately empty when a turn
+// ended without the model saying anything — every iteration was a tool call, or
+// it hit its cap. An empty Text means exactly that, and a consumer must treat it
+// as "no answer" rather than falling back to whatever else it captured.
 type ResultData struct {
-	Text      string `json:"text,omitempty"` // final assistant text, if captured
+	Text      string `json:"text,omitempty"`
 	Completed bool   `json:"completed"`
+	// Spoke reports whether the model produced any text at all this turn. It
+	// distinguishes "finished with nothing to say" from "finished and the text
+	// went missing", which an empty string alone cannot.
+	Spoke bool `json:"spoke"`
 }
 
 // ErrorData reports a turn-level error (CLI → client).

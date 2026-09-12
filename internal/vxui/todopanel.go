@@ -37,6 +37,10 @@ func (vxObserver) Tokens(int)                 {} // vxui polls sess.Tokens() eac
 // Without this it was a no-op, so `$ <cmd>` ran but printed nothing (the "shell lane is broken"
 // report). Arrives on the executor goroutine → marshal onto the UI thread; flush any buffered
 // stream text first so ordering is preserved.
+// AssistantText is the semantic channel, which the TUI does not need: it renders
+// the same text through SetOutput, with styling.
+func (o vxObserver) AssistantText(string) {}
+
 func (o vxObserver) Raw(block string) {
 	if strings.TrimSpace(stripSGR(block)) == "" {
 		return

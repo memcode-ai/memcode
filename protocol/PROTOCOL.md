@@ -58,6 +58,25 @@ version "1" (implementation: `internal/wire/streamjson.go`):
 
 Envelope: `{"v":"1","type":<kind>,"data":{…}}`. Kinds: `initialize` /
 `initialized` (handshake; carries pin + capabilities), `user_turn`,
-`assistant_delta`, `tool_call`, `tool_result`, `permission_request` /
+`assistant_delta`, `display`, `tool_call`, `tool_result`, `permission_request` /
 `permission_response`, `ask_request` / `ask_response`, `cancel`, `result`,
 `error`. Additive evolution only within version "1".
+
+### Semantics and presentation are separate channels
+
+`assistant_delta` carries **what the model said**, and nothing else. `display`
+carries **rendered terminal output** — ANSI styling, tool-call chrome, routing
+lines, banners. A client deciding what the assistant replied reads
+`assistant_delta` or `result.text`; a client drawing a terminal reads `display`.
+
+These were one channel before 2026-09-12. A consumer asking for the assistant's
+answer could receive a styled transcript instead, beginning with things like
+`⇄ served by …` and `⏺ Bash(…)`, and had no way to tell the difference without
+parsing ANSI. Do not reintroduce the conflation, and do not work around it
+downstream by stripping escape codes.
+
+`result.text` is the turn's final semantic assistant text, derived from the
+model's own output. It is **legitimately empty**: a turn whose every iteration
+was a tool call answered nothing. `result.spoke` says which case you are in —
+`false` means the model never spoke, and that is an incomplete run, not a
+missing string to be recovered from somewhere else.

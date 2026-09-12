@@ -50,10 +50,19 @@ type UIObserver interface {
 	// direct-shell lane so command output is high-fidelity terminal output, not an
 	// assistant-rendered artifact.
 	Raw(text string)
+	// AssistantText reports what the MODEL said, once per response, before any
+	// rendering. This is the semantic channel: a protocol consumer deciding what
+	// the assistant actually replied reads this, never the byte stream handed to
+	// SetOutput, which carries ANSI, tool chrome and routing lines.
+	AssistantText(text string)
 }
 
-// SetOutput redirects the session's streamed output to w. The TUI points this
-// at a writer that forwards bytes to the Bubble Tea program.
+// SetOutput redirects the session's RENDERED output to w — styled text, tool
+// chrome, banners. The TUI points this at a writer that forwards bytes to the
+// Bubble Tea program.
+//
+// This is presentation. It is not the assistant's words: see
+// UIObserver.AssistantText for those.
 func (s *Session) SetOutput(w io.Writer) { s.out = w }
 
 // SetApprover replaces the approval callback. The TUI routes approvals through
