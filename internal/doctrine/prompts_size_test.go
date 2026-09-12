@@ -33,13 +33,16 @@ func TestDoctrineBudgets(t *testing.T) {
 		// and then re-asks the same thing next month. apply is the mode least
 		// likely to need it, but the laws are shared on purpose — forking them
 		// per mode is how two prompts drift into disagreeing about the rules.
-		// chat raised 17_000 -> 17_700 (2026-09-12) for automationDoctrine.
+		// chat raised 17_000 -> 18_000 (2026-09-12) for automationDoctrine.
 		// chat only: it governs how the AUTONOMOUS WORK block is surfaced at
 		// session start, and no other mode ever sees that block. Its length is
 		// almost entirely the "then stop" half — mention it once and move on —
 		// because the failure it prevents is a model that turns background
-		// state into an interrogation at the top of every session.
-		"chat": 17_700, "exec": 16_000, "plan": 11_100, "apply": 13_000,
+		// state into an interrogation at the top of every session — and, added
+		// after review, a model that PASTES the block. Its labels and run ids
+		// are internal plumbing; shown to a user they are unreadable noise, and
+		// nothing but this rule stops "mention it" being read as "print it".
+		"chat": 18_000, "exec": 16_000, "plan": 11_100, "apply": 13_000,
 		"review": 2_400, "compact": 1_700, "distill": 1_600,
 		// task_shape is the largest judge on purpose: it makes TWO independent
 		// judgements (is this automatable, and is there a causal reason it will
