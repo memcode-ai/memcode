@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"os"
 	"runtime/debug"
-	"time"
 )
 
 // baseVersion is the current development semver — the version the NEXT release will carry.
@@ -78,20 +77,6 @@ func resolve() (version, commit, date string) {
 func String() string {
 	v, c, d := resolve()
 	return fmt.Sprintf("%s (commit %s, built %s)", v, c, d)
-}
-
-// Short is a compact identifier — "dev · a1b2c3d-dirty · built 11:02:05" — enough
-// to tell two builds apart at a glance.
-func Short() string {
-	v, c, d := resolve()
-	if c == "none" {
-		return v
-	}
-	t := d
-	if parsed, err := time.Parse("2006-01-02 15:04:05", d); err == nil {
-		t = parsed.Format("15:04:05") // just the time
-	}
-	return fmt.Sprintf("%s · %s · built %s", v, c, t)
 }
 
 // Compact is the build identifier for the always-on footer — always a REAL version. A clean

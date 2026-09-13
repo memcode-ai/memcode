@@ -2,9 +2,19 @@
 
 Status: **SHIPPED (CLI), 2026-06-10.** Auto-compaction + manual `/compact` are
 live. memcode used to send the FULL append-only `ChatState.messages` every turn;
-now, at a safe turn boundary, when the estimated prompt exceeds the budget
-(`MEMCODE_COMPACT_BUDGET`, default ~45K; `off` disables), the older turns are
-summarized by Anthropic into a warm block and only the last ~8 turns stay raw.
+now, at a safe turn boundary, when the estimated prompt exceeds the budget, the
+older turns are summarized into a warm block and only the last ~8 turns stay raw.
+
+**The budget is window-RELATIVE, not a constant.** It is 85% of the serving
+model's learned input capacity, falling back to 80% of the catalog window before
+any turn has revealed it. The whole window minus headroom is the budget: context
+pressure (evictions, the cache busts and re-reads they cause) is the expensive
+failure, and resident tokens ride cheaply as cache reads.
+`MEMCODE_COMPACT_BUDGET` is an explicit override (`off` disables compaction) and
+`MEMCODE_CONTEXT_SOFT_CAP` lowers the ceiling for cost-capped setups; there is
+deliberately no built-in absolute clip. An earlier revision of this document
+named a ~45K default, which is exactly the kind of absolute constant the current
+design rejects.
 
 ## Where it lives (built)
 
@@ -14,7 +24,8 @@ summarized by Anthropic into a warm block and only the last ~8 turns stay raw.
   (`compaction_test.go`): facts-survive, adjacency-never-broken, boundary-only.
 - `internal/agent/runtime/compact.go` — orchestration: `compactBudget`,
   `compactIfNeeded` (auto, fired from `Submit` before the turn is assembled),
-  `Compact` (manual /compact), the Anthropic-forced summarizer call, the
+  `Compact` (manual /compact), the summarizer call (`compact` is a utility
+  purpose, so it rides the catalog's `utility_model` rather than the pin), the
   synthetic summary turn, telemetry + episodic-log write.
 - `compact` mode + `compactDoctrine` in `internal/doctrine/prompts.go` (the
   compactor prompt is composed client-side by the doctrine composer, like every
@@ -96,7 +107,9 @@ session still compacts to stay cheap and fast. Coarse is fine.
 
 ## Hard rules
 
-1. **Compactor model = Anthropic** (v1). A bad summary becomes the session's truth.
+1. **The compactor model is the catalog's `utility_model`.** A bad summary
+   becomes the session's truth, so this is one of the few calls that does not
+   ride the user's pin.
    (Later: the cheap lane may summarize low-risk tool output.)
 2. **Tool-use adjacency is sacred.** Never split an assistant tool_use from its
    tool_result. Only compact at a completed boundary (no pending tool call).

@@ -1000,8 +1000,16 @@ func (s *appState) cycleMode() {
 	case permissions.ModeAllowAll:
 		next = permissions.ModeAsk
 	}
-	s.w.sess.SetMode(next)
+	s.setMode(next)
 	s.SetState(func() {})
+}
+
+// setMode changes the permission mode AND persists it, which is what
+// config.Mode has always documented ("persisted when cycled or /mode"). Both
+// entry points — this cycle and /mode — go through here so they cannot drift.
+func (s *appState) setMode(m permissions.Mode) {
+	s.w.sess.SetMode(m)
+	s.updateConfig(func(cfg *config.Config) { cfg.Mode = string(m) })
 }
 
 // answerApproval replies to the blocked engine goroutine and clears the prompt.

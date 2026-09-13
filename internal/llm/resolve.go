@@ -13,14 +13,18 @@ import (
 	"github.com/memcode-ai/memcode/internal/wire"
 )
 
-// resolve.go — PHYSICAL RESOLUTION: lane → concrete model label, decided over
-// the hosted routing control plane (GET /v1/models: roles, byok coverage,
-// credits state, capabilities) plus the shared catalog (vendor tier triples,
-// windows). Steering — prefer vendors the user brought keys for, never select
-// an unfundable lane at $0 — is SELECTION policy here, moved from the gateway
-// (steer.go, deleted) and proven against parity goldens
-// (testdata/steer_goldens.json). The gateway can no longer reroute anything:
-// what this file picks is what serves, or a typed error comes back.
+// resolve.go — the ONE non-pin decision and the capability gate.
+//
+// There is exactly one model per session and the pin resolver already settled
+// it (session -> workspace -> user -> default_model). What remains here is
+// routing internal plumbing to the catalog's utility_model, and refusing a turn
+// the pinned model physically cannot serve.
+//
+// The ladder this file used to hold — role/tier verdicts, BYOK steering, the $0
+// fundability remap, capability SUBSTITUTION — is deleted (v0.29.0). See
+// resolveHosted and capabilityCheck for why each one had to go. The gateway
+// cannot reroute either: what the pin names is what serves, or a typed error
+// comes back.
 
 // modelsTTL bounds how stale the control-plane snapshot may get before a
 // refresh; invalidation (login, /apikeys, 402s) cuts it short.

@@ -8,7 +8,6 @@ package repofiles
 import (
 	"context"
 	"io/fs"
-	"os"
 	"os/exec"
 	"path"
 	"path/filepath"
@@ -122,10 +121,4 @@ func walkList(ctx context.Context, root string) []string {
 		return nil
 	})
 	return files
-}
-
-// Exists reports whether path (relative to root) is a real, non-ignored file.
-func Exists(root, rel string) bool {
-	info, err := os.Stat(filepath.Join(root, rel))
-	return err == nil && !info.IsDir()
 }

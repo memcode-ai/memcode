@@ -2,6 +2,8 @@ package config
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -75,31 +77,31 @@ func loadUserPrefs() prefsFile {
 // writeUserPrefs persists the whole prefs file. Callers mutate a loaded copy so
 // one pin never clobbers the other — changing the primary must not silently
 // reset an explicitly configured delegated model.
-func writeUserPrefs(p prefsFile) {
+func writeUserPrefs(p prefsFile) error {
 	path := UserPrefsPath()
 	if path == "" {
-		return
+		return errors.New("no user config directory")
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return
+		return err
 	}
 	b, err := json.MarshalIndent(p, "", "  ")
 	if err != nil {
-		return
+		return err
 	}
-	_ = atomicfile.WriteFile(path, append(b, '\n'), 0o600)
+	return atomicfile.WriteFile(path, append(b, '\n'), 0o600)
 }
 
 // SaveUserPin records the PRIMARY model at the USER level, so a different repo
 // starts on the same one. Best-effort by design: failing to remember a
 // preference must never fail the operation the user actually asked for.
-func SaveUserPin(label string, window int) {
+func SaveUserPin(label string, window int) error {
 	if label == "" {
-		return
+		return nil
 	}
 	p := loadUserPrefs()
 	p.PinnedModel, p.PinnedWindow = label, window
-	writeUserPrefs(p)
+	return writeUserPrefs(p)
 }
 
 // ResolvePin returns the model this session runs on, plus its context window.
@@ -108,37 +110,67 @@ func SaveUserPin(label string, window int) {
 // this invocation's model, not a new preference.
 //
 // When resolution reaches the seed, the pin is persisted to BOTH stores before
-// returning, so this is the only run that ever consults default_model.
+// returning, so this is normally the only run that ever consults default_model.
+//
+// Persistence is BEST-EFFORT and deliberately so: failing to remember a
+// preference must never fail the operation the user actually asked for. But a
+// failure is not nothing — if neither store is writable, every run re-seeds from
+// default_model, and because that value legitimately changes as models are added
+// and retired, the user's model can drift between releases while everything here
+// believes the pin is stable. ResolvePinSeeded reports that case so a caller can
+// say so once; ResolvePin keeps the plain signature for callers that cannot act
+// on it anyway.
 func ResolvePin(cfg *Config, override string) (label string, window int) {
+	label, window, _ = ResolvePinSeeded(cfg, override)
+	return label, window
+}
+
+// ResolvePinSeeded is ResolvePin plus the seed-persistence outcome: warn is
+// non-nil only when this run had to seed from default_model AND could not record
+// it, which means the next run will seed again.
+func ResolvePinSeeded(cfg *Config, override string) (label string, window int, warn error) {
 	if override != "" {
-		return override, catalog.ContextWindow(override)
+		return override, catalog.ContextWindow(override), nil
 	}
 	if cfg != nil && cfg.PinnedModel != "" {
-		return cfg.PinnedModel, cfg.PinnedWindow
+		return cfg.PinnedModel, cfg.PinnedWindow, nil
 	}
 	if p := loadUserPrefs(); p.PinnedModel != "" {
 		// Remembered at the user level but not in this workspace — adopt it here
-		// too, so the workspace answers for itself next time.
+		// too, so the workspace answers for itself next time. A failure here is
+		// not reported: the pin IS remembered, just not yet in this workspace,
+		// so the next run still resolves to the same model.
 		if cfg != nil {
 			cfg.PinnedModel, cfg.PinnedWindow = p.PinnedModel, p.PinnedWindow
 			_ = cfg.Save()
 		}
-		return p.PinnedModel, p.PinnedWindow
+		return p.PinnedModel, p.PinnedWindow, nil
 	}
 
 	seed := catalog.DefaultModel()
 	if seed == "" {
 		// No seed declared: return empty and let selection refuse with its own
 		// message. Inventing a model here is the one thing this must not do.
-		return "", 0
+		return "", 0, nil
 	}
 	w := catalog.ContextWindow(seed)
+
+	// Seeding is the one branch whose whole purpose is to not happen again, so
+	// this is where a write failure actually costs something. Report it only if
+	// BOTH stores failed — either one alone still pins the model for next time.
+	var wsErr, usrErr error
 	if cfg != nil {
 		cfg.PinnedModel, cfg.PinnedWindow = seed, w
-		_ = cfg.Save()
+		wsErr = cfg.Save()
+	} else {
+		wsErr = errors.New("no workspace config")
 	}
-	SaveUserPin(seed, w)
-	return seed, w
+	usrErr = SaveUserPin(seed, w)
+	if wsErr != nil && usrErr != nil {
+		warn = fmt.Errorf("could not record the model pin (workspace: %v; user: %v) — "+
+			"this session runs on %s, but the next one will seed again", wsErr, usrErr, seed)
+	}
+	return seed, w, warn
 }
 
 // The DELEGATED pin lived here briefly and moved to internal/policy as the

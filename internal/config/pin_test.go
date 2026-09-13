@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/memcode-ai/memcode/catalog"
@@ -114,5 +115,51 @@ func TestCorruptUserPrefsDegradeToTheSeed(t *testing.T) {
 	}
 	if label, _ := ResolvePin(cfg, ""); label != catalog.DefaultModel() {
 		t.Fatalf("corrupt prefs = %q, want the seed", label)
+	}
+}
+
+// TestSeedPersistFailureIsReported: seeding is the one branch whose purpose is to
+// not happen again, so when it cannot be recorded the caller must be able to say
+// so. Silence here means the model can drift between releases (default_model
+// legitimately changes) while everything believes the pin is stable.
+func TestSeedPersistFailureIsReported(t *testing.T) {
+	// Point the user store at a regular FILE, so creating a directory under it
+	// fails the way a read-only home or a full disk would. No workspace config
+	// either, so both stores are unwritable.
+	dir := t.TempDir()
+	blocker := filepath.Join(dir, "blocked")
+	if err := os.WriteFile(blocker, []byte("not a directory"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("XDG_CONFIG_HOME", blocker)
+	t.Setenv("HOME", blocker)
+
+	label, _, warn := ResolvePinSeeded(nil, "")
+	if label != catalog.DefaultModel() {
+		t.Fatalf("must still resolve to the seed, got %q", label)
+	}
+	if warn == nil {
+		t.Fatal("both stores failed — that must be reported, not swallowed")
+	}
+	if !strings.Contains(warn.Error(), "seed again") {
+		t.Errorf("the warning must say what happens next, got %q", warn)
+	}
+}
+
+// TestSeedPersistSuccessIsQuiet: the normal path reports nothing, and one store
+// succeeding is enough — the pin is remembered either way.
+func TestSeedPersistSuccessIsQuiet(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	cfg := &Config{Root: t.TempDir()}
+	if _, _, warn := ResolvePinSeeded(cfg, ""); warn != nil {
+		t.Errorf("a successful seed must be silent, got %v", warn)
+	}
+}
+
+// TestOverrideNeverWarns: --model is this invocation's model, never a preference,
+// so it writes nothing and cannot fail.
+func TestOverrideNeverWarns(t *testing.T) {
+	if _, _, warn := ResolvePinSeeded(nil, "haiku"); warn != nil {
+		t.Errorf("an override persists nothing, so it cannot warn: %v", warn)
 	}
 }

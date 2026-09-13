@@ -61,8 +61,5 @@ func Load(ctx context.Context, s store.Store) (Result, error) {
 	return res, nil
 }
 
-// EntityID returns the entity id for a subsystem key.
-func EntityID(key string) string { return subsystemPrefix + key }
-
 // SubsystemKey strips the "subsystem:" prefix from an entity id.
 func SubsystemKey(id string) string { return strings.TrimPrefix(id, subsystemPrefix) }
