@@ -1,9 +1,11 @@
 package sessionlog
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/memcode-ai/memcode/internal/config"
 )
@@ -155,6 +157,16 @@ func TestLatestRecentPicksNewestSession(t *testing.T) {
 	root := t.TempDir()
 	writeSession(t, root, "sess_1", []Record{{Kind: KindUserMessage, Text: "first session"}})
 	writeSession(t, root, "sess_2", []Record{{Kind: KindUserMessage, Text: "second session"}})
+
+	// Two files written back to back can land on the SAME mtime — filesystem
+	// timestamps are not written at nanosecond granularity everywhere, and
+	// "newest" is then undefined. This test failed on CI while passing five
+	// times in a row locally. Stamp the order the test is actually about
+	// instead of racing the clock for it.
+	old := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(filepath.Join(root, config.DirName, "sessions", "sess_1", "events.jsonl"), old, old); err != nil {
+		t.Fatal(err)
+	}
 
 	recs, err := LatestRecent(root, 0)
 	if err != nil {
