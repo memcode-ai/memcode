@@ -17,6 +17,7 @@ var providerKeyNames = []string{
 	"TOGETHER_API_KEY",
 	"OPENROUTER_API_KEY",
 	"CEREBRAS_API_KEY",
+	"YOLO_AUTO_API_KEY",
 }
 
 // ProviderKeys returns the subset of env holding a recognized provider API key

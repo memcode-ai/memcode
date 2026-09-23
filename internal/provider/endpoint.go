@@ -91,6 +91,7 @@ var conventionalKeyVars = map[string]string{
 	"api.together.xyz":                  "TOGETHER_API_KEY",
 	"openrouter.ai":                     "OPENROUTER_API_KEY",
 	"api.cerebras.ai":                   "CEREBRAS_API_KEY",
+	"yolo-auto.com":                     "YOLO_AUTO_API_KEY",
 	"generativelanguage.googleapis.com": "GEMINI_API_KEY",
 }
 
