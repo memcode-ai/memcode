@@ -14,13 +14,16 @@ func TestModelPricingRealIDs(t *testing.T) {
 		id      string
 		in, out float64
 	}{
-		{"gpt-5.6-sol", 5, 30},
+		{"gpt-5.6-sol", 4, 20}, // promo through at least 2026-11-21 (was billed $5/$30)
+		{"gpt-6-sol", 2, 10},
+		{"gpt-6-luna", 0.1, 0.5},
 		{"gpt-5.6-terra", 2, 12},
 		{"gpt-5.6-luna", 0.2, 1.2},
 		{"gemini-3.1-pro-preview", 2, 12},   // was mispriced → 1.5/9
 		{"gemini-3.8-flash", 0.75, 3.75},    // balanced default (promo through 2026-12-31)
 		{"gemini-3.5-flash-lite", 0.3, 2.5}, // was billed 6x high → 1.5/9
-		{"grok-4.6", 2, 6},
+		{"grok-4.7", 2, 6},
+		{"grok-4.6", 2, 6},                                // alias -> 4.7, same card
 		{"accounts/fireworks/models/glm-5p2", 1.40, 4.40}, // was $0
 		{"accounts/fireworks/models/glm-5p1", 1.40, 4.40},
 		{"accounts/fireworks/models/kimi-k3", 3.00, 15.00}, // K3's own Fireworks headline card ($3/$15), NOT the kimi family rule
@@ -35,14 +38,17 @@ func TestModelPricingRealIDs(t *testing.T) {
 		{"accounts/fireworks/models/deepseek-v4-flash-0731", 0.22, 0.66},
 		{"accounts/fireworks/models/glm-5p3", 1.40, 4.40},
 		{"accounts/fireworks/models/glm-5p3-flash", 0.15, 0.50},
-		{"claude-opus-5", 5, 25},   // $5/$25 since Opus 4.5 repricing
+		{"claude-opus-5-5", 4, 20}, // Opus 5.5 is cheaper than Opus 5
+		{"claude-opus-5", 4, 20},   // alias -> Opus 5.5
+		{"claude-opus-4-8", 5, 25}, // legacy Opus, family rule
 		{"claude-fable-5", 10, 50}, // Fable 5 flagship $10/$50 (explicit entry price)
 		{"claude-sonnet-5", 2, 10}, // explicit sonnet rule (was falling to $3/$15 defaults)
 		// Billing-only entries (embeddings/images) — priced so no metered call
 		// is ever $0. Same pinned numbers as apps/www ai-models.test.js.
-		{"gemini-embedding-001", 0.15, 0},
+		{"gemini-embedding-2", 0.2, 0},
+		{"gemini-embedding-001", 0.2, 0}, // alias -> embedding 2
 		{"text-embedding-3-small", 0.02, 0},
-		{"gpt-image-1", 5, 40},
+		{"gpt-image-1", 8, 30}, // shut down 2026-10-23, alias -> gpt-image-2
 		{"gpt-image-2", 8, 30},
 	}
 	for _, c := range cases {
@@ -62,7 +68,7 @@ func TestModelPricingByLabel(t *testing.T) {
 		label string
 		in    float64
 	}{
-		{"sol", 5}, {"terra", 2}, {"luna", 0.2},
+		{"sol", 4}, {"terra", 2}, {"luna", 0.2}, {"opus", 4}, {"grok-4.6", 2},
 		{"glm-5p2", 1.40}, {"kimi-k3", 3.00}, {"qwen3p8-max", 2.00},
 		// deepseek-v4-pro is an alias onto V4.1 Flash as of the 2026-09-25 decommission.
 		{"deepseek-v4-pro", 0.22}, {"deepseek-v4-flash", 0.22},
@@ -116,7 +122,8 @@ func TestModelPricingCacheRates(t *testing.T) {
 		id                    string
 		cacheRead, cacheWrite float64
 	}{
-		{"grok-4.6", 0.5, 2.5},
+		{"grok-4.7", 0.5, 2.5},
+		{"claude-opus-5-5", 0.2, 5}, // 0.05x cache read
 		{"claude-sonnet-5", 0.2, 2.5},
 		{"gpt-5.6-terra", 0.2, 2.5},
 		{"accounts/fireworks/models/glm-5p2", 0.26, 1.75}, // alias -> GLM 5.3 cache rate

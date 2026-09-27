@@ -293,6 +293,7 @@ func wireToParams(w wireRequest) anthropicsdk.MessageNewParams {
 		Model:     anthropicsdk.Model(w.Model),
 		MaxTokens: int64(w.MaxTokens),
 	}
+	var askForTool string // set when a forced tool_choice must be requested in words
 
 	// System — buildWire emits []sysBlock when r.System != "".
 	if blocks, ok := w.System.([]sysBlock); ok {
@@ -334,8 +335,15 @@ func wireToParams(w wireRequest) anthropicsdk.MessageNewParams {
 		p.Tools = tools
 		// Force a specific tool when asked (structured output): the model MUST call it, so
 		// its JSON arrives in the tool_use input constrained to the tool's input_schema.
+		// Models that 400 on a forced choice (Fable 5.1, Opus 5.5) get auto plus a
+		// closing instruction instead; the caller's decoder is unchanged.
 		if w.ToolChoice != "" {
-			p.ToolChoice = anthropicsdk.ToolChoiceParamOfTool(w.ToolChoice)
+			if catalog.RejectsForcedToolChoice(w.Model) {
+				p.ToolChoice = anthropicsdk.ToolChoiceUnionParam{OfAuto: &anthropicsdk.ToolChoiceAutoParam{}}
+				askForTool = w.ToolChoice
+			} else {
+				p.ToolChoice = anthropicsdk.ToolChoiceParamOfTool(w.ToolChoice)
+			}
 		}
 	}
 
@@ -367,6 +375,12 @@ func wireToParams(w wireRequest) anthropicsdk.MessageNewParams {
 			content = append(content, blockToParam(blk))
 		}
 		p.Messages[i] = anthropicsdk.MessageParam{Role: role, Content: content}
+	}
+	// Appended to the final user turn rather than the system prompt, so the
+	// cached prefix is untouched.
+	if n := len(p.Messages); askForTool != "" && n > 0 && p.Messages[n-1].Role == anthropicsdk.MessageParamRoleUser {
+		p.Messages[n-1].Content = append(p.Messages[n-1].Content, anthropicsdk.NewTextBlock(
+			"Respond only by calling the `"+askForTool+"` tool with your answer. Do not reply in plain text."))
 	}
 
 	// Thinking

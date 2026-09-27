@@ -2,8 +2,8 @@
   "_comment": "CANONICAL model catalog for the WHOLE monorepo (root /models.json): capabilities (window/vision/reasoning/max_output), CLI picker flags (pinnable/group), pricing ($/M tokens; entry price_in/out -> first-matching family rule -> defaults; cache read defaults to 0.1x input, cache write to 1.25x input), and the www chat surface (per-model `www` block: chat/order/description \u2014 Go ignores it). Consumers: Go embeds a BYTE-IDENTICAL copy at packages/sdk/go/common/models.json (sync with scripts/sync-models.sh; a guard test fails on drift; api/ re-vendors it), and apps/www derives its entire catalog + calculateCost from THIS file. Edit HERE, run the sync script, never edit the sdk copy directly.",
   "models": [
     {
-      "id": "grok-4.6",
-      "label": "grok-4.6",
+      "id": "grok-4.7",
+      "label": "grok-4.7",
       "vendor": "grok",
       "window": 500000,
       "vision": true,
@@ -11,19 +11,31 @@
       "price_in": 2.0,
       "price_out": 6.0,
       "price_cache_read": 0.5,
-      "_note": "Grok 4.6 (xAI, via the OpenAI-compatible api.x.ai endpoint). Single model for all three strong-tier roles for the Grok vendor (no 'Grok Haiku' yet). 500K context, reasoning_effort knob, vision. Without a catalog row, catalog.spec returns window 0 / vision false (mis-stamps image turns FallbackReason:vision). PRICING verified docs.x.ai 2026-08-15: $2/$6, cached $0.50 (<200k tier; the >=200k doubled tier is not modeled). Replaced grok-4.5 ($0.30 cached) 2026-08-15.",
+      "_note": "Grok 4.7 (xAI, 2026-09-21, via the OpenAI-compatible api.x.ai endpoint). Single model for the Grok vendor. 500K context, reasoning_effort low..xhigh, vision. PRICING verified live against api.x.ai/v1/models/grok-4.7 2026-09-27: $2/$6, cached $0.50 below 200K prompt tokens; at or above 200K every rate doubles ($4/$12/$1), which is the price_tiers entry. Same rates as Grok 4.6, which it replaces; 4.6's label and id are aliased so pins migrate.",
       "pinnable": true,
       "group": "Grok",
       "desc": "Frontier reasoning",
-      "name": "Grok 4.6",
+      "name": "Grok 4.7",
       "www": {
         "chat": true,
         "order": 36,
-        "description": "xAI flagship model with large context window."
+        "description": "xAI flagship model for coding and agentic work, with a large context window."
       },
       "max_output": 32000,
       "fallback": [
         "terra"
+      ],
+      "price_tiers": [
+        {
+          "above_prompt_tokens": 200000,
+          "in": 2.0,
+          "out": 2.0,
+          "cache_read": 2.0,
+          "cache_write": 2.0
+        }
+      ],
+      "aliases": [
+        "grok-4.6"
       ]
     },
     {
@@ -35,7 +47,7 @@
       "reasoning": true,
       "price_in": 2.0,
       "price_out": 12.0,
-      "_note": "Gemini 3.1 Pro (Google, GA Feb 2026). Frontier tier \u2014 escalation target for the Gemini vendor. Native genai SDK. 1M context, 64K max output, vision, thinking budget. gemini-3-pro-preview is now just an alias to this id.",
+      "_note": "Gemini 3.1 Pro (Google, GA Feb 2026). Frontier tier \u2014 escalation target for the Gemini vendor. Native genai SDK. 1M context, 64K max output, vision, thinking budget. gemini-3-pro-preview is now just an alias to this id. PRICING re-verified ai.google.dev/gemini-api/docs/pricing 2026-09-27: $2/$12 (cache $0.20) up to 200K prompt tokens; above 200K $4/$18 (cache $0.40), the price_tiers entry.",
       "pinnable": true,
       "group": "Gemini",
       "desc": "Deep reasoning",
@@ -50,6 +62,15 @@
       "fallback": [
         "sonnet",
         "terra"
+      ],
+      "price_tiers": [
+        {
+          "above_prompt_tokens": 200000,
+          "in": 2.0,
+          "out": 1.5,
+          "cache_read": 2.0,
+          "cache_write": 2.0
+        }
       ]
     },
     {
@@ -105,7 +126,7 @@
       ]
     },
     {
-      "id": "claude-opus-5",
+      "id": "claude-opus-5-5",
       "label": "opus",
       "vendor": "anthropic",
       "window": 1000000,
@@ -115,16 +136,24 @@
       "pinnable": true,
       "group": "Claude",
       "desc": "Best for complex tasks",
-      "name": "Opus 5",
+      "name": "Opus 5.5",
       "pdf": true,
       "www": {
         "chat": true,
         "order": 95,
-        "description": "Exceptional Claude model for advanced software engineering, with a 1M context window and adaptive thinking."
+        "description": "Anthropic's Opus for long-running agentic coding and knowledge work, with a 1M context window and adaptive thinking."
       },
       "fallback": [
         "terra"
-      ]
+      ],
+      "price_in": 4.0,
+      "price_out": 20.0,
+      "price_cache_read": 0.2,
+      "no_forced_tool_choice": true,
+      "aliases": [
+        "claude-opus-5"
+      ],
+      "_note": "Claude Opus 5.5 (Anthropic, claude-opus-5-5). Supersedes Opus 5, which platform.claude.com now lists as legacy; the old id is aliased so pins migrate. 1M window, 128K out, always-on adaptive thinking (thinking cannot be disabled; default effort is medium, one below Opus 5, but memcode always sends effort explicitly). PRICING verified platform.claude.com/docs/en/about-claude/pricing 2026-09-27: $4/$20 per 1M. CACHE READ is 0.05x = $0.20, not the 0.1x default, hence the explicit price_cache_read (without it cache reads bill 2x cost). Forced tool_choice (any/tool) 400s on this model, verified live 2026-09-27: see no_forced_tool_choice."
     },
     {
       "id": "claude-fable-5-1",
@@ -139,7 +168,7 @@
       "price_in": 10.0,
       "price_out": 50.0,
       "price_cache_read": 0.25,
-      "_note": "Claude Fable 5.1 (Anthropic, claude-fable-5-1). Anthropic's MOST capable widely-released model \u2014 state-of-the-art coding/knowledge/vision/computer-use, always-on adaptive thinking, 1M window, 128K out. Supersedes claude-fable-5, which platform.claude.com now lists as legacy. PRICING verified platform.claude.com/docs/en/about-claude/pricing 2026-09-02: $10/$50 per 1M. CACHE READ IS THE ODD ONE: 5.1 (and Mythos 5.1) read cache at 0.025x = $0.25, NOT the 0.1x every other model uses \u2014 hence the explicit price_cache_read, without which the 0.1x default bills cache reads at 4x cost. Cache write stays 1.25x ($12.50). Uses the adaptive-thinking path like Opus (rejects manual budget_tokens).",
+      "_note": "Claude Fable 5.1 (Anthropic, claude-fable-5-1). Anthropic's MOST capable widely-released model \u2014 state-of-the-art coding/knowledge/vision/computer-use, always-on adaptive thinking, 1M window, 128K out. Supersedes claude-fable-5, which platform.claude.com now lists as legacy. PRICING verified platform.claude.com/docs/en/about-claude/pricing 2026-09-02: $10/$50 per 1M. CACHE READ IS THE ODD ONE: 5.1 (and Mythos 5.1) read cache at 0.025x = $0.25, NOT the 0.1x every other model uses \u2014 hence the explicit price_cache_read, without which the 0.1x default bills cache reads at 4x cost. Cache write stays 1.25x ($12.50). Uses the adaptive-thinking path like Opus (rejects manual budget_tokens). Forced tool_choice (any/tool) 400s on 5.1, verified live 2026-09-27: see no_forced_tool_choice.",
       "desc": "Most capable Claude",
       "name": "Fable 5.1",
       "pdf": true,
@@ -150,7 +179,8 @@
       },
       "fallback": [
         "sol"
-      ]
+      ],
+      "no_forced_tool_choice": true
     },
     {
       "id": "claude-sonnet-5",
@@ -234,15 +264,73 @@
       ]
     },
     {
+      "id": "gpt-6-sol",
+      "label": "gpt-6-sol",
+      "vendor": "openai",
+      "window": 1050000,
+      "vision": true,
+      "reasoning": true,
+      "price_in": 2.0,
+      "price_out": 10.0,
+      "price_tiers": [
+        {
+          "above_prompt_tokens": 272000,
+          "in": 2.0,
+          "out": 1.5,
+          "cache_read": 2.0,
+          "cache_write": 2.0
+        }
+      ],
+      "_note": "GPT-6 Sol (OpenAI). Balanced GPT-6 tier: 'complex coding and agentic workflows'. Responses API, 1.05M context, 128K max output, reasoning none..max. PRICING verified developers.openai.com/api/docs/pricing 2026-09-27: $2/$10, cached $0.20 (default 0.1x); over 272K prompt tokens 2x input/cache, 1.5x output (price_tiers). DARK (not pinnable, no www block): as of 2026-09-27 the memcode OpenAI project gets 'does not have access to model gpt-6-sol'. Activate once the project can call it.",
+      "name": "GPT-6 Sol",
+      "desc": "Balanced everyday coding",
+      "group": "OpenAI",
+      "pdf": true,
+      "max_output": 128000,
+      "fallback": [
+        "sonnet",
+        "sol"
+      ]
+    },
+    {
+      "id": "gpt-6-luna",
+      "label": "gpt-6-luna",
+      "vendor": "openai",
+      "window": 1050000,
+      "vision": true,
+      "reasoning": true,
+      "price_in": 0.1,
+      "price_out": 0.5,
+      "price_tiers": [
+        {
+          "above_prompt_tokens": 272000,
+          "in": 2.0,
+          "out": 1.5,
+          "cache_read": 2.0,
+          "cache_write": 2.0
+        }
+      ],
+      "_note": "GPT-6 Luna (OpenAI). Efficient GPT-6 tier for focused, high-volume work. Responses API, 1.05M context, 128K max output, reasoning none..max. PRICING verified developers.openai.com/api/docs/pricing 2026-09-27: $0.10/$0.50, cached $0.01 (default 0.1x); over 272K prompt tokens 2x input/cache, 1.5x output (price_tiers). DARK for the same reason as gpt-6-sol (no project access yet, 2026-09-27).",
+      "name": "GPT-6 Luna",
+      "desc": "Fast and cheap",
+      "group": "OpenAI",
+      "pdf": true,
+      "max_output": 128000,
+      "fallback": [
+        "haiku",
+        "luna"
+      ]
+    },
+    {
       "id": "gpt-5.6-sol",
       "label": "sol",
       "vendor": "openai",
       "window": 1050000,
       "vision": true,
       "reasoning": true,
-      "price_in": 5.0,
-      "price_out": 30.0,
-      "_note": "GPT-5.6 Sol (OpenAI, GA 2026-07-09). Frontier tier \u2014 the court of appeal (was Opus in inference). Responses API. 1.05M context, 128K max output, vision, reasoning.",
+      "price_in": 4.0,
+      "price_out": 20.0,
+      "_note": "GPT-5.6 Sol (OpenAI, GA 2026-07-09). Frontier tier. Responses API. 1.05M context, 128K max output, vision, reasoning. PRICING verified developers.openai.com/api/docs/pricing 2026-09-27: $4/$20 (cached $0.40 = default 0.1x), a PROMOTIONAL rate OpenAI says runs 'at least through November 21, 2026'; the previous $5/$30 overcharged every call. Re-check the vendor page after 2026-11-21 before touching it. Prompts over 272K bill 2x input/cache and 1.5x output for the whole request (price_tiers).",
       "pinnable": true,
       "group": "OpenAI",
       "desc": "Strongest reasoning",
@@ -257,6 +345,15 @@
       "fallback": [
         "opus",
         "terra"
+      ],
+      "price_tiers": [
+        {
+          "above_prompt_tokens": 272000,
+          "in": 2.0,
+          "out": 1.5,
+          "cache_read": 2.0,
+          "cache_write": 2.0
+        }
       ]
     },
     {
@@ -268,7 +365,7 @@
       "reasoning": true,
       "price_in": 2,
       "price_out": 12,
-      "_note": "GPT-5.6 Terra (OpenAI). Balanced tier \u2014 everyday default + fallback absorb target (was Sonnet in inference). PRICING verified 2026-08-15 developers.openai.com: $2/$12 (cut from $2.50/$15 on 2026-07-30).",
+      "_note": "GPT-5.6 Terra (OpenAI). Balanced tier \u2014 everyday default + fallback absorb target (was Sonnet in inference). PRICING verified 2026-08-15 developers.openai.com: $2/$12 (cut from $2.50/$15 on 2026-07-30). Prompts over 272K bill 2x input/cache and 1.5x output for the whole request (price_tiers, verified 2026-09-27).",
       "pinnable": true,
       "group": "OpenAI",
       "desc": "Balanced everyday coding",
@@ -283,6 +380,15 @@
       "fallback": [
         "sonnet",
         "luna"
+      ],
+      "price_tiers": [
+        {
+          "above_prompt_tokens": 272000,
+          "in": 2.0,
+          "out": 1.5,
+          "cache_read": 2.0,
+          "cache_write": 2.0
+        }
       ]
     },
     {
@@ -294,7 +400,7 @@
       "reasoning": true,
       "price_in": 0.2,
       "price_out": 1.2,
-      "_note": "GPT-5.6 Luna (OpenAI). Fast/cheap tier \u2014 classifier + reviewer (was Haiku in inference). PRICING verified 2026-08-15 developers.openai.com: $0.20/$1.20 (80% cut from $1/$6 on 2026-07-30).",
+      "_note": "GPT-5.6 Luna (OpenAI). Fast/cheap tier \u2014 classifier + reviewer (was Haiku in inference). PRICING verified 2026-08-15 developers.openai.com: $0.20/$1.20 (80% cut from $1/$6 on 2026-07-30). Prompts over 272K bill 2x input/cache and 1.5x output for the whole request (price_tiers, verified 2026-09-27).",
       "pinnable": true,
       "group": "OpenAI",
       "desc": "Fast and cheap",
@@ -309,6 +415,15 @@
       "fallback": [
         "haiku",
         "terra"
+      ],
+      "price_tiers": [
+        {
+          "above_prompt_tokens": 272000,
+          "in": 2.0,
+          "out": 1.5,
+          "cache_read": 2.0,
+          "cache_write": 2.0
+        }
       ]
     },
     {
@@ -483,13 +598,16 @@
       "price_cache_read": 0.06
     },
     {
-      "id": "gemini-embedding-001",
-      "label": "gemini-embedding-001",
+      "id": "gemini-embedding-2",
+      "label": "gemini-embedding-2",
       "vendor": "gemini",
-      "name": "Gemini Embedding",
-      "price_in": 0.15,
+      "name": "Gemini Embedding 2",
+      "price_in": 0.2,
       "price_out": 0,
-      "_note": "Embedding model \u2014 billing card only (embed cron + query-side embeds). Not servable as a chat model."
+      "_note": "Embedding model: billing card only (embed cron + query-side embeds). Not servable as a chat model. PRICING verified ai.google.dev/gemini-api/docs/pricing 2026-09-27: text input $0.20/M. Replaces gemini-embedding-001 (shutdown 2028-05-14); the two embedding spaces are INCOMPATIBLE, so switching models means re-embedding every stored vector.",
+      "aliases": [
+        "gemini-embedding-001"
+      ]
     },
     {
       "id": "text-embedding-3-small",
@@ -500,22 +618,16 @@
       "price_out": 0
     },
     {
-      "id": "gpt-image-1",
-      "label": "gpt-image-1",
-      "vendor": "openai",
-      "name": "GPT Image 1",
-      "price_in": 5.0,
-      "price_out": 40.0,
-      "_note": "Images API token billing (official card verified 2026-07-27): text in $5/M (image in $10/M \u2014 floor-priced at text rate since usage reports a blended input count), image out $40/M."
-    },
-    {
       "id": "gpt-image-2",
       "label": "gpt-image-2",
       "vendor": "openai",
       "name": "GPT Image 2",
       "price_in": 8.0,
       "price_out": 30.0,
-      "_note": "gpt-image-2 $8/M in, $30/M out per developers.openai.com pricing (verified 2026-07-27 \u2014 LiteLLM had $5/$10, vendor page wins)."
+      "_note": "gpt-image-2 $8/M in, $30/M out per developers.openai.com pricing (verified 2026-07-27 \u2014 LiteLLM had $5/$10, vendor page wins). gpt-image-1 shuts down 2026-10-23 (developers.openai.com deprecations) and its id is aliased here.",
+      "aliases": [
+        "gpt-image-1"
+      ]
     }
   ],
   "families": [
@@ -538,26 +650,54 @@
       "match": [
         "gpt-5.6-sol"
       ],
-      "price_in": 5,
-      "price_out": 30
+      "price_in": 4,
+      "price_out": 20,
+      "price_tiers": [
+        {
+          "above_prompt_tokens": 272000,
+          "in": 2.0,
+          "out": 1.5,
+          "cache_read": 2.0,
+          "cache_write": 2.0
+        }
+      ]
     },
     {
       "match": [
         "gpt-5.6-terra"
       ],
       "price_in": 2,
-      "price_out": 12
+      "price_out": 12,
+      "price_tiers": [
+        {
+          "above_prompt_tokens": 272000,
+          "in": 2.0,
+          "out": 1.5,
+          "cache_read": 2.0,
+          "cache_write": 2.0
+        }
+      ]
     },
     {
       "match": [
         "gpt-5.6-luna"
       ],
       "price_in": 0.2,
-      "price_out": 1.2
+      "price_out": 1.2,
+      "price_tiers": [
+        {
+          "above_prompt_tokens": 272000,
+          "in": 2.0,
+          "out": 1.5,
+          "cache_read": 2.0,
+          "cache_write": 2.0
+        }
+      ]
     },
     {
       "match": [
-        "gpt-5.6"
+        "gpt-5.6",
+        "gpt-6"
       ],
       "window": 1050000
     },
@@ -575,7 +715,16 @@
         "pro"
       ],
       "price_in": 2,
-      "price_out": 12
+      "price_out": 12,
+      "price_tiers": [
+        {
+          "above_prompt_tokens": 200000,
+          "in": 2.0,
+          "out": 1.5,
+          "cache_read": 2.0,
+          "cache_write": 2.0
+        }
+      ]
     },
     {
       "match": [
@@ -588,12 +737,22 @@
     },
     {
       "match": [
+        "grok-4.7",
         "grok-4.6"
       ],
       "window": 500000,
       "price_in": 2,
       "price_out": 6,
-      "price_cache_read": 0.5
+      "price_cache_read": 0.5,
+      "price_tiers": [
+        {
+          "above_prompt_tokens": 200000,
+          "in": 2.0,
+          "out": 2.0,
+          "cache_read": 2.0,
+          "cache_write": 2.0
+        }
+      ]
     },
     {
       "match": [
@@ -706,11 +865,20 @@
     },
     {
       "match": [
+        "opus-5-5"
+      ],
+      "price_in": 4,
+      "price_out": 20,
+      "price_cache_read": 0.2,
+      "_note": "Opus 5.5 $4/$20, cache read 0.05x = $0.20 (platform.claude.com pricing, verified 2026-09-27). Must precede the bare opus row, which would bill it at the Opus 5 card."
+    },
+    {
+      "match": [
         "opus"
       ],
       "price_in": 5,
       "price_out": 25,
-      "_note": "Opus 5 $5/$25 per LiteLLM + vendor page (2026-07-27 audit \u2014 the old $15/$75 was the pre-4.5 card and overcharged CLI users 3x vs www)"
+      "_note": "Opus 5 / 4.x $5/$25 (vendor page 2026-09-27; the old $15/$75 was the pre-4.5 card). Opus 5.5 is cheaper and matches the opus-5-5 row above first."
     },
     {
       "match": [

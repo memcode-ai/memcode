@@ -91,8 +91,9 @@ func TestLaneDispatchMatrix(t *testing.T) {
 	}
 
 	anth.mu.Lock()
-	if len(anth.models) != 1 || anth.models[0] != "claude-opus-5" {
-		t.Errorf("anthropic lane saw models %v, want [claude-opus-5]", anth.models)
+	// claude-opus-5 is a retired alias, so the lane serves its replacement.
+	if len(anth.models) != 1 || anth.models[0] != "claude-opus-5-5" {
+		t.Errorf("anthropic lane saw models %v, want [claude-opus-5-5]", anth.models)
 	}
 	for _, h := range anth.headers {
 		if h.Get("X-Lane-Probe") != "A" {

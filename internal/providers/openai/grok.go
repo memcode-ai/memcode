@@ -38,7 +38,7 @@ func NewGrok(apiKey string) *Grok {
 	o := NewOpenAI(apiKey)
 	o.baseURL = "https://api.x.ai/v1"
 	o.backend = "grok"
-	o.defaultModel = catalog.ModelGrok46
+	o.defaultModel = catalog.ModelGrok47
 	o.keyEnv = EnvGrokKey
 	o.clampEffort = true
 	o.includeEnc = false

@@ -25,10 +25,10 @@ func TestContextWindow(t *testing.T) {
 }
 
 func TestCostUSD(t *testing.T) {
-	// 1M output tokens on opus ($25/Mtok) = $25; sonnet ($10) = $10; haiku ($5) = $5.
-	// (Opus 5 $5/$25 and Sonnet 5 $2/$10 per the published cards, 2026-07-27.)
-	if got := catalog.CostUSD("claude-opus-5", 0, 1_000_000, 0, 0); got != 25 {
-		t.Errorf("opus 1M output = $%.2f, want $25", got)
+	// 1M output tokens on opus ($20/Mtok) = $20; sonnet ($10) = $10; haiku ($5) = $5.
+	// (Opus 5.5 $4/$20 and Sonnet 5 $2/$10 per the published cards, 2026-09-27.)
+	if got := catalog.CostUSD("claude-opus-5-5", 0, 1_000_000, 0, 0); got != 20 {
+		t.Errorf("opus 1M output = $%.2f, want $20", got)
 	}
 	// Sonnet 5 is $2/$10. The launch announcement called that introductory
 	// through 2026-08-31 with a flip to $3/$15, and this assertion used to be

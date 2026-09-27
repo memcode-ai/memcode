@@ -90,7 +90,7 @@ var registry = []Runtime{
 	{
 		ID: "grok", Display: "SuperGrok / X Premium+ subscription", Kind: KindSubscription,
 		CredentialSource: "grok", Vendor: "grok",
-		DefaultModel: catalog.ModelGrok46, ZeroMarginalCost: true,
+		DefaultModel: catalog.ModelGrok47, ZeroMarginalCost: true,
 		Available: grok.Available,
 	},
 	{

@@ -10,7 +10,7 @@ package catalog
 // (Sonnet) and per-vendor tier fallbacks; the default inference tiers use the
 // GPT-5.6 ids below.
 const (
-	ModelOpus   = "claude-opus-5"             // anthropic frontier tier
+	ModelOpus   = "claude-opus-5-5"           // anthropic frontier tier
 	ModelSonnet = "claude-sonnet-5"           // advisor default (second-opinion, cross-vendor); anthropic balanced tier
 	ModelHaiku  = "claude-haiku-4-5-20251001" // anthropic cheap tier
 )
@@ -31,9 +31,9 @@ const (
 	ModelGeminiFlashLite = "gemini-3.5-flash-lite"  // fast/cheap — classifier
 )
 
-// Grok model ID (xAI, via the OpenAI-compatible api.x.ai endpoint). Grok 4.5 is
+// Grok model ID (xAI, via the OpenAI-compatible api.x.ai endpoint). Grok 4.7 is
 // the single model for all three strong-tier roles, so the selector resolves
 // every tier to this id.
 const (
-	ModelGrok46 = "grok-4.6" // single model — serves frontier/balanced/cheap tiers
+	ModelGrok47 = "grok-4.7" // single model — serves frontier/balanced/cheap tiers
 )

@@ -59,6 +59,13 @@ type CatalogModel struct {
 	// Empty means "no floor": send whatever the effort maps to.
 	MinReasoningEffort string `json:"min_reasoning_effort,omitempty"`
 
+	// NoForcedToolChoice marks a model that rejects a forced tool_choice
+	// ({type:"tool"} or {type:"any"}) with a 400. Claude Fable 5.1 and Opus 5.5
+	// do; the structured-output callers (judges, reflection, review verdicts)
+	// still need their tool called, so the adapter asks for it in words under
+	// tool_choice auto instead. A model fact, so it lives here.
+	NoForcedToolChoice bool `json:"no_forced_tool_choice,omitempty"`
+
 	// Aliases are RETIRED labels and ids that must keep resolving to this entry.
 	// When a vendor decommissions a model, deleting its row would make every pin
 	// naming it a hard "unknown model" 400 at the gateway; listing the dead name
@@ -269,6 +276,13 @@ func MinReasoningEffort(model string) string {
 		return m.MinReasoningEffort
 	}
 	return ""
+}
+
+// RejectsForcedToolChoice reports whether a model 400s on a forced tool_choice,
+// so the adapter must fall back to auto plus an explicit instruction.
+func RejectsForcedToolChoice(model string) bool {
+	m, ok := LookupModel(model)
+	return ok && m.NoForcedToolChoice
 }
 
 // Pricing is APPROXIMATE per-model rates in USD per MILLION tokens. Cache write ≈
