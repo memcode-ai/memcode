@@ -150,6 +150,35 @@ func TestSubmitEchoesAndResponds(t *testing.T) {
 	}
 }
 
+// TestShiftTabCyclesMode locks Shift+Tab as the mode-cycle hotkey end-to-end through the real
+// ui.App dispatch — not just cycleMode() in isolation. ui.NewApp wraps every root in a
+// Shortcuts{} that binds "Shift+Tab" to the framework's generic PreviousFocusIntent (for
+// Tab-based focus traversal); vxui never registers any focusable widget, but that binding is
+// still live and sits ABOVE appState in the dispatch path, so it swallows the key on capture
+// before appState.HandleEvent's own "Shift+Tab" case ever runs. vxui doesn't use the
+// framework's focus system at all, so Run() must clear the default shortcuts.
+func TestShiftTabCyclesMode(t *testing.T) {
+	theme.Set("aurora")
+	sess := newTestSession(t)
+	if sess.Mode() != permissions.ModeAuto {
+		t.Fatalf("test session mode = %v, want ModeAuto", sess.Mode())
+	}
+	root := &appWidget{ctx: context.Background(), sess: sess, themeName: "aurora"}
+	app := ui.NewApp(root, ui.WithDynamicPrimaryScreen(), ui.WithTheme(uiTheme(theme.Active().Palette)), ui.WithShortcuts(ui.ShortcutMap{}))
+	be := &recBackend{ev: make(chan ui.Event)}
+	runner := ui.NewRunner(app, be, nil)
+	now := time.Now()
+	runner.Start(now)
+	_ = runner.HandleFrame(now)
+
+	runner.HandleEvent(vaxis.Key{Keycode: vaxis.KeyTab, Modifiers: vaxis.ModShift}, now)
+	_ = runner.HandleFrame(now)
+
+	if got := sess.Mode(); got != permissions.ModeAllowAll {
+		t.Fatalf("Shift+Tab didn't cycle the mode: got %v, want ModeAllowAll (Auto -> AllowAll)", got)
+	}
+}
+
 // TestShiftEnterInsertsNewline locks the multi-line composer: Shift+Enter is a SOFT return
 // (inserts "\n", does not submit), and Enter submits the whole multi-line buffer. The vaxis
 // rewrite had dropped this — Enter was the only binding and the composer was stuck on one

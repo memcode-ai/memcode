@@ -63,7 +63,13 @@ func Run(ctx context.Context, sess *runtime.Session, themeName string) error {
 	}
 	// matrix: the intro animates IN the live region (handled by the app), not a pre-printed splash.
 	root := &appWidget{ctx: ctx, sess: sess, themeName: themeName, live: true, introMatrix: matrix, initialInput: early}
-	return ui.Run(root, ui.WithDynamicPrimaryScreen(), ui.WithTheme(uiTheme(theme.Active().Palette)))
+	// ui.NewApp's default shortcuts bind "Tab"/"Shift+Tab" to the framework's generic
+	// focus-traversal intents (for apps built from focusable widgets). vxui never registers
+	// a focusable widget — every key, including the Shift+Tab mode-cycle hotkey, is handled
+	// by appState.HandleEvent itself — but that default binding still sits ABOVE appState in
+	// the dispatch path and swallows the key on capture before appState ever sees it, as a
+	// silent no-op (there's nothing to focus). Clear the defaults so vxui's own handling wins.
+	return ui.Run(root, ui.WithDynamicPrimaryScreen(), ui.WithTheme(uiTheme(theme.Active().Palette)), ui.WithShortcuts(ui.ShortcutMap{}))
 }
 
 // appWidget is the root StatefulWidget. It carries the immutable wiring the state needs.
