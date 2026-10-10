@@ -25,6 +25,12 @@ func (s *Session) artifactTool(ctx context.Context, input json.RawMessage) toolR
 	if err := json.Unmarshal(input, &in); err != nil {
 		return errResult("artifact: bad input: " + err.Error())
 	}
+	// Plan mode and read-only sub-agents research; they don't publish — check this BEFORE
+	// the account check so the Read Only denial always wins, with or without a login token
+	// (list is exempt: it's read-only itself).
+	if in.Action != "list" && (s.readOnly || s.planCtl.Planning() || s.chatReadOnly) {
+		return errResult("denied: artifact " + in.Action + " isn't available while planning/read-only — list is, publishing waits for execution")
+	}
 	// allowTool hides the tool when unauthenticated; this is the defensive twin.
 	if strings.TrimSpace(os.Getenv(provider.EnvAPIToken)) == "" {
 		return errResult("artifacts need a memcode.ai account — run `memcode login` first")
@@ -51,10 +57,6 @@ func (s *Session) artifactTool(ctx context.Context, input json.RawMessage) toolR
 		return textResult(strings.TrimRight(b.String(), "\n"))
 
 	case "publish", "update":
-		// Plan mode and read-only sub-agents research; they don't publish.
-		if s.readOnly || s.planCtl.Planning() || s.chatReadOnly {
-			return errResult("denied: artifact " + in.Action + " isn't available while planning/read-only — list is, publishing waits for execution")
-		}
 		if in.Path == "" {
 			return errResult("artifact " + in.Action + " needs `path` — build the HTML file with edit_file first")
 		}
@@ -105,9 +107,6 @@ func (s *Session) artifactTool(ctx context.Context, input json.RawMessage) toolR
 		return textResult(fmt.Sprintf("updated %s in place → %s", art.ID, art.URL))
 
 	case "delete":
-		if s.readOnly || s.planCtl.Planning() || s.chatReadOnly {
-			return errResult("denied: artifact delete isn't available while planning/read-only")
-		}
 		if in.ID == "" {
 			return errResult("artifact delete needs `id` — find it with artifact{action:\"list\"}")
 		}
