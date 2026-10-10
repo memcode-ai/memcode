@@ -74,6 +74,43 @@ func (s *appState) logoutSlash() {
 	}
 }
 
+// whoamiSlash reports the signed-in memcode.ai account — live from
+// authflow.Whoami, the same memcode_ bearer every /api/cli/* call uses.
+// Local — works signed out too. Fetch runs off the UI thread (websitesSlash idiom).
+func (s *appState) whoamiSlash() {
+	if !s.w.sess.Connected() {
+		s.sysln("○ signed out — run /login to connect to memcode.ai")
+		return
+	}
+	if ep, onEndpoint := s.w.sess.Endpoint(); onEndpoint {
+		s.sysln("serving from a custom endpoint (" + ep.Name + "), not a memcode.ai account")
+		return
+	}
+	token := os.Getenv(provider.EnvAPIToken)
+	s.sysln("◆ whoami  checking…")
+	go func() {
+		id, err := authflow.Whoami(s.w.ctx, token)
+		s.rt.Dispatch(func() {
+			if err != nil {
+				s.sysln("✗ " + err.Error())
+				return
+			}
+			who := id.DisplayName
+			if who == "" {
+				who = id.Email
+			}
+			line := "signed in as " + who
+			if id.Email != "" && id.Email != who {
+				line += " (" + id.Email + ")"
+			}
+			s.sysln(line + " — gateway " + provider.APIURL())
+			if id.Org.Name != "" {
+				s.sysln("org " + id.Org.Name + " · plan " + id.Org.Plan)
+			}
+		})
+	}()
+}
+
 // signedOutNotice is the one-line gate message for anything needing the gateway.
 func (s *appState) signedOutNotice() {
 	s.sysln("○ signed out — run /login to connect to memcode.ai (this needs your account)")

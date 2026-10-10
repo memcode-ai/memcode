@@ -9,6 +9,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"html"
 	"io"
@@ -420,6 +421,49 @@ func openBrowser(url string) error {
 //     is not mistaken for the window title.
 func windowsBrowserCmd(url string) (string, []string) {
 	return "cmd", []string{"/c", "start", "", strings.ReplaceAll(url, "&", "^&")}
+}
+
+// Identity is the signed-in account, from GET {webAppURL}/api/cli/whoami.
+type Identity struct {
+	Email       string `json:"email"`
+	DisplayName string `json:"display_name"`
+	Username    string `json:"username"`
+	Org         struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+		Slug string `json:"slug"`
+		Plan string `json:"plan"`
+	} `json:"org"`
+}
+
+// Whoami asks the web app who a memcode_ bearer token belongs to.
+// Network-bound; pass a bounded context.
+func Whoami(ctx context.Context, token string) (Identity, error) {
+	if token == "" {
+		return Identity{}, fmt.Errorf("not signed in")
+	}
+	webAppURL := envOr("MEMCODE_WEB_APP_URL", DefaultWebAppURL)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, webAppURL+"/api/cli/whoami", nil)
+	if err != nil {
+		return Identity{}, err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := (&http.Client{Timeout: 10 * time.Second}).Do(req)
+	if err != nil {
+		return Identity{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusUnauthorized {
+		return Identity{}, fmt.Errorf("token invalid or revoked — run /login again")
+	}
+	if resp.StatusCode != http.StatusOK {
+		return Identity{}, fmt.Errorf("whoami returned %s", resp.Status)
+	}
+	var id Identity
+	if err := json.NewDecoder(resp.Body).Decode(&id); err != nil {
+		return Identity{}, err
+	}
+	return id, nil
 }
 
 // SetGlobalEnv writes key=value pairs into the global env file

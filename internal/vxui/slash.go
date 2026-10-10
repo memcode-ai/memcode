@@ -2,8 +2,7 @@ package vxui
 
 import "strings"
 
-// slashCmd is one entry in the `/` autocomplete menu. Mirrors the catalog in internal/tui;
-// kept here so the vaxis renderer is self-contained until the two are unified at cutover.
+// slashCmd is one entry in the `/` autocomplete menu.
 // local marks commands that work SIGNED OUT (mandatory login): everything that
 // never needs the gateway — display, session bookkeeping, local job control,
 // and the login flow itself. Gateway/LLM-backed commands are gated in runSlash.
@@ -16,6 +15,8 @@ var slashCommands = []slashCmd{
 	{"/help", "show commands", true},
 	{"/login", "sign in to memcode.ai", true},
 	{"/logout", "sign out of this machine", true},
+	{"/whoami", "show the signed-in memcode account", true},
+	{"/web", "open memcode.ai in your browser", true},
 	{"/advisor", "outside second opinion (Claude Opus)", false},
 	{"/next", "highest-value next move", false},
 	{"/recap", "recap this session", false},
@@ -88,7 +89,7 @@ var slashAliases = map[string]string{
 // bookkeeping, auth, and model choice. Coding-session commands (plan, jobs,
 // dispatch, rewind, …) don't exist there.
 var adminSlash = map[string]bool{
-	"/help": true, "/login": true, "/logout": true, "/doctor": true,
+	"/help": true, "/login": true, "/logout": true, "/whoami": true, "/doctor": true,
 	"/status": true, "/mode": true, "/theme": true, "/personality": true,
 	"/effort": true, "/model": true, "/apikeys": true, "/cost": true,
 	"/costp": true, "/costby": true, "/debug": true, "/compact": true,

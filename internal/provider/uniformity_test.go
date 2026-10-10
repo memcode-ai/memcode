@@ -183,6 +183,12 @@ func TestBackendUniformity(t *testing.T) {
 	t.Setenv(provider.EnvEndpointURL, "")
 	t.Setenv(provider.EnvEndpointKey, "")
 	t.Setenv(provider.EnvEndpointModel, "")
+	// Clear the attached-subscription consent list too: an ambient
+	// MEMCODE_CREDENTIALS (e.g. a developer's real `memcode auth use claude`)
+	// would otherwise attach a real claude-sub lane and siphon turns away
+	// from the fake gateway this test asserts against.
+	t.Setenv(provider.EnvCredentials, "")
+	t.Setenv(provider.EnvCredentialSource, "")
 
 	prov := provider.NewFromEnvLazy()
 	if _, onEP := prov.Endpoint(); onEP {

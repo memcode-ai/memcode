@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/memcode-ai/memcode/internal/authflow"
 	"github.com/memcode-ai/memcode/internal/provider"
 	"github.com/memcode-ai/memcode/internal/subscription/claudesub"
 	"github.com/memcode-ai/memcode/internal/subscription/codex"
@@ -87,6 +88,20 @@ var authStatusCmd = &cobra.Command{
 		loggedIn := strings.TrimSpace(os.Getenv(provider.EnvAPIToken)) != ""
 		if loggedIn {
 			fmt.Printf("  Signed in to a memcode account (serves every model family).\n")
+			if id, err := authflow.Whoami(cmd.Context(), os.Getenv(provider.EnvAPIToken)); err == nil {
+				who := id.DisplayName
+				if who == "" {
+					who = id.Email
+				}
+				fmt.Printf("    as %s", who)
+				if id.Email != "" && id.Email != who {
+					fmt.Printf(" (%s)", id.Email)
+				}
+				fmt.Println()
+				if id.Org.Name != "" {
+					fmt.Printf("    org %s · plan %s\n", id.Org.Name, id.Org.Plan)
+				}
+			}
 		}
 		for _, src := range attached {
 			state := "active"

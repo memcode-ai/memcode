@@ -168,6 +168,65 @@ func TestRunCancel(t *testing.T) {
 	}
 }
 
+// TestWhoami covers the Whoami client against a fake /api/cli/whoami: a
+// 200 decodes into Identity, a 401 surfaces the "run /login again" error,
+// and any other non-200 is wrapped.
+func TestWhoami(t *testing.T) {
+	mux := http.NewServeMux()
+	var status int
+	var body string
+	mux.HandleFunc("/api/cli/whoami", func(w http.ResponseWriter, r *http.Request) {
+		if auth := r.Header.Get("Authorization"); auth != "Bearer memcode_test" {
+			t.Errorf("unexpected Authorization header: %q", auth)
+		}
+		w.WriteHeader(status)
+		w.Write([]byte(body))
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	t.Setenv("MEMCODE_WEB_APP_URL", server.URL)
+
+	t.Run("200 decodes identity", func(t *testing.T) {
+		status = http.StatusOK
+		body = `{"email":"a@b.com","display_name":"Ada","username":"ada","org":{"id":"org-1","name":"Acme","slug":"acme","plan":"pro"}}`
+		id, err := Whoami(context.Background(), "memcode_test")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if id.Email != "a@b.com" || id.DisplayName != "Ada" || id.Username != "ada" {
+			t.Errorf("unexpected identity: %+v", id)
+		}
+		if id.Org.Name != "Acme" || id.Org.Plan != "pro" {
+			t.Errorf("unexpected org: %+v", id.Org)
+		}
+	})
+
+	t.Run("401 surfaces login-again error", func(t *testing.T) {
+		status = http.StatusUnauthorized
+		body = `{"error":"Invalid or revoked token"}`
+		_, err := Whoami(context.Background(), "memcode_test")
+		if err == nil || !strings.Contains(err.Error(), "/login") {
+			t.Fatalf("expected a /login-again error, got %v", err)
+		}
+	})
+
+	t.Run("other non-200 is wrapped", func(t *testing.T) {
+		status = http.StatusInternalServerError
+		body = "boom"
+		_, err := Whoami(context.Background(), "memcode_test")
+		if err == nil || !strings.Contains(err.Error(), "whoami returned") {
+			t.Fatalf("expected wrapped error, got %v", err)
+		}
+	})
+
+	t.Run("empty token is not signed in", func(t *testing.T) {
+		_, err := Whoami(context.Background(), "")
+		if err == nil || !strings.Contains(err.Error(), "not signed in") {
+			t.Fatalf("expected 'not signed in' error, got %v", err)
+		}
+	})
+}
+
 // TestCallbackQueryParsing ensures the callback URL is parsed correctly for
 // edge cases (empty token, error param).
 func TestCallbackQueryParsing(t *testing.T) {

@@ -3,6 +3,8 @@ package vxui
 import (
 	"context"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,6 +19,7 @@ import (
 	"github.com/memcode-ai/memcode/internal/agent/permissions"
 	"github.com/memcode-ai/memcode/internal/agent/runtime"
 	"github.com/memcode-ai/memcode/internal/llm"
+	"github.com/memcode-ai/memcode/internal/provider"
 	"github.com/memcode-ai/memcode/internal/store"
 	"github.com/memcode-ai/memcode/internal/theme"
 	"github.com/memcode-ai/memcode/internal/todos"
@@ -599,6 +602,64 @@ func TestSlashDebugSummary(t *testing.T) {
 		}
 	}
 	_ = sess
+}
+
+// TestSlashWhoamiSignedOut: /whoami signed out shows the login nudge, not a
+// network call or "unknown command".
+func TestSlashWhoamiSignedOut(t *testing.T) {
+	_, be, runner := newSignedOutRecRunner(t)
+	now := time.Now()
+	typeSlash(runner, "/whoami", now)
+	_ = runner.HandleFrame(now)
+	rec := be.recorded()
+	if !strings.Contains(rec, "signed out") {
+		t.Fatalf("/whoami signed out must say so.\nrecorded=%q", rec)
+	}
+	if strings.Contains(rec, "unknown command") {
+		t.Fatalf("/whoami fell through to unknown-command.\nrecorded=%q", rec)
+	}
+}
+
+// TestSlashWhoamiLive: /whoami against a stubbed /api/cli/whoami reports the
+// signed-in display name and org/plan — the live authflow.Whoami round trip.
+func TestSlashWhoamiLive(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/cli/whoami", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"email":"ada@example.com","display_name":"Ada Lovelace","username":"ada","org":{"id":"org-1","name":"Acme","slug":"acme","plan":"pro"}}`))
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	t.Setenv("MEMCODE_WEB_APP_URL", server.URL)
+	t.Setenv(provider.EnvAPIToken, "memcode_live")
+
+	_, be, runner := newRecRunner(t)
+	now := time.Now()
+	typeSlash(runner, "/whoami", now)
+	// Async fetch (websitesSlash idiom) — drain dispatched closures until it lands.
+	for i := 0; i < 100 && !strings.Contains(be.recorded(), "Ada Lovelace"); i++ {
+		be.drain()
+		_ = runner.HandleFrame(now)
+		time.Sleep(5 * time.Millisecond)
+	}
+	rec := be.recorded()
+	if !strings.Contains(rec, "Ada Lovelace") {
+		t.Fatalf("/whoami missing display name.\nrecorded=%q", rec)
+	}
+	if !strings.Contains(rec, "Acme") || !strings.Contains(rec, "pro") {
+		t.Fatalf("/whoami missing org/plan.\nrecorded=%q", rec)
+	}
+}
+
+// TestSlashWeb: /web prints the memcode.ai URL (the testing.Testing() guard
+// skips the actual browser launch in CI).
+func TestSlashWeb(t *testing.T) {
+	_, be, runner := newRecRunner(t)
+	now := time.Now()
+	typeSlash(runner, "/web", now)
+	_ = runner.HandleFrame(now)
+	if !strings.Contains(be.recorded(), "https://memcode.ai") {
+		t.Fatalf("/web must mention https://memcode.ai.\nrecorded=%q", be.recorded())
+	}
 }
 
 // TestSyncPickerOpens: /sync opens the multi-select target picker (rendered in the live region,

@@ -5,12 +5,14 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"testing"
 	"time"
 
 	"github.com/memcode-ai/memcode/internal/forks/vaxis/ui"
 
 	"github.com/memcode-ai/memcode/internal/agent/permissions"
 	"github.com/memcode-ai/memcode/internal/agent/runtime"
+	"github.com/memcode-ai/memcode/internal/authflow"
 	"github.com/memcode-ai/memcode/internal/policy"
 	"github.com/memcode-ai/memcode/internal/provider"
 	"github.com/memcode-ai/memcode/internal/theme"
@@ -44,6 +46,16 @@ func (s *appState) runSlash(line string) (quit bool) {
 		s.loginSlash()
 	case "/logout":
 		s.logoutSlash()
+	case "/whoami":
+		s.whoamiSlash()
+	case "/web":
+		if testing.Testing() {
+			s.sysln("opening https://memcode.ai …")
+		} else if err := authflow.OpenBrowser("https://memcode.ai"); err != nil {
+			s.sysln("couldn't open browser automatically: " + err.Error() + "\nhttps://memcode.ai")
+		} else {
+			s.sysln("opening https://memcode.ai …")
+		}
 	case "/mode":
 		switch args {
 		case "":

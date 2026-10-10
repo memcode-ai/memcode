@@ -22,7 +22,7 @@ func reqPing() wire.Request {
 // own world exactly.
 func clearBackendEnv(t *testing.T) {
 	t.Helper()
-	for _, k := range []string{EnvAPIToken, EnvAPIURL, EnvEndpointURL, EnvEndpointKey, EnvEndpointModel} {
+	for _, k := range []string{EnvAPIToken, EnvAPIURL, EnvEndpointURL, EnvEndpointKey, EnvEndpointModel, EnvCredentials, EnvCredentialSource} {
 		t.Setenv(k, "")
 	}
 	// Ambient own-key sources select a backend too — clear them so each case
