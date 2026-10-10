@@ -130,6 +130,8 @@ func (st uiStyles) modeStyle(mode string) ui.Style {
 		return st.warn
 	case mode == "allow-all":
 		return st.danger
+	case mode == "read-only": // the most conservative state — same family as "ask"
+		return st.info
 	default: // ask
 		return st.info
 	}

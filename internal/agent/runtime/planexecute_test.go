@@ -138,6 +138,55 @@ func TestExecutePlanToolNeedsPlanMode(t *testing.T) {
 	}
 }
 
+// TestExecutePlanToolExitsReadOnly: execute_plan is itself the authorization to leave the
+// session's ambient Read Only stop — the typed "execute" instruction IS the user telling the
+// model to go, so it transitions straight into Applying with chatReadOnly cleared and the mode
+// promoted to Auto (never Ask, never a silent bypass) — and a mutating tool call that would have
+// been denied moments earlier now succeeds.
+func TestExecutePlanToolExitsReadOnly(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	root := t.TempDir()
+	s := newSess(st, captureProviderNil{}, root, "sonnet", permissions.ModeAsk, io.Discard)
+	s.chatReadOnly = true
+
+	// Sanity: a mutating call is denied BEFORE execute_plan runs.
+	if r := s.dispatch(ctx, wire.Block{Type: "tool_use", ID: "x", Name: tools.EditFile,
+		Input: json.RawMessage(`{"path":"new.txt","old_string":"","new_string":"hello"}`)}); !r.isError {
+		t.Fatalf("edit_file should be denied before execute_plan (still Read Only), got %q", r.text())
+	}
+
+	s.EnterPlan(ctx)
+	s.planCtl.Present("1. create new.txt")
+
+	r := s.executePlanTool(ctx, nil)
+	if r.isError {
+		t.Fatalf("execute_plan should succeed, got error: %s", r.text())
+	}
+	if s.chatReadOnly {
+		t.Error("execute_plan must clear chatReadOnly")
+	}
+	if !s.planCtl.IsApplying() {
+		t.Fatal("execute_plan must enter the apply phase")
+	}
+	if got := s.Mode(); got != permissions.ModeAuto {
+		t.Errorf("execute_plan must promote the mode to Auto, got %v", got)
+	}
+	if !strings.Contains(r.text(), "Read Only") {
+		t.Errorf("the tool result should narrate the Read Only exit, got %q", r.text())
+	}
+
+	// The SAME mutating call now succeeds (chatReadOnly is false, Applying is not a research phase).
+	if r := s.dispatch(ctx, wire.Block{Type: "tool_use", ID: "x", Name: tools.EditFile,
+		Input: json.RawMessage(`{"path":"new.txt","old_string":"","new_string":"hello"}`)}); r.isError {
+		t.Fatalf("edit_file should succeed after execute_plan exited Read Only, got %q", r.text())
+	}
+}
+
 // TestExecutePlanBreaksPlanTurnLoop is the regression proof for the double-execution bug:
 // once the model calls execute_plan, the plan-turn loop must END immediately and hand off to the
 // single chained apply turn — NOT keep looping. Without the break, execute_plan flips Active→false

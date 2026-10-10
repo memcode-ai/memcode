@@ -52,7 +52,7 @@ func (s *Session) artifactTool(ctx context.Context, input json.RawMessage) toolR
 
 	case "publish", "update":
 		// Plan mode and read-only sub-agents research; they don't publish.
-		if s.readOnly || s.planCtl.Planning() {
+		if s.readOnly || s.planCtl.Planning() || s.chatReadOnly {
 			return errResult("denied: artifact " + in.Action + " isn't available while planning/read-only — list is, publishing waits for execution")
 		}
 		if in.Path == "" {
@@ -105,7 +105,7 @@ func (s *Session) artifactTool(ctx context.Context, input json.RawMessage) toolR
 		return textResult(fmt.Sprintf("updated %s in place → %s", art.ID, art.URL))
 
 	case "delete":
-		if s.readOnly || s.planCtl.Planning() {
+		if s.readOnly || s.planCtl.Planning() || s.chatReadOnly {
 			return errResult("denied: artifact delete isn't available while planning/read-only")
 		}
 		if in.ID == "" {

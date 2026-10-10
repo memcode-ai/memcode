@@ -611,6 +611,10 @@ func (s *appState) startTurn() {
 			})
 			s.refreshFooter()
 			if yolo {
+				// An explicit execute instruction (yolo) IS the authorization to leave Read
+				// Only — hardcoded Auto, never Ask (the no-selector-bypass rule: default to
+				// Auto, announce, centralize).
+				s.exitReadOnlyForExecution(permissions.ModeAuto)
 				s.planExecute() // yolo: skip the selector, run the plan
 			} else if step := s.planAutoStep; step != "" {
 				// mode=always: the user asked for this every time, so run it
@@ -996,17 +1000,45 @@ func (s *appState) clampedSel(n int) int {
 	return s.slashSel
 }
 
+// modeLabel is the mode segment's text: the persisted permission mode, or "read-only"
+// when the session's ambient Read Only stop is active, or "plan"/"plan+auto" when plan
+// mode overrides everything (plan always wins display when both are true). Shared by the
+// footer chrome and /mode's echo so they can't drift.
+func (s *appState) modeLabel() string {
+	mode := string(s.w.sess.Mode())
+	if s.w.sess.ReadOnlyChat() {
+		mode = "read-only"
+	}
+	if s.w.sess.Planning() {
+		mode = "plan"
+		if s.w.sess.PlanYolo() {
+			mode = "plan+auto"
+		}
+	}
+	return mode
+}
+
+// cycleMode advances the Shift+Tab / `/mode` stop: ask → auto → allow-all → read-only →
+// ask. The first three are the persisted permission mode (setMode); read-only is a 4th,
+// PURE session-state stop layered on top — entering/leaving it never touches config (see
+// setReadOnlyChat). Wrapping from read-only back to ask clears it and resets the mode.
 func (s *appState) cycleMode() {
-	next := permissions.ModeAsk
+	if s.w.sess.ReadOnlyChat() {
+		s.setReadOnlyChat(false)
+		s.setMode(permissions.ModeAsk)
+		s.SetState(func() {})
+		return
+	}
 	switch s.w.sess.Mode() {
 	case permissions.ModeAsk:
-		next = permissions.ModeAuto
+		s.setMode(permissions.ModeAuto)
 	case permissions.ModeAuto:
-		next = permissions.ModeAllowAll
+		s.setMode(permissions.ModeAllowAll)
 	case permissions.ModeAllowAll:
-		next = permissions.ModeAsk
+		s.setReadOnlyChat(true)
+	default:
+		s.setMode(permissions.ModeAsk)
 	}
-	s.setMode(next)
 	s.SetState(func() {})
 }
 
@@ -1016,6 +1048,25 @@ func (s *appState) cycleMode() {
 func (s *appState) setMode(m permissions.Mode) {
 	s.w.sess.SetMode(m)
 	s.updateConfig(func(cfg *config.Config) { cfg.Mode = string(m) })
+}
+
+// setReadOnlyChat flips the session's ambient Read Only state. UNLIKE setMode, this is a
+// PURE in-memory toggle — it never persists to config and never survives a restart. The
+// remembered Shift+Tab/`/mode` default stays whatever ask/auto/allow-all it was; Read Only
+// rides on top of it for this session only.
+func (s *appState) setReadOnlyChat(on bool) {
+	s.w.sess.SetReadOnlyChat(on)
+}
+
+// exitReadOnlyForExecution is the TUI-side half of the centralized choke point
+// (runtime.Session.ExitReadOnlyForExecution): called by every execute path that reaches
+// the apply phase (yolo auto-execute, the plan selector's explicit mode choice) so Read
+// Only can't be left by two subtly different routes. No-op (and silent) when the session
+// wasn't read-only; otherwise announces the transition to scrollback.
+func (s *appState) exitReadOnlyForExecution(mode permissions.Mode) {
+	if s.w.sess.ExitReadOnlyForExecution(mode) {
+		s.sysln("exiting Read Only → executing in " + string(mode))
+	}
 }
 
 // answerApproval replies to the blocked engine goroutine and clears the prompt.

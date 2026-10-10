@@ -237,10 +237,13 @@ func (s *Session) dispatch(ctx context.Context, u wire.Block) toolResult {
 	// is somehow proposed (they aren't advertised — see toolDefs). Bash is the
 	// exception: it's the gated inspect shell (read-only commands run, mutating ones
 	// are gated/rejected per-command in bash()).
-	if (s.readOnly || s.planCtl.Planning()) && isMutatingTool(u.Name) && u.Name != tools.Bash {
+	if (s.readOnly || s.planCtl.Planning() || s.chatReadOnly) && isMutatingTool(u.Name) && u.Name != tools.Bash {
 		who := "read-only explorer"
-		if s.planCtl.Planning() {
+		switch {
+		case s.planCtl.Planning():
 			who = "plan mode (research only — no edits until you execute)"
+		case s.chatReadOnly:
+			who = "a Read Only session (no edits until you leave Read Only — e.g. /plan then Execute)"
 		}
 		return errResult("denied: this is a " + who + " (no " + u.Name + ")")
 	}
@@ -450,13 +453,19 @@ func (s *Session) executePlanTool(ctx context.Context, _ json.RawMessage) toolRe
 	if !s.planCtl.Planning() {
 		return textResult("not in plan mode — there's no plan to execute.")
 	}
-	s.ExitPlan(ctx, true) // approved=true: pin the plan as the contract, enter the apply phase
+	exited := s.ExitReadOnlyForExecution(permissions.ModeAuto) // typed "execute" IS the authorization to leave Read Only
+	s.ExitPlan(ctx, true)                                      // approved=true: pin the plan as the contract, enter the apply phase
 	if !s.planCtl.IsApplying() {
 		// ExitPlan only arms the apply when there's a plan to run; nothing was pinned.
 		return errResult("no plan has been proposed yet — present the plan first, then execute once the user approves.")
 	}
+	note := ""
+	if exited {
+		s.toolLine(true, "Plan", "", "exiting Read Only → executing in auto", false)
+		note = " (exiting Read Only → executing in auto)"
+	}
 	s.toolLine(true, "Plan", "", "executing", false)
-	return textResult("Plan approved — entering the execution phase now. Implement the plan's steps in order.")
+	return textResult("Plan approved — entering the execution phase now" + note + ". Implement the plan's steps in order.")
 }
 
 // exploreTool spawns a read-only sub-agent to investigate one facet and returns
@@ -913,16 +922,18 @@ func (s *Session) allowTool(name string) bool {
 	}
 	if name == tools.Dispatch {
 		// Offload a discrete block to a hands-off background sub-agent. Normal chat only —
-		// never from a read-only explorer (no nesting) and never from plan mode (plan mode
-		// is research-only; dispatching a mutating agent would bypass the plan→approve gate).
-		return !s.readOnly && !s.planCtl.Planning()
+		// never from a read-only explorer (no nesting), never from plan mode (plan mode
+		// is research-only; dispatching a mutating agent would bypass the plan→approve gate),
+		// and never from a Read Only chat session (same reasoning — it would mutate while the
+		// UI still says read-only).
+		return !s.readOnly && !s.planCtl.Planning() && !s.chatReadOnly
 	}
 	if name == tools.Agent {
 		// First-class sub-agent (run-and-report-back). Executive normal chat only: not a
 		// read-only explorer, not plan mode (research-only — a mutating agent would bypass the
-		// plan→approve gate), and NOT from inside a spawned agent (purpose Agent) so it can't
-		// recursively fan out agents.
-		return !s.readOnly && !s.planCtl.Planning() && s.purpose != llm.Agent
+		// plan→approve gate), not a Read Only chat session (same reasoning), and NOT from
+		// inside a spawned agent (purpose Agent) so it can't recursively fan out agents.
+		return !s.readOnly && !s.planCtl.Planning() && !s.chatReadOnly && s.purpose != llm.Agent
 	}
 	if name == tools.RecallPlan {
 		// Read-only recall of a saved plan. Offered in normal chat AND plan mode (resuming or
@@ -1673,7 +1684,7 @@ func (s *Session) bash(ctx context.Context, input json.RawMessage) toolResult {
 	// In research contexts (plan/explore), resolve the AMBIGUOUS middle (Medium) with
 	// a cheap classify-lane check — it can confirm read-only (→ auto-run) or flag a likely
 	// mutation (→ confirm). Deterministic Safe/Dangerous are trusted as-is.
-	if !catastrophic && (s.planCtl.Planning() || s.readOnly) {
+	if !catastrophic && (s.planCtl.Planning() || s.readOnly || s.chatReadOnly) {
 		risk = s.refineRisk(ctx, in.Command, risk)
 	}
 	// Research contexts are READ-ONLY for bash too. A read-only explorer runs headless (no
@@ -1682,10 +1693,13 @@ func (s *Session) bash(ctx context.Context, input json.RawMessage) toolResult {
 	// the inspect shell WHILE STILL IN PLAN MODE, half-executing the plan and bypassing the
 	// plan→approve→apply state machine (it then re-proposes a plan over already-applied changes).
 	// So a may-mutate command is REJECTED here (reported as a step to run on execute), never run.
-	if (s.readOnly || s.planCtl.Planning()) && (risk > permissions.Safe || catastrophic) {
+	if (s.readOnly || s.planCtl.Planning() || s.chatReadOnly) && (risk > permissions.Safe || catastrophic) {
 		who := "a read-only explorer"
-		if s.planCtl.Planning() {
+		switch {
+		case s.planCtl.Planning():
 			who = "plan mode (research only — edits happen after you approve and Execute)"
+		case s.chatReadOnly:
+			who = "a Read Only session (no mutation until you leave Read Only — e.g. /plan then Execute)"
 		}
 		return errResult("denied: " + who + " runs only read-only commands — this one may modify state. Add it to the PLAN as a step to run on execute; don't run it now.")
 	}

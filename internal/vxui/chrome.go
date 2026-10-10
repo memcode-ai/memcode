@@ -155,15 +155,10 @@ func (s *appState) footerRow() ui.Widget {
 		frame := string(spinFrames[s.spin%len(spinFrames)])
 		add(fmt.Sprintf("%s %d shell%s", frame, len(sh), pluralS(len(sh))), s.sty.info)
 	}
-	// Plan mode is a distinct state from the permission mode (auto/allow-all/ask) and overrides the
-	// segment when active — otherwise the footer reads "auto" while you're actually planning.
-	mode := string(s.w.sess.Mode())
-	if s.w.sess.Planning() {
-		mode = "plan"
-		if s.w.sess.PlanYolo() {
-			mode = "plan+auto"
-		}
-	}
+	// Plan mode is a distinct state from the permission mode (auto/allow-all/ask) — and so is
+	// the ambient Read Only stop — and both override the segment when active (modeLabel wins
+	// in that order), otherwise the footer reads "auto" while you're actually planning/read-only.
+	mode := s.modeLabel()
 	add(mode, s.sty.modeStyle(mode))
 	return ui.RichText{Spans: spans}
 }

@@ -18,6 +18,7 @@ import (
 
 	"github.com/memcode-ai/memcode/internal/agent/permissions"
 	"github.com/memcode-ai/memcode/internal/agent/runtime"
+	"github.com/memcode-ai/memcode/internal/config"
 	"github.com/memcode-ai/memcode/internal/llm"
 	"github.com/memcode-ai/memcode/internal/provider"
 	"github.com/memcode-ai/memcode/internal/store"
@@ -176,6 +177,67 @@ func TestShiftTabCyclesMode(t *testing.T) {
 
 	if got := sess.Mode(); got != permissions.ModeAllowAll {
 		t.Fatalf("Shift+Tab didn't cycle the mode: got %v, want ModeAllowAll (Auto -> AllowAll)", got)
+	}
+}
+
+// TestShiftTabReadOnlyStop drives all 4 Shift+Tab hops (ask -> auto -> allow-all ->
+// read-only -> ask) through the same real ui.App dispatch, asserting the 4th stop flips
+// ReadOnlyChat() and the 5th (wraparound) clears it and resets the mode to Ask — and that
+// entering/leaving Read Only is NEVER written to the on-disk config (unlike the persisted
+// ask/auto/allow-all mode, which IS written on every one of its own hops).
+func TestShiftTabReadOnlyStop(t *testing.T) {
+	theme.Set("aurora")
+	sess := newTestSession(t)
+	if _, err := config.Init(sess.Root(), false); err != nil { // a real session always has an initialized .memcode
+		t.Fatalf("config.Init: %v", err)
+	}
+	root := &appWidget{ctx: context.Background(), sess: sess, themeName: "aurora"}
+	app := ui.NewApp(root, ui.WithDynamicPrimaryScreen(), ui.WithTheme(uiTheme(theme.Active().Palette)), ui.WithShortcuts(ui.ShortcutMap{}))
+	be := &recBackend{ev: make(chan ui.Event)}
+	runner := ui.NewRunner(app, be, nil)
+	now := time.Now()
+	runner.Start(now)
+	_ = runner.HandleFrame(now)
+
+	shiftTab := func() {
+		runner.HandleEvent(vaxis.Key{Keycode: vaxis.KeyTab, Modifiers: vaxis.ModShift}, now)
+		_ = runner.HandleFrame(now)
+	}
+	loadCfg := func() *config.Config {
+		cfg, err := config.Load(sess.Root())
+		if err != nil {
+			t.Fatalf("config.Load: %v", err)
+		}
+		return cfg
+	}
+
+	shiftTab() // auto -> allow-all (persisted)
+	if got := sess.Mode(); got != permissions.ModeAllowAll {
+		t.Fatalf("hop 1: mode = %v, want ModeAllowAll", got)
+	}
+	if sess.ReadOnlyChat() {
+		t.Fatalf("hop 1: ReadOnlyChat should still be false")
+	}
+
+	// hop 2: allow-all -> read-only — the 4th stop. A PURE session flip: config.Mode
+	// must NOT change (no write-back of any kind for Read Only).
+	cfgBefore := loadCfg()
+	shiftTab()
+	if !sess.ReadOnlyChat() {
+		t.Fatalf("hop 2: didn't enter Read Only on the 4th stop")
+	}
+	cfgAfter := loadCfg()
+	if cfgBefore.Mode != cfgAfter.Mode {
+		t.Fatalf("entering Read Only wrote to config: before=%q after=%q", cfgBefore.Mode, cfgAfter.Mode)
+	}
+
+	// hop 3: read-only -> ask (wraparound) — clears ReadOnlyChat and resets the mode.
+	shiftTab()
+	if sess.ReadOnlyChat() {
+		t.Fatalf("hop 3: didn't clear Read Only on wraparound")
+	}
+	if got := sess.Mode(); got != permissions.ModeAsk {
+		t.Fatalf("hop 3: mode = %v, want ModeAsk", got)
 	}
 }
 

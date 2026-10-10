@@ -442,6 +442,9 @@ func (s *Session) runTurn(ctx context.Context, st *ChatState, b input.Bundle) {
 	if s.memoryMd != "" { // durable memory (global + project) rides every turn as background facts
 		base = base.withExtra(s.memoryMd)
 	}
+	if s.chatReadOnly { // the Shift+Tab / /mode "Read Only" stop: investigate freely, mutate nothing
+		base = base.withExtra("You are in a READ ONLY session: edit_file/apply_patch, bash (any mutating command), todo, artifact publish/update/delete, dispatch, and agent are all UNAVAILABLE this turn — they will be denied if called. You can still investigate/search/browse/reason and answer questions. If the user wants real changes made, use /plan: the plan selector offers leaving Read Only to execute it.")
+	}
 	if blk := supplementalBlock(s.supplemental); blk != "" { // caller-supplied context (agent runtime); empty for CLI
 		base = base.withExtra(blk)
 	}

@@ -61,12 +61,15 @@ func (s *appState) runSlash(line string) (quit bool) {
 		case "":
 			s.cycleMode()
 		case "ask", "auto", "allow-all":
+			s.setReadOnlyChat(false)
 			s.setMode(permissions.Mode(args))
+		case "read-only":
+			s.setReadOnlyChat(true)
 		default:
-			s.sysln("usage: /mode ask|auto|allow-all")
+			s.sysln("usage: /mode ask|auto|allow-all|read-only")
 			return false
 		}
-		s.sysln("mode → " + string(s.w.sess.Mode()))
+		s.sysln("mode → " + s.modeLabel())
 	case "/model":
 		s.modelSlash(args)
 	case "/apikeys":
@@ -475,27 +478,64 @@ func (s *appState) planExecute() {
 	s.drainPlanDeferred(runtime.ExitExecute)
 }
 
+// planExecuteAs leaves Read Only (if active) in the given mode — the selector's explicit
+// choice between "Execute" (stays Ask) and "Execute in Auto" — then runs the normal
+// approve+execute path. planExecute() itself is unchanged: it already prints "Executing in
+// <current mode>", which is now correct because the mode was just set here, before it reads it.
+func (s *appState) planExecuteAs(mode permissions.Mode) {
+	s.exitReadOnlyForExecution(mode)
+	s.planExecute()
+}
+
 // planOptions builds the plan-ready selector: labels and their actions from ONE place, so the
 // render and the key handler can never disagree on what each index does. When the selector was
 // raised over a dirty tree (planCommitAsk), the Execute row splits into commit-first / without-
-// committing variants — the commit decision rides the selector instead of a second card.
+// committing variants — the commit decision rides the selector instead of a second card. When
+// the session is in Read Only (planCommitAsk is independent), the row ALSO splits into "Execute"
+// (stays Ask) / "Execute in Auto" — a third, orthogonal axis composed the same way, not a special
+// case bolted on. The two axes together can legitimately show 4 rows for a dirty tree + Read Only:
+// an honest rendering of two independent choices, not a bug.
 func (s *appState) planOptions() (opts []choice, acts []func()) {
 	add := func(label string, act func()) {
 		opts = append(opts, choice{label: label})
 		acts = append(acts, act)
 	}
 	execRows := func(plain string) {
+		if !s.w.sess.ReadOnlyChat() {
+			if !s.planCommitAsk {
+				add(plain, s.planExecute)
+				return
+			}
+			add("Commit first, then execute", func() {
+				s.w.sess.CommitGateChoice(s.w.ctx, true)
+				s.planExecute()
+			})
+			add("Execute without committing", func() {
+				s.w.sess.CommitGateChoice(s.w.ctx, false)
+				s.planExecute()
+			})
+			return
+		}
 		if !s.planCommitAsk {
-			add(plain, s.planExecute)
+			add(plain, func() { s.planExecuteAs(permissions.ModeAsk) })
+			add(plain+" in Auto", func() { s.planExecuteAs(permissions.ModeAuto) })
 			return
 		}
 		add("Commit first, then execute", func() {
 			s.w.sess.CommitGateChoice(s.w.ctx, true)
-			s.planExecute()
+			s.planExecuteAs(permissions.ModeAsk)
 		})
 		add("Execute without committing", func() {
 			s.w.sess.CommitGateChoice(s.w.ctx, false)
-			s.planExecute()
+			s.planExecuteAs(permissions.ModeAsk)
+		})
+		add("Commit first, then execute in Auto", func() {
+			s.w.sess.CommitGateChoice(s.w.ctx, true)
+			s.planExecuteAs(permissions.ModeAuto)
+		})
+		add("Execute in Auto without committing", func() {
+			s.w.sess.CommitGateChoice(s.w.ctx, false)
+			s.planExecuteAs(permissions.ModeAuto)
 		})
 	}
 	// Whether review and advice are offered at all is POLICY: mode off hides

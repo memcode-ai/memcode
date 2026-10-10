@@ -107,6 +107,7 @@ type Session struct {
 	browserMu         sync.Mutex                                    // guards browserSession init/teardown/access: read-only browser tools are parallel-safe, so concurrent goroutines reach browserOrInit
 	noContext         bool                                          // cold mode: skip the ContextPack (for A/B evaluation)
 	readOnly          bool                                          // explorer mode: no edit_file/bash (a "reader" sub-agent)
+	chatReadOnly      bool                                          // ambient read-only for the main session — session-scoped only, never persisted; orthogonal to readOnly (one-shot sub-agent gate) and to plan mode
 	toolPolicy        tools.Policy                                  // agent tool policy (toolsets allow/deny); zero = unrestricted
 	browserHeadless   bool                                          // gateway/service sessions run Chrome headless (no desktop)
 	noApprover        bool                                          // detached job: no human can answer approval prompts
@@ -673,7 +674,7 @@ func (s *Session) askApproval(ctx context.Context, req ApprovalRequest) Approval
 func (s *Session) effectiveMode() permissions.Mode {
 	// Plan mode is a read-only inspect shell: auto-run only Safe commands; anything
 	// that may mutate must be approved — even under auto/allow-all.
-	if s.planCtl.Planning() {
+	if s.planCtl.Planning() || s.chatReadOnly {
 		return permissions.ModeAsk
 	}
 	s.modeMu.RLock()

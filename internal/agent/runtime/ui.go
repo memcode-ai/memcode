@@ -217,6 +217,31 @@ func (s *Session) SetNoApprover(on bool) { s.noApprover = on }
 // cannot be reached at all.
 func (s *Session) SetReadOnly(on bool) { s.readOnly = on }
 
+// SetReadOnlyChat toggles the main session's ambient Read Only state (the
+// Shift+Tab / `/mode` 4th stop): a hard "nothing may mutate" guarantee for as
+// long as it's on. Session-scoped only — never persisted, never written to
+// config. Distinct from SetReadOnly (a one-shot sub-agent capability gate);
+// this is the main interactive session's own switch.
+func (s *Session) SetReadOnlyChat(on bool) { s.chatReadOnly = on }
+
+// ReadOnlyChat reports whether the main session is currently in Read Only.
+func (s *Session) ReadOnlyChat() bool { return s.chatReadOnly }
+
+// ExitReadOnlyForExecution is the ONLY place Read Only is lifted to let real writes
+// through. Called by every path that reaches the apply phase — the plan selector's
+// explicit mode choice, /yolo's auto-execute, and executePlanTool's typed "execute" —
+// so they can't drift into subtly different exits. A session-only transition
+// (like a one-off --auto/--allow-all flag, not a remembered Shift+Tab/`/mode` choice):
+// it does NOT persist. Returns false (no-op) when the session wasn't read-only.
+func (s *Session) ExitReadOnlyForExecution(mode permissions.Mode) bool {
+	if !s.chatReadOnly {
+		return false
+	}
+	s.chatReadOnly = false
+	s.SetMode(mode)
+	return true
+}
+
 // SetDenyCommands installs the run's capability ceiling: shell command patterns
 // it may never execute, whatever their risk and whoever approves them. Matched
 // against the parsed AST, so wrappers and compounds cannot smuggle one past.
