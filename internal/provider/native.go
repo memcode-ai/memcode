@@ -12,6 +12,7 @@ package provider
 
 import (
 	"context"
+	"errors"
 	"net/url"
 	"strings"
 	"time"
@@ -19,6 +20,7 @@ import (
 	"github.com/memcode-ai/memcode/internal/providers/anthropic"
 	"github.com/memcode-ai/memcode/internal/providers/gemini"
 	"github.com/memcode-ai/memcode/internal/providers/openai"
+	"github.com/memcode-ai/memcode/internal/providers/provcore"
 	"github.com/memcode-ai/memcode/internal/wire"
 )
 
@@ -63,8 +65,9 @@ func nativeTurnTransport(ep Endpoint) turnTransport {
 		p := openai.NewOpenAI(ep.Key)
 		p.SetBaseURL(nativeDefaults[host])
 		p.SetExtraHeaders(ep.Headers)
-		// No web: the Codex backend rejects the non-streaming side calls.
-		return &nativeShim{prov: p, model: ep.Model}
+		// The Codex backend rejects the adapter's non-streaming web calls, so
+		// they ride its ordinary streamed turn instead.
+		return &nativeShim{prov: p, model: ep.Model, web: turnWeb{t: p, model: ep.Model}}
 	case "api.x.ai":
 		p := openai.NewGrok(ep.Key)
 		if override != "" {
@@ -150,3 +153,30 @@ func (n *nativeShim) Stream(ctx context.Context, r wire.Request, h wire.StreamHa
 func (n *nativeShim) SetRetryNotify(func(attempt int, err error, delay time.Duration)) {}
 
 var _ turnTransport = (*nativeShim)(nil)
+
+// turnWeb serves web search as an ordinary streamed turn carrying the native
+// web_search tool, for backends that accept nothing else (the Codex
+// subscription). The adapter swaps the tool for its vendor's built-in search.
+type turnWeb struct {
+	t     nativeProvider
+	model string
+}
+
+func (w turnWeb) WebSearch(ctx context.Context, query string) (string, wire.Response, error) {
+	resp, err := w.t.Stream(ctx, wire.Request{
+		Model:    w.model,
+		System:   provcore.WebSearchSystemPrompt,
+		Messages: []wire.Message{{Role: "user", Blocks: []wire.Block{wire.TextBlock(query)}}},
+		Tools:    []wire.ToolDef{{Name: provcore.WebSearchToolName}},
+	}, wire.StreamHandler{})
+	return strings.TrimSpace(resp.Text()), resp, err
+}
+
+// WebFetch declines: asked to return a page's content, the model refuses
+// (live-tested on Codex). The runtime then reads the page with its own local
+// HTTP fetch, which also keeps the call off the gateway.
+func (w turnWeb) WebFetch(context.Context, string) (string, wire.Response, error) {
+	return "", wire.Response{}, errTurnWebFetch
+}
+
+var errTurnWebFetch = errors.New("web fetch is not served on this subscription; reading the page directly")

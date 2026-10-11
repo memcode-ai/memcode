@@ -724,7 +724,7 @@ func (a *Anthropic) WebFetch(ctx context.Context, url string) (string, wire.Resp
 			{
 				Role: anthropicsdk.MessageParamRoleUser,
 				Content: []anthropicsdk.ContentBlockParamUnion{
-					{OfText: &anthropicsdk.TextBlockParam{Text: "Fetch this URL and return its full readable content verbatim as markdown, no commentary: " + url}},
+					{OfText: &anthropicsdk.TextBlockParam{Text: "Use the web_fetch tool to fetch this URL: " + url}},
 				},
 			},
 		},
@@ -755,6 +755,7 @@ func (a *Anthropic) WebFetch(ctx context.Context, url string) (string, wire.Resp
 	// Same citation-boundary splitting as WebSearch above (see the comment there) — join
 	// fragments directly, no inserted separator.
 	var doc, text strings.Builder
+	fetched := false
 	for _, cu := range msg.Content {
 		switch v := cu.AsAny().(type) {
 		case anthropicsdk.TextBlock:
@@ -766,10 +767,17 @@ func (a *Anthropic) WebFetch(ctx context.Context, url string) (string, wire.Resp
 			// (a text source holds the readable content verbatim; a base64/PDF
 			// source has no inline text to prefer). Error results carry no
 			// document — the model's text fallback below explains the failure.
-			if fetched := v.Content.AsResponseWebFetchResultBlock(); fetched.Content.Source.Type == "text" {
-				doc.WriteString(fetched.Content.Source.Data)
+			fetched = true
+			if res := v.Content.AsResponseWebFetchResultBlock(); res.Content.Source.Type == "text" {
+				doc.WriteString(res.Content.Source.Data)
 			}
 		}
+	}
+	if !fetched {
+		// The model answered without calling the tool (live: a refusal to
+		// reproduce the page). That text is not the page; failing lets the
+		// caller read the page directly.
+		return "", anthropicSideUsage(msg), fmt.Errorf("anthropic web_fetch: the model did not fetch %s", url)
 	}
 	if strings.TrimSpace(doc.String()) != "" {
 		return strings.TrimSpace(doc.String()), anthropicSideUsage(msg), nil

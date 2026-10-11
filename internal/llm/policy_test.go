@@ -244,6 +244,31 @@ func TestFallbackWalkOnModelError(t *testing.T) {
 	}
 }
 
+// subLaner is a scriptedProv with a Claude subscription lane attached.
+type subLaner struct{ *scriptedProv }
+
+func (subLaner) Lanes() []provider.LaneInfo {
+	return []provider.LaneInfo{{Vendor: "anthropic", Name: "claude-sub", Kind: "sub"}}
+}
+func (subLaner) GatewayPresent() bool { return true }
+
+// Plumbing kept on the subscription stays there when it fails: haiku's
+// declared fallback (luna, another vendor via the gateway) is the leak the
+// subscription routing exists to stop.
+func TestSubscriptionUtilityNeverWalksOffTheSubscription(t *testing.T) {
+	p := &scriptedProv{failures: map[string]error{"haiku": errors.New("anthropic http 500: boom")}}
+	r := NewRunner(subLaner{p})
+	r.sel.fetch = func(context.Context) (provider.ModelsInfo, error) { return prodInfo(nil), nil }
+	r.SetPin("opus")
+
+	if _, err := r.Complete(context.Background(), Classify, userReq("hi")); err == nil {
+		t.Fatal("the subscription failure must surface")
+	}
+	if len(p.requested) != 1 || p.requested[0] != "haiku" {
+		t.Fatalf("walk = %v, want [haiku] only", p.requested)
+	}
+}
+
 func TestFallbackNeverTouchesTerminalErrors(t *testing.T) {
 	for _, sentinel := range []error{wire.ErrInsufficientCredit, wire.ErrByokKeyFailed,
 		wire.ErrContextOverflow, wire.ErrStreamIncomplete, wire.ErrUnauthorized} {

@@ -103,6 +103,9 @@ type resolved struct {
 	pinned bool   // the user's explicit /model choice served as-is
 	reason string // client-side absorb reason ("vision" | "document" | "context_overflow") for the ⇄ line
 	err    error  // turn-fatal capability refusal (no capable lane reachable)
+	// subOnly: plumbing kept on the user's subscription. Its failure surfaces
+	// instead of walking the fallback chain onto another vendor's model.
+	subOnly bool
 }
 
 // utilityPurposes are the internal-plumbing purposes that never ride the pin:
@@ -140,7 +143,7 @@ func resolveHosted(it wire.Intent, req wire.Request, info provider.ModelsInfo) r
 		// provider or its fallback was down or out of credit.
 		if v := catalog.ModelVendor(it.Pin); v != "" && info.SubVendors[v] {
 			if u := catalog.SubscriptionUtilityModel(v); u != "" {
-				return resolved{label: u}
+				return resolved{label: u, subOnly: true}
 			}
 		}
 		if u := catalog.UtilityModel(); u != "" {

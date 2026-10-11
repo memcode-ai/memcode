@@ -37,8 +37,10 @@ func TestSideChannelsCarryTheOAuthShape(t *testing.T) {
 	if _, _, err := c.WebSearch(context.Background(), "q"); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := c.WebFetch(context.Background(), "https://example.com"); err != nil {
-		t.Fatal(err)
+	// The fake answers with text and no fetch result, like a live refusal: that
+	// text is not the page, so it must come back as an error.
+	if doc, _, err := c.WebFetch(context.Background(), "https://example.com"); err == nil {
+		t.Fatalf("a reply without a fetch result must fail, got %q", doc)
 	}
 	for i, sys := range systems {
 		if len(sys) == 0 || sys[0] != claudeCodeSystemPrefix {

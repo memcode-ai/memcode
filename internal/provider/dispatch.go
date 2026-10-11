@@ -64,8 +64,8 @@ func WithPin(ctx context.Context, label string) context.Context {
 }
 
 // laneWeb returns the web side channel of the lane that serves the pin stamped
-// on ctx, nil when there is no pin, no lane of its vendor, or the lane can't
-// serve web calls (the Codex backend). nil keeps the gateway side channel.
+// on ctx, nil when there is no pin or no lane of its vendor. nil keeps the
+// gateway side channel.
 func (l *Lazy) laneWeb(ctx context.Context) nativeWeb {
 	pin, _ := ctx.Value(pinCtxKey{}).(string)
 	if pin == "" {

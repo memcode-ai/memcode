@@ -189,7 +189,7 @@ func (r *Runner) runWithRecovery(ctx context.Context, req wire.Request, res reso
 		if billingClass(err) {
 			r.sel.Invalidate() // credits/keys state just changed under us
 		}
-		if ctx.Err() != nil || terminalForFallback(err) || emitted() || attempt >= maxModelFallbacks {
+		if ctx.Err() != nil || terminalForFallback(err) || emitted() || attempt >= maxModelFallbacks || res.subOnly {
 			return resp, err
 		}
 		next := nextFallback(label, tried, req, info)

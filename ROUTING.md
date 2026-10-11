@@ -64,8 +64,8 @@ When the pin is served by an attached subscription (a Claude Pro/Max login), plu
 stays on that subscription: `utility_models` maps the vendor to its small model
 (`anthropic` → `haiku`), which rides the same lane as the pin. Web search and fetch
 follow the pin onto its lane the same way. Neither leaks to the gateway's utility vendor
-while the user is on a subscription they chose. The Codex lane can't serve the web side
-calls, so those stay on the gateway.
+while the user is on a subscription they chose, and a failed plumbing call on a
+subscription surfaces rather than falling back to another vendor.
 
 **2. Infrastructure failure.** See below.
 
