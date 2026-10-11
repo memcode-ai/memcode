@@ -218,3 +218,167 @@ func TestReadMetaMissing(t *testing.T) {
 		t.Fatalf("want pull hint, got %v", err)
 	}
 }
+
+func TestDelete(t *testing.T) {
+	var gotMethod, gotPath string
+	c, _ := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requireBearer(t, r)
+		gotMethod, gotPath = r.Method, r.URL.Path
+		json.NewEncoder(w).Encode(map[string]any{"success": true})
+	}))
+	if err := c.Delete(context.Background(), "s9"); err != nil {
+		t.Fatal(err)
+	}
+	if gotMethod != http.MethodDelete || gotPath != "/api/website/s9" {
+		t.Fatalf("got %s %s", gotMethod, gotPath)
+	}
+}
+
+func TestUpdate(t *testing.T) {
+	cases := []struct {
+		name     string
+		namePtr  *string
+		modelPtr *string
+		wantErr  bool
+		wantBody string
+	}{
+		{name: "both fields", namePtr: strPtr("New Name"), modelPtr: strPtr("claude-sonnet-5"), wantBody: `{"model":"claude-sonnet-5","name":"New Name"}`},
+		{name: "name only", namePtr: strPtr("New Name"), wantBody: `{"name":"New Name"}`},
+		{name: "neither set is an error", wantErr: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.wantErr {
+				c, _ := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					t.Fatal("must not hit the network when nothing is set")
+				}))
+				if _, err := c.Update(context.Background(), "s9", tc.namePtr, tc.modelPtr); err == nil {
+					t.Fatal("want error")
+				}
+				return
+			}
+			var gotBody []byte
+			var gotMethod, gotPath string
+			c, _ := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				requireBearer(t, r)
+				gotMethod, gotPath = r.Method, r.URL.Path
+				gotBody, _ = io.ReadAll(r.Body)
+				json.NewEncoder(w).Encode(map[string]any{
+					"website": Site{ID: "s9", Slug: "cafe", Name: "New Name"},
+				})
+			}))
+			site, err := c.Update(context.Background(), "s9", tc.namePtr, tc.modelPtr)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if site.Slug != "cafe" {
+				t.Fatalf("site %+v", site)
+			}
+			if gotMethod != http.MethodPatch || gotPath != "/api/website/s9" {
+				t.Fatalf("got %s %s", gotMethod, gotPath)
+			}
+			if strings.TrimSpace(string(gotBody)) != tc.wantBody {
+				t.Fatalf("body = %s, want %s", gotBody, tc.wantBody)
+			}
+		})
+	}
+}
+
+func strPtr(s string) *string { return &s }
+
+func TestPreview(t *testing.T) {
+	var sawPreviewToken bool
+	c, _ := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requireBearer(t, r)
+		switch {
+		case r.URL.Path == "/api/website/s9" && r.Method == http.MethodGet:
+			json.NewEncoder(w).Encode(map[string]any{
+				"website": Site{ID: "s9", Slug: "cafe", LiveURL: "https://cafe.memcode.app"},
+			})
+		case r.URL.Path == "/api/website/s9/preview-token" && r.Method == http.MethodPost:
+			sawPreviewToken = true
+			json.NewEncoder(w).Encode(map[string]any{"token": "tok123", "expiresInSeconds": 21600})
+		default:
+			t.Fatalf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	url, err := c.Preview(context.Background(), "s9")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !sawPreviewToken {
+		t.Fatal("never minted a preview token")
+	}
+	want := "https://preview--cafe.memcode.app/?__memcode_token=tok123"
+	if url != want {
+		t.Fatalf("got %q, want %q", url, want)
+	}
+}
+
+func TestPreviewRequiresLiveURL(t *testing.T) {
+	c, _ := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{"website": Site{ID: "s9", Slug: "cafe"}})
+	}))
+	if _, err := c.Preview(context.Background(), "s9"); err == nil {
+		t.Fatal("want error for a site with no live URL yet")
+	}
+}
+
+func TestAssetsListUploadDelete(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "brochure.pdf")
+	if err := os.WriteFile(file, []byte("%PDF-fake"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var uploadedBody []byte
+	var uploadedContentType string
+	var deletedPath string
+	c, _ := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requireBearer(t, r)
+		switch {
+		case r.URL.Path == "/api/website/s9/assets" && r.Method == http.MethodGet:
+			json.NewEncoder(w).Encode(map[string]any{
+				"assets": []Asset{{Name: "brochure.pdf", Size: 9, URL: "https://cafe.memcode.app/assets/brochure.pdf"}},
+			})
+		case r.URL.Path == "/api/website/s9/assets" && r.Method == http.MethodPost:
+			uploadedContentType = r.Header.Get("Content-Type")
+			uploadedBody, _ = io.ReadAll(r.Body)
+			json.NewEncoder(w).Encode(Asset{Name: "brochure.pdf", Size: 9, URL: "https://cafe.memcode.app/assets/brochure.pdf"})
+		case r.Method == http.MethodDelete:
+			deletedPath = r.URL.Path
+			json.NewEncoder(w).Encode(map[string]any{"success": true})
+		default:
+			t.Fatalf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+	}))
+
+	list, err := c.ListAssets(context.Background(), "s9")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 1 || list[0].Name != "brochure.pdf" {
+		t.Fatalf("list %+v", list)
+	}
+
+	asset, err := c.UploadAsset(context.Background(), "s9", file, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if asset.Name != "brochure.pdf" {
+		t.Fatalf("uploaded %+v", asset)
+	}
+	if !strings.HasPrefix(uploadedContentType, "multipart/form-data") {
+		t.Fatalf("content-type %q", uploadedContentType)
+	}
+	if !strings.Contains(string(uploadedBody), "%PDF-fake") {
+		t.Fatalf("multipart body missing file bytes: %q", uploadedBody)
+	}
+
+	if err := c.DeleteAsset(context.Background(), "s9", "brochure.pdf"); err != nil {
+		t.Fatal(err)
+	}
+	if deletedPath != "/api/website/s9/assets/brochure.pdf" {
+		t.Fatalf("deleted path %q", deletedPath)
+	}
+}

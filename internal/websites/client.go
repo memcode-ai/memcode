@@ -16,7 +16,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -52,6 +54,14 @@ type Site struct {
 type Meta struct {
 	SiteID string `json:"site_id"`
 	Slug   string `json:"slug"`
+}
+
+// Asset is one uploaded file in the site's durable assets/ prefix — a
+// sibling of the build output, never touched by a rebuild.
+type Asset struct {
+	Name string `json:"name"`
+	Size int64  `json:"size"`
+	URL  string `json:"url,omitempty"`
 }
 
 // Client is an authenticated memcode.ai websites client.
@@ -220,6 +230,156 @@ func (c *Client) Publish(ctx context.Context, siteID string) (string, error) {
 // Unpublish takes the site offline.
 func (c *Client) Unpublish(ctx context.Context, siteID string) error {
 	_, err := c.do(ctx, http.MethodPost, "/api/website/"+siteID+"/unpublish", nil, "")
+	return err
+}
+
+// Delete soft-deletes the site: it stops serving and disappears from the org.
+func (c *Client) Delete(ctx context.Context, siteID string) error {
+	_, err := c.do(ctx, http.MethodDelete, "/api/website/"+siteID, nil, "")
+	return err
+}
+
+// Update patches the site's name and/or model. Either pointer may be nil to
+// leave that field untouched; at least one must be set.
+func (c *Client) Update(ctx context.Context, siteID string, name, model *string) (Site, error) {
+	if name == nil && model == nil {
+		return Site{}, fmt.Errorf("nothing to update")
+	}
+	body := map[string]any{}
+	if name != nil {
+		body["name"] = *name
+	}
+	if model != nil {
+		body["model"] = *model
+	}
+	raw, err := json.Marshal(body)
+	if err != nil {
+		return Site{}, err
+	}
+	resp, err := c.do(ctx, http.MethodPatch, "/api/website/"+siteID, bytes.NewReader(raw), "application/json")
+	if err != nil {
+		return Site{}, err
+	}
+	var wrapped struct {
+		Website Site `json:"website"`
+	}
+	if err := json.Unmarshal(resp, &wrapped); err != nil {
+		return Site{}, fmt.Errorf("decoding updated site: %w", err)
+	}
+	return wrapped.Website, nil
+}
+
+// getSite fetches one site by id (not slug), including its live URL.
+func (c *Client) getSite(ctx context.Context, siteID string) (Site, error) {
+	raw, err := c.do(ctx, http.MethodGet, "/api/website/"+siteID, nil, "")
+	if err != nil {
+		return Site{}, err
+	}
+	var wrapped struct {
+		Website Site `json:"website"`
+	}
+	if err := json.Unmarshal(raw, &wrapped); err != nil {
+		return Site{}, fmt.Errorf("decoding site: %w", err)
+	}
+	return wrapped.Website, nil
+}
+
+// Preview mints a short-lived draft-preview URL: preview--{slug}.{apex},
+// carrying the token website-host's draft serving path checks. Mirrors the
+// exact construction the web app's UI does from the same /preview-token
+// response — there is no separate CLI auth scheme.
+func (c *Client) Preview(ctx context.Context, siteID string) (string, error) {
+	site, err := c.getSite(ctx, siteID)
+	if err != nil {
+		return "", err
+	}
+	if site.LiveURL == "" {
+		return "", fmt.Errorf("site has no URL yet — has it been built?")
+	}
+	raw, err := c.do(ctx, http.MethodPost, "/api/website/"+siteID+"/preview-token", nil, "")
+	if err != nil {
+		return "", err
+	}
+	var tok struct {
+		Token string `json:"token"`
+	}
+	if err := json.Unmarshal(raw, &tok); err != nil || tok.Token == "" {
+		return "", fmt.Errorf("decoding preview token")
+	}
+	u, err := url.Parse(site.LiveURL)
+	if err != nil {
+		return "", fmt.Errorf("parsing site URL %q: %w", site.LiveURL, err)
+	}
+	parts := strings.SplitN(u.Host, ".", 2)
+	if len(parts) != 2 {
+		return "", fmt.Errorf("unexpected site URL host %q", u.Host)
+	}
+	preview := url.URL{
+		Scheme:   u.Scheme,
+		Host:     "preview--" + parts[0] + "." + parts[1],
+		Path:     "/",
+		RawQuery: "__memcode_token=" + tok.Token,
+	}
+	return preview.String(), nil
+}
+
+// ListAssets returns the site's durable uploaded assets.
+func (c *Client) ListAssets(ctx context.Context, siteID string) ([]Asset, error) {
+	raw, err := c.do(ctx, http.MethodGet, "/api/website/"+siteID+"/assets", nil, "")
+	if err != nil {
+		return nil, err
+	}
+	var wrapped struct {
+		Assets []Asset `json:"assets"`
+	}
+	if err := json.Unmarshal(raw, &wrapped); err != nil {
+		return nil, fmt.Errorf("decoding asset list: %w", err)
+	}
+	return wrapped.Assets, nil
+}
+
+// UploadAsset uploads the file at localPath, named by its own base name
+// unless name is non-empty.
+func (c *Client) UploadAsset(ctx context.Context, siteID, localPath, name string) (Asset, error) {
+	if name == "" {
+		name = filepath.Base(localPath)
+	}
+	f, err := os.Open(localPath)
+	if err != nil {
+		return Asset{}, err
+	}
+	defer f.Close()
+
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+	part, err := w.CreateFormFile("file", name)
+	if err != nil {
+		return Asset{}, err
+	}
+	if _, err := io.Copy(part, f); err != nil {
+		return Asset{}, err
+	}
+	if err := w.WriteField("name", name); err != nil {
+		return Asset{}, err
+	}
+	if err := w.Close(); err != nil {
+		return Asset{}, err
+	}
+
+	raw, err := c.do(ctx, http.MethodPost, "/api/website/"+siteID+"/assets", &buf, w.FormDataContentType())
+	if err != nil {
+		return Asset{}, err
+	}
+	var asset Asset
+	if err := json.Unmarshal(raw, &asset); err != nil {
+		return Asset{}, fmt.Errorf("decoding uploaded asset: %w", err)
+	}
+	return asset, nil
+}
+
+// DeleteAsset removes one uploaded asset by name.
+func (c *Client) DeleteAsset(ctx context.Context, siteID, name string) error {
+	_, err := c.do(ctx, http.MethodDelete, "/api/website/"+siteID+"/assets/"+url.PathEscape(name), nil, "")
 	return err
 }
 

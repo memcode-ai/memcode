@@ -42,7 +42,7 @@ var slashCommands = []slashCmd{
 	{"/policy", "how you've customized memcode, and where each setting came from", false},
 
 	{"/apikeys", "bring your own provider API keys", false},
-	{"/websites", "your AI-built websites (pull with `memcode websites`)", false},
+	{"/websites", "your AI-built websites (manage with `memcode websites` — pull, dev, publish, assets, …)", false},
 	{"/artifacts", "your published artifact pages", false},
 	{"/cost", "session spend", true},
 	{"/costp", "spend by purpose", true},

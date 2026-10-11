@@ -29,6 +29,7 @@ func (s *appState) websitesSlash() {
 			}
 			s.sysln(websites.RenderList(sites))
 			s.sysln("pull one locally with `memcode websites pull <slug>` — then run memcode inside it to iterate")
+			s.sysln("or run `memcode websites dev <slug>` for its real Vite dev server, see `memcode websites --help` for the rest (publish, update, delete, assets, …)")
 		})
 	}()
 }
