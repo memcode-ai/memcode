@@ -319,31 +319,37 @@ func TestGateAllowNoteProvenance(t *testing.T) {
 	}
 }
 
-// Regression: in AUTO mode the agent's own verification step (`go test -race ./...`) raised an
-// approval card. It is Medium (runs project code), so it reached the authorization judge, which
-// saw a user message like "continue" — no explicit mention of tests — and returned "ask". Routine
-// local verification now skips the judge when the mode already allows it; anything else Medium
-// (an install) still goes through the judge and prompts on "ask".
-func TestGateAutoModeVerificationSkipsAuthorizationJudge(t *testing.T) {
+// Regression: in AUTO mode the agent's own `go test -race ./...` raised an approval card. It is
+// Medium (auto runs it unasked), but the authorization judge saw a user message like "continue",
+// found no explicit mention of tests, and escalated it to "ask". Auto mode's contract is that
+// nothing below Dangerous prompts, so the judge may no longer ADD a prompt to an allowed command.
+// Dangerous commands still prompt on risk alone.
+func TestGateAutoModeNeverPromptsBelowDangerous(t *testing.T) {
 	ctx := context.Background()
 	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "state.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer st.Close()
-	s := newSess(st, classifyProvider{`{"decision":"ask","reason":"user did not mention tests"}`}, t.TempDir(), "sonnet", permissions.ModeAuto, io.Discard)
+	s := newSess(st, classifyProvider{`{"decision":"ask","reason":"user did not mention this"}`}, t.TempDir(), "sonnet", permissions.ModeAuto, io.Discard)
 	s.lastUserText = "continue"
 
 	prompted := false
 	s.approve = func(context.Context, ApprovalRequest) ApprovalDecision { prompted = true; return Denied("") }
 
-	verify := `cd /repo/memcode && go test -race ./... 2>&1 | grep -Ev '^(ok|\?)' ; echo "DONE exit=$?"`
-	if ok, _, _ := s.gateCommand(ctx, permissions.Medium, false, verify, ""); !ok || prompted {
-		t.Fatalf("auto-mode verification must run without a prompt: ok=%v prompted=%v", ok, prompted)
+	for _, cmd := range []string{
+		`cd /repo/memcode && go test -race ./... 2>&1 | grep -Ev '^(ok|\?)' ; echo "DONE exit=$?"`,
+		`npm install left-pad`,
+		`make`,
+	} {
+		prompted = false
+		if ok, _, _ := s.gateCommand(ctx, permissions.Medium, false, cmd, ""); !ok || prompted {
+			t.Fatalf("auto mode must run a Medium command unasked: %q ok=%v prompted=%v", cmd, ok, prompted)
+		}
 	}
 
 	prompted = false
-	if ok, _, _ := s.gateCommand(ctx, permissions.Medium, false, "npm install left-pad", ""); ok || !prompted {
-		t.Fatalf("a non-verification Medium command must still consult the judge (ask → prompt): ok=%v prompted=%v", ok, prompted)
+	if ok, _, _ := s.gateCommand(ctx, permissions.Dangerous, false, "vercel deploy --prod", ""); ok || !prompted {
+		t.Fatalf("a Dangerous command must still prompt in auto mode: ok=%v prompted=%v", ok, prompted)
 	}
 }

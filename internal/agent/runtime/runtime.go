@@ -790,24 +790,21 @@ func (s *Session) gateCommand(ctx context.Context, risk permissions.Risk, catast
 	}
 	base := permissions.Decide(s.effectiveMode(), risk, catastrophic)
 	// AUTHORIZATION judge (the overeager-agent defense, distinct from risk): for a
-	// mutating, non-catastrophic command in the interactive loop, ask whether the
-	// USER authorized THIS action (vs the agent freelancing toward the goal). It can
-	// ESCALATE an auto-allowed-but-unauthorized action to a prompt, or DOWNGRADE a
-	// prompt to allow on explicit authorization (less fatigue). Never touches
-	// catastrophic (always prompts) or read-only/plan/allow-all contexts.
+	// mutating, non-catastrophic command that would PROMPT, ask whether the USER
+	// authorized THIS action. It can DOWNGRADE the prompt to allow on explicit
+	// authorization (less fatigue) or block it; it never escalates an allowed command.
+	// Never touches catastrophic (always prompts) or read-only/plan/allow-all contexts.
 	allowReason := ""
 	if base == permissions.Allow && risk >= permissions.Medium {
 		allowReason = "auto-allowed" // would have prompted in ask mode
 	}
-	// Plan APPLY is exempt: the user just approved a written plan naming this work — that
-	// approval IS the authorization, and the judge second-guessing the plan's own steps
-	// (`gofmt` + the plan's verification commands) is prompt fatigue with no signal.
-	// Routine local verification (tests/builds/lint/format, nothing else non-Safe) is
-	// exempt too when the mode already allows it: "continue" or "fix it" never names
-	// `go test -race ./...`, so the judge's "unclear → ask" turned the agent's own
-	// verification into an auto-mode prompt. Checking work is part of the work.
-	if base != permissions.Block && !catastrophic && risk >= permissions.Medium &&
-		!(base == permissions.Allow && permissions.LocalVerification(command)) &&
+	// The judge only ever runs where the mode would ALREADY prompt, and can only make
+	// that prompt go away (explicit authorization → allow) or harden it (block). It
+	// never adds a prompt: auto mode's contract is that anything below Dangerous runs
+	// unasked, and the judge escalating allowed commands ("continue" doesn't name
+	// `go test`, so "unclear → ask") broke that contract. Plan APPLY is exempt too:
+	// the approved plan IS the authorization.
+	if base == permissions.NeedPrompt && !catastrophic && risk >= permissions.Medium &&
 		!s.readOnly && !s.planCtl.Planning() && !s.planCtl.IsApplying() && s.effectiveMode() != permissions.ModeAllowAll {
 		switch d, why := s.authorizeCommand(ctx, command, s.lastUserText, cwd); d {
 		case "block":
