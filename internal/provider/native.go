@@ -56,20 +56,21 @@ func nativeTurnTransport(ep Endpoint) turnTransport {
 		if override != "" {
 			p.SetBaseURL(override)
 		}
-		return &nativeShim{prov: p, model: ep.Model}
+		return &nativeShim{prov: p, model: ep.Model, web: p}
 	case "chatgpt.com":
 		// A Codex subscription: the Responses adapter pointed at the ChatGPT
 		// backend, carrying the originator + account identity it requires.
 		p := openai.NewOpenAI(ep.Key)
 		p.SetBaseURL(nativeDefaults[host])
 		p.SetExtraHeaders(ep.Headers)
+		// No web: the Codex backend rejects the non-streaming side calls.
 		return &nativeShim{prov: p, model: ep.Model}
 	case "api.x.ai":
 		p := openai.NewGrok(ep.Key)
 		if override != "" {
 			p.SetBaseURL(override)
 		}
-		return &nativeShim{prov: p, model: ep.Model}
+		return &nativeShim{prov: p, model: ep.Model, web: p}
 	case "api.anthropic.com":
 		p := anthropic.NewAnthropic(ep.Key)
 		if override != "" {
@@ -78,13 +79,13 @@ func nativeTurnTransport(ep Endpoint) turnTransport {
 		if ep.Tokens != nil {
 			p.SetTokenSource(ep.Tokens) // subscription: self-heal expiry / Claude Code re-auth
 		}
-		return &nativeShim{prov: p, model: ep.Model}
+		return &nativeShim{prov: p, model: ep.Model, web: p}
 	case "generativelanguage.googleapis.com":
 		p := gemini.NewGemini(ep.Key)
 		if override != "" {
 			p.SetBaseURL(override)
 		}
-		return &nativeShim{prov: p, model: ep.Model}
+		return &nativeShim{prov: p, model: ep.Model, web: p}
 	}
 	return nil
 }
@@ -103,6 +104,14 @@ type nativeProvider interface {
 type nativeShim struct {
 	prov  nativeProvider
 	model string
+	web   nativeWeb // the adapter's web side channel; nil when the endpoint can't serve it
+}
+
+// nativeWeb is the web side channel the shared adapters expose: a subscription
+// or own-key lane serves web search/fetch on its own credential.
+type nativeWeb interface {
+	WebSearch(ctx context.Context, query string) (string, wire.Response, error)
+	WebFetch(ctx context.Context, url string) (string, wire.Response, error)
 }
 
 func (n *nativeShim) finalize(r wire.Request) (wire.Request, error) {

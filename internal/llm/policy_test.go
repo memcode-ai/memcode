@@ -102,6 +102,30 @@ func TestPinServesEveryRealPurposeAndUtilityRidesTheUtilityModel(t *testing.T) {
 	}
 }
 
+// On a subscription the user chose, plumbing stays on it: an opus pin served by
+// a Claude subscription runs utility calls on haiku (same lane), not on the
+// gateway's utility vendor. Without the subscription, or on a vendor with no
+// subscription utility model, the gateway utility model still serves.
+func TestUtilityRidesTheSubscriptionOfThePinnedVendor(t *testing.T) {
+	sub := prodInfo(nil)
+	sub.SubVendors = map[string]bool{"anthropic": true}
+	for _, tc := range []struct {
+		name string
+		pin  string
+		info provider.ModelsInfo
+		want string
+	}{
+		{"claude sub, claude pin", "opus", sub, "haiku"},
+		{"claude sub, foreign pin", "gpt-oss-120b", sub, "gpt-oss-120b"},
+		{"no sub", "opus", prodInfo(nil), "gpt-oss-120b"},
+	} {
+		res := resolveHosted(wire.Intent{Purpose: "classify", Pin: tc.pin}, userReq("hi"), tc.info)
+		if res.err != nil || res.label != tc.want {
+			t.Errorf("%s: got %q (%v), want %q", tc.name, res.label, res.err, tc.want)
+		}
+	}
+}
+
 // An unpinned Runner refuses rather than falling back to default_model.
 // default_model seeds the PIN, once, in the resolver — it is not a runtime
 // default, or it would quietly become the new Automatic.

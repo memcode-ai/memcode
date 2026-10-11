@@ -356,7 +356,7 @@ func (t *Transport) do(ctx context.Context, payload []byte, stream bool) (*http.
 		}
 		raw, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
-		if attempt < maxRetries {
+		if attempt < maxRetries && !provcore.IsQuotaExhausted(string(raw)) {
 			delay, ok := retryAfterDelay(resp)
 			if !ok {
 				delay = backoffDelay(attempt)

@@ -730,7 +730,7 @@ func (s *Session) webSearchTool(ctx context.Context, input json.RawMessage) tool
 	// Print the marker BEFORE the (multi-second, blocking) call so the card shows at
 	// call time, not after the result lands.
 	s.toolLine(true, "Web Search", query, "", false)
-	ans, err := ws.WebSearch(ctx, query)
+	ans, err := ws.WebSearch(provider.WithPin(ctx, s.pin), query)
 	if err != nil {
 		// Surface the real error inline — don't swallow it as a bare "· failed".
 		s.printf("%s\n", metaStyle.Render("  ⎿ failed: "+clip(err.Error(), 200)))

@@ -53,6 +53,38 @@ func (l *Lazy) route(r wire.Request) (wire.Request, *conn, *lane, error) {
 	return r, nil, nil, &ErrNoLane{Model: r.Pin, Vendor: vendor, Attached: l.Lanes()}
 }
 
+// pinCtxKey carries the session's pinned model to the side channels.
+type pinCtxKey struct{}
+
+// WithPin stamps the session's pinned model on ctx so web search/fetch ride the
+// same credential lane as the session's turns: on a Claude subscription they
+// run on it instead of the gateway's side channel.
+func WithPin(ctx context.Context, label string) context.Context {
+	return context.WithValue(ctx, pinCtxKey{}, label)
+}
+
+// laneWeb returns the web side channel of the lane that serves the pin stamped
+// on ctx, nil when there is no pin, no lane of its vendor, or the lane can't
+// serve web calls (the Codex backend). nil keeps the gateway side channel.
+func (l *Lazy) laneWeb(ctx context.Context) nativeWeb {
+	pin, _ := ctx.Value(pinCtxKey{}).(string)
+	if pin == "" {
+		return nil
+	}
+	vendor := catalog.ModelVendor(pin)
+	for _, ln := range l.laneSet() {
+		if ln.vendor != vendor {
+			continue
+		}
+		// The first lane of the vendor, same as route.
+		if n, ok := ln.c.turn.(*nativeShim); ok && n.web != nil {
+			return n.web
+		}
+		return nil
+	}
+	return nil
+}
+
 // classifyLaneErr wraps a lane's terminal quota/rate failure as
 // ErrLaneExhausted. 400/404 (bad request / unknown model — e.g. an id the
 // codex backend doesn't serve) are ordinary errors and pass through: a

@@ -922,5 +922,9 @@
   },
   "_selection_note": "default_model SEEDS the pin exactly once, when no session/workspace/user pin exists; it is then persisted and behaves like any other user choice. It is NOT a fallback, NOT consulted per turn, and NOT a substitution target. utility_model serves internal plumbing only (classify/authorize, compact, shrinkwrap) and may never select, substitute, escalate, downgrade, or steer the pinned model.",
   "default_model": "sonnet",
-  "utility_model": "gpt-oss-120b"
+  "utility_model": "gpt-oss-120b",
+  "_utility_models_note": "Per-vendor utility model used INSTEAD of utility_model when the session's pinned model is served by an attached SUBSCRIPTION lane of that vendor (e.g. a Claude Pro/Max login). Keeps background plumbing on the subscription the user chose rather than leaking to the gateway's utility vendor. Add a vendor only once its small model is verified to serve on that vendor's subscription transport.",
+  "utility_models": {
+    "anthropic": "haiku"
+  }
 }

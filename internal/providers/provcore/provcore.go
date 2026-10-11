@@ -151,6 +151,15 @@ func IsRetryable(code int) bool {
 	return code == http.StatusTooManyRequests || code == 529 || (code >= 500 && code <= 599)
 }
 
+// IsQuotaExhausted reports whether an error body names a PERMANENT billing
+// exhaustion (an upstream account out of credit) rather than a transient
+// overload. It can arrive under a retryable status (a gateway 502 wrapping the
+// vendor's error), and retrying it only repeats the same refusal.
+func IsQuotaExhausted(body string) bool {
+	return strings.Contains(body, "insufficient_quota") ||
+		strings.Contains(body, "credit_balance_exhausted")
+}
+
 // RetryAfter parses a Retry-After header — the seconds form or the HTTP-date
 // form (RFC 9110 allows both) — returning 0 when absent, unparseable, or
 // already in the past.

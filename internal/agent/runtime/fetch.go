@@ -130,7 +130,7 @@ func (s *Session) tryWebFetch(ctx context.Context, url string) (string, bool) {
 	if !ok || isLocalURL(url) {
 		return "", false
 	}
-	content, err := wf.WebFetch(ctx, url)
+	content, err := wf.WebFetch(provider.WithPin(ctx, s.pin), url)
 	if err != nil || strings.TrimSpace(content) == "" {
 		return "", false
 	}

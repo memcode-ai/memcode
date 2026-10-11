@@ -289,8 +289,8 @@ func parseFrontmatter(path string) (Skill, bool) {
 }
 
 // parseFrontmatterBody is parseFrontmatter's actual parsing logic, split out so an embedded
-// skill (no real file to os.ReadFile) can parse bytes it already has in memory — e.g. from
-// go:embed — without a filesystem round trip.
+// skill (no real file to os.ReadFile) can parse bytes it already has in memory (e.g. an
+// embedded file) without a filesystem round trip.
 func parseFrontmatterBody(body string) (Skill, bool) {
 	if !strings.HasPrefix(body, "---") {
 		return Skill{}, false

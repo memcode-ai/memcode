@@ -135,13 +135,9 @@ func (a *Anthropic) SetBaseURL(u string) { a.baseURL = u }
 // BaseURL reports the configured override ("" = the SDK default).
 func (a *Anthropic) BaseURL() string { return a.baseURL }
 
-// client builds a per-call SDK client from the struct fields.
-// Building per-call is cheap and is what makes the baseURL test override work.
-func (a *Anthropic) client(extraOpts ...option.RequestOption) anthropicsdk.Client {
-	return a.clientWithKey(a.apiKey, extraOpts...)
-}
-
-// clientWithKey is client with an explicit credential (the live token source's).
+// clientWithKey builds a per-call SDK client for an explicit credential (the live
+// token source's). Building per-call is cheap and is what makes the baseURL test
+// override work.
 func (a *Anthropic) clientWithKey(key string, extraOpts ...option.RequestOption) anthropicsdk.Client {
 	opts := []option.RequestOption{
 		option.WithMaxRetries(0), // we run our own bounded retry loop
@@ -639,9 +635,7 @@ func (a *Anthropic) WebSearch(ctx context.Context, query string) (string, wire.R
 	params := anthropicsdk.MessageNewParams{
 		Model:     anthropicsdk.Model(catalog.ModelSonnet),
 		MaxTokens: 3000,
-		System: []anthropicsdk.TextBlockParam{
-			{Text: provcore.WebSearchSystemPrompt},
-		},
+		System:    a.sideSystem(provcore.WebSearchSystemPrompt),
 		Messages: []anthropicsdk.MessageParam{
 			{
 				Role:    anthropicsdk.MessageParamRoleUser,
@@ -681,6 +675,22 @@ func (a *Anthropic) WebSearch(ctx context.Context, query string) (string, wire.R
 	return strings.TrimSpace(b.String()), anthropicSideUsage(msg), nil
 }
 
+// sideSystem builds a side-channel system prompt. On the OAuth path the Claude
+// Code identity must lead as its own exact block, same as a turn (buildWire),
+// or a subscription token's request is rejected.
+func (a *Anthropic) sideSystem(prompt string) []anthropicsdk.TextBlockParam {
+	var sys []anthropicsdk.TextBlockParam
+	if a.oauth {
+		sys = append(sys,
+			anthropicsdk.TextBlockParam{Text: claudeCodeSystemPrefix},
+			anthropicsdk.TextBlockParam{Text: claudeCodeIdentityClarification})
+	}
+	if prompt != "" {
+		sys = append(sys, anthropicsdk.TextBlockParam{Text: prompt})
+	}
+	return sys
+}
+
 // anthropicSideUsage maps a Messages API result onto the neutral usage shape for
 // side-channel metering (websearch/webfetch run on Sonnet). SearchCount carries
 // usage.server_tool_use.web_search_requests — each search bills a per-request fee
@@ -709,6 +719,7 @@ func (a *Anthropic) WebFetch(ctx context.Context, url string) (string, wire.Resp
 	params := anthropicsdk.MessageNewParams{
 		Model:     anthropicsdk.Model(catalog.ModelSonnet),
 		MaxTokens: 8192,
+		System:    a.sideSystem(""),
 		Messages: []anthropicsdk.MessageParam{
 			{
 				Role: anthropicsdk.MessageParamRoleUser,
@@ -725,8 +736,9 @@ func (a *Anthropic) WebFetch(ctx context.Context, url string) (string, wire.Resp
 		},
 	}
 	// web-fetch may require a beta header depending on API version; add it defensively.
+	// ADDED, not set: setting it would drop the OAuth betas a subscription token needs.
 	msg, err := withAuthHeal(a, func(key string) (*anthropicsdk.Message, error) {
-		cl := a.clientWithKey(key, option.WithHeader("anthropic-beta", "web-fetch-2025-09-10"))
+		cl := a.clientWithKey(key, option.WithHeaderAdd("anthropic-beta", "web-fetch-2025-09-10"))
 		return provcore.WithRetry(ctx, func() (*anthropicsdk.Message, error) {
 			return cl.Messages.New(ctx, params)
 		})

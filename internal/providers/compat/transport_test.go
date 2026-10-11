@@ -336,6 +336,24 @@ func TestRetryPolicy(t *testing.T) {
 	}
 }
 
+// An upstream account out of credit is permanent even under a retryable
+// status: the gateway wraps it in a 502, and retrying only repeats it.
+func TestQuotaExhaustionIsNotRetried(t *testing.T) {
+	cap := &capture{}
+	tr := newTestTransport(t, true, func(w http.ResponseWriter, r *http.Request) {
+		cap.record(r)
+		w.WriteHeader(http.StatusBadGateway)
+		fmt.Fprint(w, `{"error":{"message":"openai stream: {\"type\":\"insufficient_quota\",\"code\":\"credit_balance_exhausted\"}"}}`)
+	})
+	_, err := tr.Complete(context.Background(), wire.Request{
+		Pin:      "sonnet",
+		Messages: []wire.Message{{Role: "user", Blocks: []wire.Block{wire.TextBlock("x")}}},
+	})
+	if err == nil || cap.count() != 1 {
+		t.Errorf("calls = %d (err %v), want one attempt and an error", cap.count(), err)
+	}
+}
+
 // TestMidStreamError: an error envelope on a data: line maps to the same
 // sentinels as HTTP statuses.
 func TestMidStreamError(t *testing.T) {

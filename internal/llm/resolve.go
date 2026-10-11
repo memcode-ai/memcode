@@ -133,6 +133,16 @@ func resolveHosted(it wire.Intent, req wire.Request, info provider.ModelsInfo) r
 	purpose := strings.TrimSpace(strings.ToLower(it.Purpose))
 
 	if utilityPurposes[purpose] {
+		// On a subscription the user chose (a Claude Pro/Max login), plumbing stays
+		// on it: the vendor's small model rides the same lane as the pin. Sending it
+		// to the gateway's utility vendor instead leaked every classify/authorize/
+		// compact call to another provider — and failed outright when that
+		// provider or its fallback was down or out of credit.
+		if v := catalog.ModelVendor(it.Pin); v != "" && info.SubVendors[v] {
+			if u := catalog.SubscriptionUtilityModel(v); u != "" {
+				return resolved{label: u}
+			}
+		}
 		if u := catalog.UtilityModel(); u != "" {
 			return resolved{label: u}
 		}

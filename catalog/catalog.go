@@ -127,6 +127,10 @@ type catalogFile struct {
 	// inference supports execution; it may never select, substitute, escalate,
 	// downgrade, or steer the pinned model.
 	UtilityModel string `json:"utility_model"`
+	// UtilityModels overrides UtilityModel per vendor when the session's pin is
+	// served by an attached SUBSCRIPTION lane of that vendor, so plumbing rides the
+	// subscription the user chose instead of the gateway's utility vendor.
+	UtilityModels map[string]string `json:"utility_models"`
 	// SearchFees is the vendor-level per-request web-search surcharge, USD per
 	// 1,000 searches, keyed by the serving vendor (Response.Backend: "anthropic" |
 	// "openai" | "grok"). Native in-turn search bills this upstream ON TOP of
@@ -213,6 +217,13 @@ func DefaultModel() string {
 // substitute for the pinned model.
 func UtilityModel() string {
 	return modelCatalog.file.UtilityModel
+}
+
+// SubscriptionUtilityModel returns the utility label for plumbing when the
+// session runs on a subscription of vendor, "" when the catalog declares none
+// (callers then use UtilityModel).
+func SubscriptionUtilityModel(vendor string) string {
+	return modelCatalog.file.UtilityModels[vendor]
 }
 
 // VendorTier / TierVendors / TierAltitude are DELETED along with the `tiers`

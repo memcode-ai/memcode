@@ -414,6 +414,10 @@ func (l *Lazy) Stream(ctx context.Context, r wire.Request, h wire.StreamHandler)
 }
 
 func (l *Lazy) WebSearch(ctx context.Context, query string) (string, error) {
+	if w := l.laneWeb(ctx); w != nil {
+		ans, _, err := w.WebSearch(ctx, query)
+		return ans, err
+	}
 	c := l.c.Load()
 	if c == nil {
 		return "", ErrNotLoggedIn
@@ -422,6 +426,10 @@ func (l *Lazy) WebSearch(ctx context.Context, query string) (string, error) {
 }
 
 func (l *Lazy) WebFetch(ctx context.Context, url string) (string, error) {
+	if w := l.laneWeb(ctx); w != nil {
+		doc, _, err := w.WebFetch(ctx, url)
+		return doc, err
+	}
 	c := l.c.Load()
 	if c == nil {
 		return "", ErrNotLoggedIn
