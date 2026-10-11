@@ -36,7 +36,7 @@ type Mode string
 
 const (
 	ModeAsk      Mode = "ask"       // prompt before medium/dangerous (default)
-	ModeAuto     Mode = "auto"      // run safe+medium; prompt for dangerous
+	ModeAuto     Mode = "auto"      // run safe+medium; dangerous is classified (run or block, no prompt); catastrophic prompts
 	ModeAllowAll Mode = "allow-all" // run everything except catastrophic (still prompts those)
 )
 

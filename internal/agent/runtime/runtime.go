@@ -789,23 +789,34 @@ func (s *Session) gateCommand(ctx context.Context, risk permissions.Risk, catast
 		// card's "don't ask again" saves an untrusted (ordinary) rule.
 	}
 	base := permissions.Decide(s.effectiveMode(), risk, catastrophic)
-	// AUTHORIZATION judge (the overeager-agent defense, distinct from risk): for a
-	// mutating, non-catastrophic command that would PROMPT, ask whether the USER
-	// authorized THIS action. It can DOWNGRADE the prompt to allow on explicit
-	// authorization (less fatigue) or block it; it never escalates an allowed command.
-	// Never touches catastrophic (always prompts) or read-only/plan/allow-all contexts.
 	allowReason := ""
 	if base == permissions.Allow && risk >= permissions.Medium {
 		allowReason = "auto-allowed" // would have prompted in ask mode
 	}
-	// The judge only ever runs where the mode would ALREADY prompt, and can only make
-	// that prompt go away (explicit authorization → allow) or harden it (block). It
-	// never adds a prompt: auto mode's contract is that anything below Dangerous runs
-	// unasked, and the judge escalating allowed commands ("continue" doesn't name
-	// `go test`, so "unclear → ask") broke that contract. Plan APPLY is exempt too:
-	// the approved plan IS the authorization.
-	if base == permissions.NeedPrompt && !catastrophic && risk >= permissions.Medium &&
-		!s.readOnly && !s.planCtl.Planning() && !s.planCtl.IsApplying() && s.effectiveMode() != permissions.ModeAllowAll {
+	interactive := !s.readOnly && !s.planCtl.Planning() && !s.planCtl.IsApplying()
+	// AUTO MODE never asks for routine work (the Claude Code auto-mode contract).
+	// Anything below Dangerous already ran above. A non-catastrophic Dangerous command
+	// (a deploy, a POST, `gh pr merge`, `docker run`) goes to the classifier INSTEAD of
+	// the user: it runs if the user's request covers it, and is BLOCKED otherwise —
+	// the agent gets the reason and takes a different approach, nobody is interrupted.
+	// Only catastrophic commands (force push, rm outside the repo, dropping a DB,
+	// publishing a site) and an unavailable classifier fall through to a prompt.
+	if s.effectiveMode() == permissions.ModeAuto && base == permissions.NeedPrompt && !catastrophic && interactive {
+		switch d, why := s.authorizeCommand(ctx, command, s.lastUserText, cwd); d {
+		case "allow":
+			s.allowNote("auto-reviewed")
+			return true, command, ""
+		case "ask", "block":
+			return false, "", "auto mode blocked this (" + orEmpty(why, "it goes beyond what the user asked for") +
+				"). Don't retry it as-is: take a different approach, or tell the user it needs their explicit go-ahead."
+		}
+		// "" = no classifier verdict: fall back to asking, never run unreviewed.
+	}
+	// ASK MODE: the authorization judge can only REMOVE a prompt the mode already
+	// raises (explicit authorization → allow) or harden it (block). It never adds one.
+	// Plan APPLY is exempt: the approved plan IS the authorization.
+	if s.effectiveMode() == permissions.ModeAsk && base == permissions.NeedPrompt && !catastrophic &&
+		risk >= permissions.Medium && interactive {
 		switch d, why := s.authorizeCommand(ctx, command, s.lastUserText, cwd); d {
 		case "block":
 			return false, "", "not authorized: " + orEmpty(why, "the user did not authorize this action")

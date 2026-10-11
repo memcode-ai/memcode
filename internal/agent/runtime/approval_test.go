@@ -348,8 +348,45 @@ func TestGateAutoModeNeverPromptsBelowDangerous(t *testing.T) {
 		}
 	}
 
-	prompted = false
-	if ok, _, _ := s.gateCommand(ctx, permissions.Dangerous, false, "vercel deploy --prod", ""); ok || !prompted {
-		t.Fatalf("a Dangerous command must still prompt in auto mode: ok=%v prompted=%v", ok, prompted)
+}
+
+// Auto mode is the Claude Code contract: no routine prompts. A non-catastrophic Dangerous
+// command is decided by the classifier instead of the user — run when the request covers it,
+// BLOCKED (no prompt, the agent adapts) when it doesn't. Only a missing verdict or a
+// catastrophic command still asks.
+func TestGateAutoModeDangerousIsClassifiedNotPrompted(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	mk := func(verdict string) (*Session, *bool) {
+		s := newSess(st, classifyProvider{verdict}, t.TempDir(), "sonnet", permissions.ModeAuto, io.Discard)
+		s.lastUserText = "deploy it to prod"
+		prompted := new(bool)
+		s.approve = func(context.Context, ApprovalRequest) ApprovalDecision { *prompted = true; return Denied("") }
+		return s, prompted
+	}
+
+	s, prompted := mk(`{"decision":"allow","reason":"user asked to deploy"}`)
+	if ok, _, _ := s.gateCommand(ctx, permissions.Dangerous, false, "vercel deploy --prod", ""); !ok || *prompted {
+		t.Fatalf("authorized Dangerous command must run unasked: ok=%v prompted=%v", ok, *prompted)
+	}
+
+	s, prompted = mk(`{"decision":"ask","reason":"not requested"}`)
+	ok, _, reason := s.gateCommand(ctx, permissions.Dangerous, false, "gh pr merge 3", "")
+	if ok || *prompted || !strings.Contains(reason, "auto mode blocked") {
+		t.Fatalf("unrequested Dangerous command must be BLOCKED without a prompt: ok=%v prompted=%v reason=%q", ok, *prompted, reason)
+	}
+
+	s, prompted = mk(`nope`) // classifier gave no verdict
+	if ok, _, _ := s.gateCommand(ctx, permissions.Dangerous, false, "docker run x", ""); ok || !*prompted {
+		t.Fatalf("no classifier verdict must fall back to asking, never run unreviewed: ok=%v prompted=%v", ok, *prompted)
+	}
+
+	s, prompted = mk(`{"decision":"allow"}`)
+	if ok, _, _ := s.gateCommand(ctx, permissions.Dangerous, true, "git push --force", ""); ok || !*prompted {
+		t.Fatalf("catastrophic commands always ask: ok=%v prompted=%v", ok, *prompted)
 	}
 }
