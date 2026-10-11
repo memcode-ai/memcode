@@ -1,6 +1,10 @@
 package runtime
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/memcode-ai/memcode/internal/skills"
+)
 
 // This file owns how installed skills are SURFACED to the model — both the passive,
 // always-on pointer and the active, request-triggered nudge. Discovery/loading itself
@@ -35,12 +39,14 @@ func (s *Session) skillNudge(text string) string {
 	words := skillWordSet(text)
 	var triggers []string
 	for _, sk := range s.skills {
-		trig := skillTrigger(sk.Name) // "supabase"; "vercel:ai-sdk" → "vercel"
-		if len(trig) < 4 || !words[trig] || s.nudgedSkills[trig] {
-			continue
+		for _, trig := range skillTriggers(sk) { // ["supabase"]; "vercel:ai-sdk" → ["vercel"]; or metadata.triggers
+			if len(trig) < 4 || !words[trig] || s.nudgedSkills[trig] {
+				continue
+			}
+			s.nudgedSkills[trig] = true
+			triggers = append(triggers, trig)
+			break // one trigger named per matching skill is enough
 		}
-		s.nudgedSkills[trig] = true
-		triggers = append(triggers, trig)
 		if len(triggers) == 2 { // name the two most salient; more would be noise
 			break
 		}
@@ -61,6 +67,25 @@ func skillTrigger(name string) string {
 		n = n[:i]
 	}
 	return n
+}
+
+// skillTriggers returns every word that should fire sk's nudge: sk.Metadata["triggers"]
+// (comma-split) when the skill declares it — letting a skill cover more than one user-facing
+// word (e.g. "website, websites") — falling back to skillTrigger(sk.Name) when it doesn't, so
+// every pre-existing skill (no triggers metadata) behaves exactly as before.
+func skillTriggers(sk skills.Skill) []string {
+	if raw := strings.TrimSpace(sk.Metadata["triggers"]); raw != "" {
+		var out []string
+		for _, t := range strings.Split(raw, ",") {
+			if t = strings.ToLower(strings.TrimSpace(t)); t != "" {
+				out = append(out, t)
+			}
+		}
+		if len(out) > 0 {
+			return out
+		}
+	}
+	return []string{skillTrigger(sk.Name)}
 }
 
 // skillWordSet is the lowercased set of alphanumeric words in text — for exact word-boundary

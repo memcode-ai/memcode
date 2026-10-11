@@ -21,7 +21,7 @@ var toolsetDefs = map[string][]string{
 	// Understanding code: navigation, diagnostics, structure.
 	"code": {CodeQuery, CodeNav, Diagnostics, RepoMap},
 	// The public internet: search, fetch, GitHub, publishing.
-	"web": {WebSearch, Fetch, GitHub, Artifact},
+	"web": {WebSearch, Fetch, GitHub, Artifact, Websites},
 	// Driving a real Chrome browser.
 	"browser": {
 		BrowserNavigate, BrowserClick, BrowserType, BrowserScreenshot,

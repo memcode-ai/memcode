@@ -230,7 +230,11 @@ func resolveClaudeSub() (Endpoint, bool) {
 		Name:    "claude-sub",
 		BaseURL: "https://api.anthropic.com",
 		Key:     tok,
-		Model:   sourceModel(catalog.ModelSonnet), // Claude Sonnet by default; /model to change
+		// Live source: the startup token expires within hours, and a Claude Code
+		// re-auth replaces it. The adapter re-resolves per request and heals a 401
+		// without restarting memcode or re-running `memcode auth claude`.
+		Tokens: claudesub.NewTokenSource(tok),
+		Model:  sourceModel(catalog.ModelSonnet), // Claude Sonnet by default; /model to change
 	}, true
 }
 

@@ -53,6 +53,18 @@ type Endpoint struct {
 	// Set only by the credential sources; empty for a normal endpoint. Carried
 	// through to the compat transport.
 	Headers map[string]string
+
+	// Tokens, when set, supplies a LIVE credential that supersedes Key per
+	// request (a Claude subscription token expires mid-session or is replaced
+	// by a Claude Code re-auth). nil for static keys.
+	Tokens TokenSource
+}
+
+// TokenSource is a live, self-healing credential: Token returns the current
+// one; Rejected is told the API refused tok and returns a replacement.
+type TokenSource interface {
+	Token() (string, error)
+	Rejected(tok string) (string, error)
 }
 
 // EndpointFromEnv resolves the env-configured endpoint (the dotenv chain loads

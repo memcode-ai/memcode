@@ -41,6 +41,7 @@ const (
 	Task             = "task"              // turn recurring work into a durable autonomous task (gated; asks when underspecified)
 	Script           = "script"            // save/find/run/delete a reusable multi-step command sequence (each gated ONCE at the script level, not per inner command)
 	Artifact         = "artifact"          // publish/update/list/delete a self-contained HTML page hosted at memcode.ai (publish gated)
+	Websites         = "websites"          // manage an AI-built static website hosted at memcode.ai — list/create/build/edit/publish/assets (mutating actions gated); local pull/dev/push stay on the CLI
 	Knowledge        = "knowledge"         // consult memcode's baseline facts/idioms for a stack (ungated reference)
 	Trace            = "trace"             // trace an artifact across pipeline stages to locate where data is lost (alias: wiretap)
 	EnterPlan        = "enter_plan"        // switch into research-and-approve plan mode (offered in normal chat only)
@@ -254,6 +255,28 @@ type (
 		Path   string `json:"path,omitempty"`  // repo-relative path to the HTML file (publish/update)
 		Title  string `json:"title,omitempty"` // display title (publish; optional on update)
 		ID     string `json:"id,omitempty"`    // artifact id from a prior publish (update/delete)
+	}
+	// WebsitesEditWire is one verbatim find/replace for the edit action.
+	WebsitesEditWire struct {
+		Find    string `json:"find"`
+		Replace string `json:"replace"`
+	}
+	// WebsitesInput drives the websites tool — the remote/API-backed surface over
+	// memcode.ai's Websites feature. Local workflows that need real files
+	// (pull/dev/push, or editing inside a pulled checkout) stay on the
+	// `memcode websites` CLI; this tool covers everything addressable by slug
+	// alone. Mutating actions (create, build, edit, publish, unpublish, delete,
+	// update, assets_upload, assets_delete) are gated; list/get/builds/preview/
+	// assets_list are read-only.
+	WebsitesInput struct {
+		Action    string             `json:"action"`               // list | get | create | build | edit | builds | preview | publish | unpublish | delete | update | assets_list | assets_upload | assets_delete
+		Slug      string             `json:"slug,omitempty"`       // required for everything but list/create
+		Name      string             `json:"name,omitempty"`       // create (display name) / update (rename)
+		Prompt    string             `json:"prompt,omitempty"`     // create / build: describes the site/change to build
+		Model     string             `json:"model,omitempty"`      // create / build / update: chat model id (default: catalog default / the site's pin)
+		Edits     []WebsitesEditWire `json:"edits,omitempty"`      // edit: verbatim find/replace pairs applied without the agent
+		AssetPath string             `json:"asset_path,omitempty"` // assets_upload: repo-relative path of the file to upload
+		AssetName string             `json:"asset_name,omitempty"` // assets_upload (optional override name) / assets_delete (required)
 	}
 	MemcodeInput struct {
 		Command string `json:"command"`
@@ -579,6 +602,20 @@ func Defs() []wire.ToolDef {
 				"path":   str("repo-relative path to the HTML file to publish/update"),
 				"title":  str("display title shown in the page's tab (publish; optional on update)"),
 				"id":     str("artifact id returned by publish (update/delete)"),
+			}, "action"),
+		},
+		{
+			Name:        Websites,
+			Description: "Manage an AI-built static website at memcode.ai, by slug. Actions: list, get, create(name/prompt/model), build(prompt/model), edit(edits), builds, preview, publish, unpublish, update(name/model), delete, assets_list, assets_upload(asset_path[,asset_name]), assets_delete(asset_name). Building (build/edit, and CLI push) is internal-preview only: a gated error is an account restriction — tell the user, don't retry. Load the `websites` skill first. Changes are gated; publish/unpublish/delete/assets always ask.",
+			InputSchema: obj(map[string]any{
+				"action":     enum("websites operation", []string{"list", "get", "create", "build", "edit", "builds", "preview", "publish", "unpublish", "delete", "update", "assets_list", "assets_upload", "assets_delete"}),
+				"slug":       str("required except list/create"),
+				"name":       str("create/update: site name"),
+				"prompt":     str("create/build: what to build"),
+				"model":      str("create/build/update: chat model id"),
+				"edits":      arr("edit: find/replace pairs", obj(map[string]any{"find": str("text to find"), "replace": str("replacement")}, "find", "replace")),
+				"asset_path": str("assets_upload: file path"),
+				"asset_name": str("assets_upload override / assets_delete target"),
 			}, "action"),
 		},
 		{

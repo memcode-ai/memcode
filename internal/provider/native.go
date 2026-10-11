@@ -75,6 +75,9 @@ func nativeTurnTransport(ep Endpoint) turnTransport {
 		if override != "" {
 			p.SetBaseURL(override)
 		}
+		if ep.Tokens != nil {
+			p.SetTokenSource(ep.Tokens) // subscription: self-heal expiry / Claude Code re-auth
+		}
 		return &nativeShim{prov: p, model: ep.Model}
 	case "generativelanguage.googleapis.com":
 		p := gemini.NewGemini(ep.Key)

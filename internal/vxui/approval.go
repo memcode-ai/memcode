@@ -65,6 +65,10 @@ func (s *appState) answerApproval(d runtime.ApprovalDecision) {
 		s.approval <- d
 	}
 	s.SetState(func() {
+		// An approval owns a temporary feedback buffer. Restore any unsent
+		// ordinary draft BEFORE advancing: another queued card snapshots it
+		// again, and a plain Yes never sends or clears it.
+		s.finishModalInput()
 		s.pending = nil
 		s.approval = nil
 		s.approveChoice = 0
@@ -92,11 +96,11 @@ func (s *appState) answerApprovalChoice(kind, scope, feedback string) {
 		s.answerApproval(runtime.ApprovalDecision{})
 	case "tell":
 		// Deny + Redirect: skip the rejected action and its siblings, but keep the turn
-		// alive so the agent acts on the feedback. Frame the reason as a user instruction
-		// so the model responds to it rather than treating it as a bare tool error.
+		// alive so the agent acts on the feedback. The temporary feedback buffer is
+		// discarded by answerApproval; finishModalInput restores any older unsent
+		// ordinary draft instead of wiping it.
 		reason := "The user declined that action and said: " + feedback
 		s.answerApproval(runtime.ApprovalDecision{Redirect: true, Reason: reason})
-		s.SetState(s.clearComposerInput)
 	}
 }
 

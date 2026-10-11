@@ -61,6 +61,9 @@ func (s *appState) advanceHitl() {
 // screen, clear it and advance to the next; if it's still waiting, just remove it from the queue.
 func (s *appState) withdrawHitl(id int64) {
 	if len(s.hitlQueue) > 0 && s.hitlQueue[0].id == id {
+		// A cancelled active card still owns the temporary modal buffer; restore
+		// the user's pre-existing draft before exposing the next prompt/turn.
+		s.finishModalInput()
 		s.pending, s.approval, s.approveChoice = nil, nil, 0
 		s.askReq, s.askReply, s.askChoice = nil, nil, 0
 		s.advanceHitl()

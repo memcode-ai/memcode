@@ -49,13 +49,22 @@ import (
 // that would drift apart — one validating, another not; one showing the
 // contract, another a YAML diff. Its length is carrying the rule that an
 // automation which paused resumes on evidence, not on having been answered.
+//
+// Raised 36KB -> 38KB (2026-10-11) for the `websites` tool: a 13-action
+// surface (list/get/create/build/edit/builds/preview/publish/unpublish/
+// delete/update/assets_list/assets_upload/assets_delete) over memcode.ai's
+// Websites feature. Trimmed twice before raising — the remaining bytes are
+// the action enum (13 values, no way to shrink without hiding a real
+// capability) and the one-line pointers that keep the model from hand-
+// rolling REST (the `memcode websites` CLI fallback for the build-gate 403,
+// and the skill pointer for the full lifecycle).
 func TestToolDefsWireBudget(t *testing.T) {
 	core, err := json.Marshal(Defs())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(core) > 36_000 {
-		t.Errorf("core tool defs = %dB (~%d tokens) on the wire — over the 36KB budget; trim descriptions/schemas or raise deliberately", len(core), len(core)/4)
+	if len(core) > 38_000 {
+		t.Errorf("core tool defs = %dB (~%d tokens) on the wire — over the 38KB budget; trim descriptions/schemas or raise deliberately", len(core), len(core)/4)
 	}
 	browser, err := json.Marshal(BrowserDefs())
 	if err != nil {

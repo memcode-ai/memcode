@@ -2,6 +2,9 @@
 // by reusing the login the Claude Code CLI already stored. It reads the OAuth
 // token from ~/.claude/.credentials.json (and, on macOS, the Keychain),
 // reconciles the two, refreshes an expired token, and returns the access token.
+// A running session holds a TokenSource rather than a fixed token, so a token
+// that expires mid-session, or one replaced by a Claude Code re-auth, is picked
+// up on the next request (and a 401 retries once) without restarting memcode.
 // The token is then used through the Anthropic adapter's Claude Code
 // compatibility mode (internal/providers/anthropic/oauth.go), where the actual
 // impersonation lives — this package only resolves the credential.
@@ -51,24 +54,94 @@ type creds struct {
 // returned token is an OAuth token (cc-*/eyJ…) that turns on the adapter's
 // compatibility mode.
 func Resolve() (string, error) {
+	c, err := resolve("")
+	return c.AccessToken, err
+}
+
+// resolve reads the current login (file + Keychain, freshest wins) and returns
+// it, refreshing when it is expired OR when it is exactly the token the API
+// just rejected. A token that differs from rejected and is unexpired is used
+// as-is: that is the "user re-authed Claude Code" case, picked up for free.
+func resolve(rejected string) (creds, error) {
 	resolveMu.Lock()
 	defer resolveMu.Unlock()
 	c, err := readCreds()
 	if err != nil {
-		return "", err
+		return creds{}, err
 	}
-	if valid(c.ExpiresAt) {
-		return c.AccessToken, nil
+	if valid(c.ExpiresAt) && (rejected == "" || c.AccessToken != rejected) {
+		return c, nil
 	}
 	if c.RefreshToken == "" {
-		return "", fmt.Errorf("the Claude login is expired and can't be refreshed — sign in again with Claude Code")
+		return creds{}, fmt.Errorf("the Claude login is expired and can't be refreshed — sign in again with Claude Code")
 	}
 	refreshed, err := refresh(c)
 	if err != nil {
-		return "", err
+		return creds{}, err
 	}
 	writeBackFile(refreshed)
-	return refreshed.AccessToken, nil
+	return refreshed, nil
+}
+
+// TokenSource hands a long-lived session the CURRENT Claude access token,
+// instead of the one captured at startup. Claude Code tokens live for hours;
+// a session that outlives one (or a user who re-auths Claude Code mid-session)
+// must self-heal without restarting memcode. Token is cheap on the hot path
+// (an in-memory copy until it nears expiry); Rejected is the 401 path.
+type TokenSource struct {
+	mu  sync.Mutex
+	tok string
+	exp int64 // epoch ms; 0 = no expiry known
+}
+
+// NewTokenSource seeds a source with an already-resolved token so the first
+// request needs no extra credential read.
+func NewTokenSource(tok string) *TokenSource { return &TokenSource{tok: tok, exp: 0} }
+
+// Token returns a usable access token, re-resolving (re-read + refresh) when
+// the cached one is near expiry. exp==0 on a seeded source means "unknown",
+// so the first expiry check after seeding consults the credential store once.
+func (s *TokenSource) Token() (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.tok != "" && s.exp != 0 && valid(s.exp) {
+		return s.tok, nil
+	}
+	c, err := resolve("")
+	if err != nil {
+		if s.tok != "" && s.exp == 0 {
+			return s.tok, nil // credential store unreadable: keep serving the seed; a 401 heals via Rejected
+		}
+		return "", err
+	}
+	s.tok, s.exp = c.AccessToken, c.ExpiresAt
+	if s.exp == 0 {
+		s.exp = time.Now().Add(5 * time.Minute).UnixMilli() // managed key: re-check occasionally
+	}
+	return s.tok, nil
+}
+
+// Rejected is called when the API refused tok (401). It re-reads the login —
+// picking up a fresh Claude Code sign-in — or refreshes it, and returns the
+// replacement. An error means there is genuinely nothing better to try.
+func (s *TokenSource) Rejected(tok string) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.tok != "" && s.tok != tok && s.exp != 0 && valid(s.exp) {
+		return s.tok, nil // a concurrent request already healed it
+	}
+	c, err := resolve(tok)
+	if err != nil {
+		return "", err
+	}
+	if c.AccessToken == tok {
+		return "", fmt.Errorf("the Claude login was rejected — sign in again with Claude Code")
+	}
+	s.tok, s.exp = c.AccessToken, c.ExpiresAt
+	if s.exp == 0 {
+		s.exp = time.Now().Add(5 * time.Minute).UnixMilli()
+	}
+	return s.tok, nil
 }
 
 // valid reports whether an epoch-ms expiry is at least 60s in the future. A zero

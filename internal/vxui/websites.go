@@ -24,7 +24,7 @@ func (s *appState) websitesSlash() {
 				return
 			}
 			if len(sites) == 0 {
-				s.sysln("No websites yet — create one at memcode.ai/websites")
+				s.sysln("No websites yet — run `memcode websites create` (or just ask: \"make me a website for …\")")
 				return
 			}
 			s.sysln(websites.RenderList(sites))

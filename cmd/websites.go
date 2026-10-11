@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -23,8 +24,12 @@ var websitesCmd = &cobra.Command{
 	Long: `Work on your memcode Websites locally.
 
   memcode websites list            Your org's sites and their status
+  memcode websites create [name]   Create a site (optionally --prompt to build it)
+  memcode websites get <slug>      Show one site's details
+  memcode websites build <slug>    Queue a hosted build (internal preview)
+  memcode websites builds <slug>   List a site's build history
   memcode websites pull <slug>     Clone a site's repo into ./<slug>
-  memcode websites push [dir]      Upload local changes; rebuilds the preview
+  memcode websites push [dir]      Upload local changes; rebuilds the preview (internal preview)
   memcode websites publish [dir]   Promote the preview to the live site
   memcode websites unpublish [dir] Take the live site offline
   memcode websites delete <slug>   Delete a website
@@ -34,7 +39,10 @@ var websitesCmd = &cobra.Command{
   memcode websites assets ...      Manage its uploaded, rebuild-proof assets
 
 After pull, run ` + "`memcode`" + ` inside the directory to iterate on the site with
-the same constrained website agent the web app uses.`,
+the same constrained website agent the web app uses — or just ask: "make me
+a website for my coffee shop" works from any session. Building (build, push)
+is limited to internal accounts while in preview, and a site has a repo to
+pull only once it has been built.`,
 	RunE: func(cmd *cobra.Command, args []string) error { return runWebsitesList(cmd) },
 }
 
@@ -42,6 +50,11 @@ var websitesListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List your org's websites",
 	RunE:  func(cmd *cobra.Command, args []string) error { return runWebsitesList(cmd) },
+}
+
+func init() {
+	websitesCmd.Flags().Bool("json", false, "output the site list as JSON")
+	websitesListCmd.Flags().Bool("json", false, "output the site list as JSON")
 }
 
 var websitesPullCmd = &cobra.Command{
@@ -66,7 +79,7 @@ var websitesPullCmd = &cobra.Command{
 
 var websitesPushCmd = &cobra.Command{
 	Use:   "push [dir]",
-	Short: "Upload local changes and rebuild the draft preview",
+	Short: "Upload local changes and rebuild the draft preview (internal preview)",
 	Args:  cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		c, err := websites.New()
@@ -264,6 +277,15 @@ var websitesAssetsListCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		asJSON, _ := cmd.Flags().GetBool("json")
+		if asJSON {
+			b, err := json.MarshalIndent(list, "", "  ")
+			if err != nil {
+				return err
+			}
+			fmt.Println(string(b))
+			return nil
+		}
 		if len(list) == 0 {
 			fmt.Println("No assets uploaded yet.")
 			return nil
@@ -328,8 +350,17 @@ func runWebsitesList(cmd *cobra.Command) error {
 	if err != nil {
 		return err
 	}
+	asJSON, _ := cmd.Flags().GetBool("json")
+	if asJSON {
+		b, err := json.MarshalIndent(sites, "", "  ")
+		if err != nil {
+			return err
+		}
+		fmt.Println(string(b))
+		return nil
+	}
 	if len(sites) == 0 {
-		fmt.Println("No websites yet — create one at memcode.ai/websites")
+		fmt.Println("No websites yet — run `memcode websites create` (or just ask: \"make me a website for …\")")
 		return nil
 	}
 	fmt.Println(websites.RenderList(sites))
@@ -338,6 +369,7 @@ func runWebsitesList(cmd *cobra.Command) error {
 
 func init() {
 	websitesAssetsCmd.AddCommand(websitesAssetsListCmd, websitesAssetsUploadCmd, websitesAssetsDeleteCmd)
+	websitesAssetsListCmd.Flags().Bool("json", false, "output the asset list as JSON")
 	websitesAssetsUploadCmd.Flags().String("name", "", "store under this name instead of the file's own base name")
 	websitesDeleteCmd.Flags().Bool("yes", false, "delete without prompting (required when stdin is not a TTY)")
 	websitesUpdateCmd.Flags().String("name", "", "new display name")

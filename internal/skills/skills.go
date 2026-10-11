@@ -35,6 +35,13 @@ type Skill struct {
 	Metadata      map[string]string // the full metadata map (author, version, argument-hint, …)
 	Path          string            // the SKILL.md / *.md file holding the body
 	Dir           string            // the skill's directory (bundled scripts/files the body may reference)
+
+	// body is set only for embedded/built-in skills, whose content has no
+	// real filesystem Path to os.ReadFile at Load() time — it is the
+	// already-frontmatter-stripped text, computed once at discovery. Every
+	// filesystem-discovered skill leaves this empty and Load() falls back
+	// to reading Path, unchanged.
+	body string
 }
 
 type candidate struct {
@@ -157,6 +164,10 @@ func DiscoverIn(repoRoot string, extraRoots []string) []Skill {
 	for _, r := range discoveryRoots(repoRoot, extraRoots) {
 		cands = append(cands, scanRoot(r.dir, r.priority)...)
 	}
+	// Built-in skills (go:embed, no filesystem write ever) rank LOWEST — any
+	// filesystem skill of the same name (repo-local, user-global, plugin, …)
+	// overrides it automatically via the dedup below; no special-casing needed.
+	cands = append(cands, builtinCandidates()...)
 	sort.SliceStable(cands, func(i, j int) bool {
 		if cands[i].priority != cands[j].priority {
 			return cands[i].priority < cands[j].priority
@@ -274,7 +285,13 @@ func parseFrontmatter(path string) (Skill, bool) {
 	if err != nil {
 		return Skill{}, false
 	}
-	body := string(b)
+	return parseFrontmatterBody(string(b))
+}
+
+// parseFrontmatterBody is parseFrontmatter's actual parsing logic, split out so an embedded
+// skill (no real file to os.ReadFile) can parse bytes it already has in memory — e.g. from
+// go:embed — without a filesystem round trip.
+func parseFrontmatterBody(body string) (Skill, bool) {
 	if !strings.HasPrefix(body, "---") {
 		return Skill{}, false
 	}
@@ -496,21 +513,30 @@ func Search(sk []Skill, query string, max int) []Skill {
 
 // Load returns the skill's body — everything after the frontmatter block.
 func (s Skill) Load() (string, error) {
+	if s.body != "" {
+		return s.body, nil
+	}
 	b, err := os.ReadFile(s.Path)
 	if err != nil {
 		return "", err
 	}
-	body := string(b)
-	if strings.HasPrefix(body, "---") {
-		rest := strings.TrimPrefix(body, "---")
+	return stripFrontmatter(string(b)), nil
+}
+
+// stripFrontmatter strips the leading `---`-delimited frontmatter block, returning
+// everything after it (the skill's actual instructions). If raw has no frontmatter
+// block, it is returned unchanged.
+func stripFrontmatter(raw string) string {
+	if strings.HasPrefix(raw, "---") {
+		rest := strings.TrimPrefix(raw, "---")
 		if i := strings.Index(rest, "\n---"); i >= 0 {
 			after := rest[i+len("\n---"):]
 			if nl := strings.IndexByte(after, '\n'); nl >= 0 {
-				return strings.TrimLeft(after[nl+1:], "\n"), nil
+				return strings.TrimLeft(after[nl+1:], "\n")
 			}
 		}
 	}
-	return body, nil
+	return raw
 }
 
 // Roots returns the EXISTING skill source directories, in precedence order — the universal

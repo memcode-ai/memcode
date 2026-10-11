@@ -318,3 +318,32 @@ func TestGateAllowNoteProvenance(t *testing.T) {
 		t.Fatalf("remembered-rule provenance missing, got: %q", out.String())
 	}
 }
+
+// Regression: in AUTO mode the agent's own verification step (`go test -race ./...`) raised an
+// approval card. It is Medium (runs project code), so it reached the authorization judge, which
+// saw a user message like "continue" — no explicit mention of tests — and returned "ask". Routine
+// local verification now skips the judge when the mode already allows it; anything else Medium
+// (an install) still goes through the judge and prompts on "ask".
+func TestGateAutoModeVerificationSkipsAuthorizationJudge(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	s := newSess(st, classifyProvider{`{"decision":"ask","reason":"user did not mention tests"}`}, t.TempDir(), "sonnet", permissions.ModeAuto, io.Discard)
+	s.lastUserText = "continue"
+
+	prompted := false
+	s.approve = func(context.Context, ApprovalRequest) ApprovalDecision { prompted = true; return Denied("") }
+
+	verify := `cd /repo/memcode && go test -race ./... 2>&1 | grep -Ev '^(ok|\?)' ; echo "DONE exit=$?"`
+	if ok, _, _ := s.gateCommand(ctx, permissions.Medium, false, verify, ""); !ok || prompted {
+		t.Fatalf("auto-mode verification must run without a prompt: ok=%v prompted=%v", ok, prompted)
+	}
+
+	prompted = false
+	if ok, _, _ := s.gateCommand(ctx, permissions.Medium, false, "npm install left-pad", ""); ok || !prompted {
+		t.Fatalf("a non-verification Medium command must still consult the judge (ask → prompt): ok=%v prompted=%v", ok, prompted)
+	}
+}

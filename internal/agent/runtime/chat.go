@@ -79,6 +79,7 @@ func (s *Session) StartChat(ctx context.Context) *ChatState {
 	s.startSessionLog(head)                                 // open the append-only episodic log for this session
 	s.skills = skills.DiscoverIn(s.root, s.extraSkillRoots) // own skills + Claude Code's installed plugin skills
 	s.approvedSkills = loadApprovedSkills(s.root)           // skills the user said "don't ask again" for (persists across sessions)
+	s.approvedWebsites = loadWebsitesApproval(s.root)       // ditto for websites mutating actions
 	s.nudgedSkills = map[string]bool{}                      // per-session: a matched skill is nudged once, not every turn
 	if list, err := scripts.List(s.root); err == nil {
 		s.scripts = list // saved reusable command sequences (.memcode/scripts)

@@ -230,6 +230,16 @@ type appState struct {
 	askReply  chan runtime.AskResponse
 	askChoice int
 
+	// modalDraft holds ordinary composer text that existed BEFORE an approval or
+	// ask_user card became active. Modal cards temporarily get a blank composer
+	// for feedback/answers; answering the card restores this draft instead of
+	// accidentally submitting it as feedback (or clearing it). One HITL card is
+	// active at a time, so this single buffer is enough for both card types.
+	modalDraft       string
+	modalDraftCursor int
+	modalDraftPastes map[string]string
+	modalDraftActive bool
+
 	todos todos.List // the agent's live work-tracker, rendered as a panel below the status bar
 
 	agentJobs  []jobs.Job      // running detached agents (live panel rows), refreshed by the 1s agent ticker
@@ -274,6 +284,7 @@ func (s *appState) InitState() {
 		id := s.nextHitlID()
 		// present installs this question as the active card when it reaches the front of the queue.
 		present := func() {
+			s.beginModalInput() // preserve an unsent draft; answers use a blank reply buffer
 			s.askReq = &r
 			s.askReply = reply
 			s.askChoice = 0
@@ -295,6 +306,7 @@ func (s *appState) InitState() {
 		r := req
 		id := s.nextHitlID()
 		present := func() {
+			s.beginModalInput() // preserve an unsent draft; feedback starts blank
 			s.pending = &r
 			s.approval = reply
 			s.approveChoice = 0
@@ -890,19 +902,56 @@ func (s *appState) clearComposerInput() {
 	s.pastes = nil
 }
 
-// composerReply is the ONE way a modal (approval "tell", ask answer, plan revise) consumes a
-// typed/pasted reply: it returns the engine-bound text — paste tokens expanded to full content —
-// and resets the input. It returns "" when nothing was typed, so the caller falls back to the
-// highlighted selection. Routing every modal's Enter through this is what keeps the three reply
-// paths — which look identical to the user — from deriving their text differently; hand-rolling
-// it (reading s.composer raw) is exactly what shipped the bare "[pasted #1 5.6KB]" token to the
-// planner instead of the content.
+// composerReply consumes the composer for the plan selector, whose typed text is a
+// revision. Approval and ask_user cards use modalReply instead so an ordinary
+// draft that existed BEFORE the card remains a draft after the card is answered.
 func (s *appState) composerReply() string {
 	reply := s.expandComposer()
 	if reply != "" {
 		s.SetState(s.clearComposerInput)
 	}
 	return reply
+}
+
+// beginModalInput snapshots the ordinary composer and gives an approval/ask
+// card its own empty reply buffer. Previously the card reused s.composer, so
+// pressing Enter on "Yes" interpreted a pre-existing, UNSENT draft as feedback
+// and sent it to the agent. The stash includes pastes because a compact paste
+// token only makes sense with the map holding its real contents.
+func (s *appState) beginModalInput() {
+	if s.modalDraftActive {
+		return // exactly one active HITL card; defensive against duplicate present()
+	}
+	s.modalDraft = s.composer
+	s.modalDraftCursor = s.cursor
+	s.modalDraftPastes = s.pastes
+	s.modalDraftActive = true
+	s.composer = ""
+	s.cursor = 0
+	s.pastes = nil
+}
+
+// modalReply reads the approval/ask card's temporary reply text without
+// restoring or clearing the saved ordinary draft. finishModalInput does that
+// once the decision has been delivered to the blocked engine goroutine.
+func (s *appState) modalReply() string { return s.expandComposer() }
+
+// finishModalInput discards the modal reply buffer and restores the ordinary
+// draft that was present before the card opened. It runs BEFORE advanceHitl:
+// if another card is queued, its beginModalInput snapshots the restored draft
+// again, preserving it across an entire queue of HITL cards.
+func (s *appState) finishModalInput() {
+	if !s.modalDraftActive {
+		s.clearComposerInput()
+		return
+	}
+	s.composer = s.modalDraft
+	s.cursor = s.modalDraftCursor
+	s.pastes = s.modalDraftPastes
+	s.modalDraft = ""
+	s.modalDraftCursor = 0
+	s.modalDraftPastes = nil
+	s.modalDraftActive = false
 }
 
 // pasteEchoBelow splits a submitted line into the prose to echo in the user's voice and the
@@ -1195,7 +1244,10 @@ func (s *appState) HandleEvent(ctx ui.EventContext, ev ui.Event) ui.EventResult 
 			}
 			return ui.EventHandled
 		case "Enter":
-			fb := s.composerReply()
+			// Approval feedback lives in the temporary modal buffer. Never read
+			// composerReply here: it would consume a draft typed before the card
+			// appeared and submit it as "tell" feedback on a plain Yes.
+			fb := s.modalReply()
 			opt := s.approvalOptions()[s.approveChoice]
 			switch approvalEnterAction(opt.kind, fb != "") {
 			case "tell":
@@ -1247,7 +1299,9 @@ func (s *appState) HandleEvent(ctx ui.EventContext, ev ui.Event) ui.EventResult 
 			}
 			return ui.EventHandled
 		case "Enter":
-			if typed := s.composerReply(); typed != "" { // expanded reply (paste tokens → content), input reset
+			// Like approval feedback, a free-form ask answer uses the temporary
+			// modal buffer. An older unsent draft remains intact after this card.
+			if typed := s.modalReply(); typed != "" {
 				s.answerAsk(typed)
 			} else if n > 0 {
 				s.answerAsk(s.askReq.Options[s.askChoice].Label)

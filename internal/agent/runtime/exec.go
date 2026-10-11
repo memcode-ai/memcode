@@ -228,6 +228,31 @@ func completionBlockerLabel(u wire.Block) (string, bool) {
 		case "delete":
 			return "artifact delete", true
 		}
+	case tools.Websites:
+		var in tools.WebsitesInput
+		if json.Unmarshal(u.Input, &in) != nil {
+			return "", false
+		}
+		switch in.Action {
+		case "create":
+			return "websites create", true
+		case "build":
+			return "websites build", true
+		case "edit":
+			return "websites edit", true
+		case "publish":
+			return "websites publish", true
+		case "unpublish":
+			return "websites unpublish", true
+		case "delete":
+			return "websites delete", true
+		case "update":
+			return "websites update", true
+		case "assets_upload":
+			return "websites assets_upload", true
+		case "assets_delete":
+			return "websites assets_delete", true
+		}
 	}
 	return "", false
 }
@@ -258,8 +283,8 @@ func (s *Session) dispatch(ctx context.Context, u wire.Block) toolResult {
 		return errResult("denied: an explorer can't fan out more explorers (no nesting) — investigate with read_file/ripgrep and report instead")
 	}
 	// Read-only explorers never egress; web is the executive session's call.
-	if (u.Name == tools.WebSearch || u.Name == tools.Fetch || u.Name == tools.Artifact) && s.readOnly {
-		return errResult("denied: web_search/fetch/artifact aren't available to read-only explorers; gather external facts in the main session")
+	if (u.Name == tools.WebSearch || u.Name == tools.Fetch || u.Name == tools.Artifact || u.Name == tools.Websites) && s.readOnly {
+		return errResult("denied: web_search/fetch/artifact/websites aren't available to read-only explorers; gather external facts in the main session")
 	}
 	// Explorers don't ask the user (only the top-level agent/planner is HITL).
 	if s.readOnly && u.Name == tools.AskUser {
@@ -397,6 +422,8 @@ func (s *Session) dispatch(ctx context.Context, u wire.Block) toolResult {
 		return s.repoMapTool(ctx, u.Input)
 	case tools.Artifact:
 		return s.artifactTool(ctx, u.Input)
+	case tools.Websites:
+		return s.websitesTool(ctx, u.Input)
 	default:
 		if s.mcp.Has(u.Name) { // a namespaced MCP tool name (compat alias for mcp{action:"call"})
 			return s.invokeMCP(ctx, mcpOriginDirect, u.Name, u.Input, nil)
@@ -888,7 +915,9 @@ func (s *Session) allowTool(name string) bool {
 	}
 	if name == tools.Skill {
 		// Offered to the executive (chat + plan) when skills were discovered — never to
-		// read-only explorer sub-agents.
+		// read-only explorer sub-agents. Since the embedded built-in skills (skills/
+		// builtin.go) are always discovered, this is effectively always on for the
+		// executive: deliberate — a built-in skill the model can't load is useless.
 		return !s.readOnly && len(s.skills) > 0
 	}
 	if name == tools.Knowledge {
@@ -901,6 +930,12 @@ func (s *Session) allowTool(name string) bool {
 		// isn't logged in (like skill's discovery condition). Executive only; the
 		// handler additionally restricts publish/update/delete to execution (list
 		// works in plan mode for research).
+		return !s.readOnly && os.Getenv(provider.EnvAPIToken) != ""
+	}
+	if name == tools.Websites {
+		// Same account-gating shape as Artifact: invisible when logged out,
+		// executive only; the handler further restricts the mutating actions
+		// to execution (list/get/builds/preview/assets_list work in plan mode).
 		return !s.readOnly && os.Getenv(provider.EnvAPIToken) != ""
 	}
 	if name == tools.MCPCodeExec {

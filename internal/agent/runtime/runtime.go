@@ -164,6 +164,7 @@ type Session struct {
 	skills            []skills.Skill     // discovered skill catalog (own + Claude Code plugins)
 	approvedSkills    map[string]bool    // skills the user said "don't ask again" for (loaded from + persisted to .memcode/skill-approvals)
 	approvedArtifacts bool               // repo-scoped "don't ask again" for artifact publishing (.memcode/artifact-approvals)
+	approvedWebsites  map[string]bool    // per-action "don't ask again" for Medium websites actions (.memcode/websites-approvals); Dangerous ones always ask
 	nudgedSkills      map[string]bool    // skill triggers already nudged this session (nudge once, don't nag) — see skillNudge
 	scripts           []scripts.Script   // saved reusable command sequences (.memcode/scripts) — see script.go, scripts_prompt.go
 	nudgedScripts     map[string]bool    // script slugs already nudged this session (nudge once, don't nag) — see scriptNudge
@@ -508,6 +509,7 @@ func (s *Session) Run(ctx context.Context, task string) (Result, error) {
 	s.skills = skills.DiscoverIn(s.root, s.extraSkillRoots) // recruitable skills for this headless run too
 	s.approvedSkills = loadApprovedSkills(s.root)           // honor remembered "don't ask again" skill approvals
 	s.approvedArtifacts = loadArtifactApproval(s.root)      // ditto for artifact publishing
+	s.approvedWebsites = loadWebsitesApproval(s.root)       // ditto for websites mutating actions
 	s.nudgedSkills = map[string]bool{}                      // per-session: a matched skill is nudged once
 	if list, err := scripts.List(s.root); err == nil {
 		s.scripts = list // saved reusable command sequences for this headless run too
@@ -800,7 +802,12 @@ func (s *Session) gateCommand(ctx context.Context, risk permissions.Risk, catast
 	// Plan APPLY is exempt: the user just approved a written plan naming this work — that
 	// approval IS the authorization, and the judge second-guessing the plan's own steps
 	// (`gofmt` + the plan's verification commands) is prompt fatigue with no signal.
+	// Routine local verification (tests/builds/lint/format, nothing else non-Safe) is
+	// exempt too when the mode already allows it: "continue" or "fix it" never names
+	// `go test -race ./...`, so the judge's "unclear → ask" turned the agent's own
+	// verification into an auto-mode prompt. Checking work is part of the work.
 	if base != permissions.Block && !catastrophic && risk >= permissions.Medium &&
+		!(base == permissions.Allow && permissions.LocalVerification(command)) &&
 		!s.readOnly && !s.planCtl.Planning() && !s.planCtl.IsApplying() && s.effectiveMode() != permissions.ModeAllowAll {
 		switch d, why := s.authorizeCommand(ctx, command, s.lastUserText, cwd); d {
 		case "block":

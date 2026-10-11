@@ -51,7 +51,69 @@ type Anthropic struct {
 	// UA, system-identity prepend, mcp__ tool renaming). Set from the token
 	// shape at construction — a subscription OAuth token, never a console key.
 	oauth bool
+
+	// tokens, when set, supplies the CURRENT credential per request instead of
+	// the startup apiKey: a Claude subscription token expires mid-session and
+	// may be replaced by a Claude Code re-auth. A 401 asks it for a replacement
+	// and retries once, so the session self-heals without a restart.
+	tokens TokenSource
 }
+
+// TokenSource is a live credential provider (claudesub.TokenSource).
+type TokenSource interface {
+	Token() (string, error)
+	Rejected(tok string) (string, error)
+}
+
+// SetTokenSource makes the adapter resolve its credential per request.
+func (a *Anthropic) SetTokenSource(ts TokenSource) { a.tokens = ts }
+
+// currentKey is the credential for the next request: the live source's token
+// when one is set, else the static key.
+func (a *Anthropic) currentKey() (string, error) {
+	if a.tokens == nil {
+		return a.apiKey, nil
+	}
+	return a.tokens.Token()
+}
+
+// isAuthError reports a 401 from the Messages API.
+func isAuthError(err error) bool {
+	var apiErr *anthropicsdk.Error
+	return errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusUnauthorized
+}
+
+// withAuthHeal runs call with the current key; on a 401 from a live token
+// source it asks for a replacement (re-read Claude Code's login, or refresh)
+// and runs call ONCE more. A 401 is rejected before any output, so the retry
+// never duplicates streamed content.
+func withAuthHeal[T any](a *Anthropic, call func(key string) (T, error)) (T, error) {
+	key, err := a.currentKey()
+	if err != nil {
+		var zero T
+		return zero, fmt.Errorf("anthropic auth: %w", err)
+	}
+	val, err := call(key)
+	if err == nil || a.tokens == nil || !isAuthError(err) {
+		return val, err
+	}
+	fresh, rerr := a.tokens.Rejected(key)
+	if rerr != nil || fresh == "" || fresh == key {
+		return val, err // nothing better to try: surface the original 401
+	}
+	return call(fresh)
+}
+
+// apiError keeps the adapter's readable "anthropic <type>: <raw>" message while
+// still unwrapping to the SDK error, so status-based policy (401 heal, the
+// shared retry kernel) can see the HTTP status.
+type apiError struct {
+	msg string
+	err *anthropicsdk.Error
+}
+
+func (e *apiError) Error() string { return e.msg }
+func (e *apiError) Unwrap() error { return e.err }
 
 // NewAnthropic returns a client using the given credential. A normal
 // sk-ant-api* key takes the clean x-api-key path; a Claude subscription OAuth
@@ -76,6 +138,11 @@ func (a *Anthropic) BaseURL() string { return a.baseURL }
 // client builds a per-call SDK client from the struct fields.
 // Building per-call is cheap and is what makes the baseURL test override work.
 func (a *Anthropic) client(extraOpts ...option.RequestOption) anthropicsdk.Client {
+	return a.clientWithKey(a.apiKey, extraOpts...)
+}
+
+// clientWithKey is client with an explicit credential (the live token source's).
+func (a *Anthropic) clientWithKey(key string, extraOpts ...option.RequestOption) anthropicsdk.Client {
 	opts := []option.RequestOption{
 		option.WithMaxRetries(0), // we run our own bounded retry loop
 		option.WithHTTPClient(a.http),
@@ -83,7 +150,7 @@ func (a *Anthropic) client(extraOpts ...option.RequestOption) anthropicsdk.Clien
 	if a.oauth {
 		// Bearer auth (NOT x-api-key), the OAuth betas ADDED so the cache-TTL
 		// beta survives, and the Claude Code client identity.
-		opts = append(opts, option.WithAuthToken(a.apiKey))
+		opts = append(opts, option.WithAuthToken(key))
 		for _, b := range oauthOnlyBetas {
 			opts = append(opts, option.WithHeaderAdd("anthropic-beta", b))
 		}
@@ -92,7 +159,7 @@ func (a *Anthropic) client(extraOpts ...option.RequestOption) anthropicsdk.Clien
 			option.WithHeader("x-app", "cli"),
 		)
 	} else {
-		opts = append(opts, option.WithAPIKey(a.apiKey))
+		opts = append(opts, option.WithAPIKey(key))
 	}
 	if a.baseURL != "" {
 		opts = append(opts, option.WithBaseURL(a.baseURL))
@@ -585,9 +652,11 @@ func (a *Anthropic) WebSearch(ctx context.Context, query string) (string, wire.R
 			{OfWebSearchTool20250305: &anthropicsdk.WebSearchTool20250305Param{MaxUses: param.NewOpt(int64(5))}},
 		},
 	}
-	cl := a.client()
-	msg, err := provcore.WithRetry(ctx, func() (*anthropicsdk.Message, error) {
-		return cl.Messages.New(ctx, params)
+	msg, err := withAuthHeal(a, func(key string) (*anthropicsdk.Message, error) {
+		cl := a.clientWithKey(key)
+		return provcore.WithRetry(ctx, func() (*anthropicsdk.Message, error) {
+			return cl.Messages.New(ctx, params)
+		})
 	})
 	if err != nil {
 		var apiErr *anthropicsdk.Error
@@ -656,9 +725,11 @@ func (a *Anthropic) WebFetch(ctx context.Context, url string) (string, wire.Resp
 		},
 	}
 	// web-fetch may require a beta header depending on API version; add it defensively.
-	cl := a.client(option.WithHeader("anthropic-beta", "web-fetch-2025-09-10"))
-	msg, err := provcore.WithRetry(ctx, func() (*anthropicsdk.Message, error) {
-		return cl.Messages.New(ctx, params)
+	msg, err := withAuthHeal(a, func(key string) (*anthropicsdk.Message, error) {
+		cl := a.clientWithKey(key, option.WithHeader("anthropic-beta", "web-fetch-2025-09-10"))
+		return provcore.WithRetry(ctx, func() (*anthropicsdk.Message, error) {
+			return cl.Messages.New(ctx, params)
+		})
 	})
 	if err != nil {
 		var apiErr *anthropicsdk.Error
@@ -720,8 +791,10 @@ func (a *Anthropic) Stream(ctx context.Context, r wire.Request, h wire.StreamHan
 	if a.oauth {
 		r, oauthRev = oauthEncodeRequest(r)
 	}
-	resp, err := provcore.StreamWithRetry(ctx, func() (wire.Response, bool, error) {
-		return a.streamOnce(ctx, r, h)
+	resp, err := withAuthHeal(a, func(key string) (wire.Response, error) {
+		return provcore.StreamWithRetry(ctx, func() (wire.Response, bool, error) {
+			return a.streamOnce(ctx, key, r, h)
+		})
 	})
 	if err == nil {
 		oauthDecodeResponse(&resp, oauthRev)
@@ -731,7 +804,7 @@ func (a *Anthropic) Stream(ctx context.Context, r wire.Request, h wire.StreamHan
 
 // streamOnce runs a single streaming attempt. emitted reports whether any content bytes were
 // forwarded to h (after which retrying would duplicate output for the caller).
-func (a *Anthropic) streamOnce(ctx context.Context, r wire.Request, h wire.StreamHandler) (_ wire.Response, emitted bool, _ error) {
+func (a *Anthropic) streamOnce(ctx context.Context, key string, r wire.Request, h wire.StreamHandler) (_ wire.Response, emitted bool, _ error) {
 	maxTok := r.MaxTokens
 	if maxTok == 0 {
 		// 0 = uncapped. Anthropic REQUIRES max_tokens, so "uncapped" means the model's
@@ -748,7 +821,7 @@ func (a *Anthropic) streamOnce(ctx context.Context, r wire.Request, h wire.Strea
 		ccIdentity = claudeCodeSystemPrefix
 	}
 	params := wireToParams(buildWire(r, maxTok, true, ccIdentity))
-	cl := a.client()
+	cl := a.clientWithKey(key)
 	stream := cl.Messages.NewStreaming(ctx, params)
 
 	builders := map[int]*blockAccum{}
@@ -868,7 +941,7 @@ func (a *Anthropic) streamOnce(ctx context.Context, r wire.Request, h wire.Strea
 			if provcore.IsOverflowMessage(raw) {
 				return partial, emitted, &provcore.ContextOverflowError{Backend: "anthropic", Message: raw}
 			}
-			return partial, emitted, fmt.Errorf("anthropic %s: %s", string(apiErr.Type()), raw)
+			return partial, emitted, &apiError{msg: fmt.Sprintf("anthropic %s: %s", string(apiErr.Type()), raw), err: apiErr}
 		}
 		return partial, emitted, fmt.Errorf("anthropic stream: %w", err)
 	}

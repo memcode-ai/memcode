@@ -14,6 +14,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -29,6 +30,35 @@ import (
 	"github.com/memcode-ai/memcode/internal/provider"
 )
 
+// ErrBuildsGated is returned by Build/Edit/Push when the server's internal-
+// preview gate (canSeeTestPlans) rejects the request: hosted building — an
+// agent build, an inline edit, or a pushed-repo rebuild — is limited to
+// internal accounts. There is no local fallback for these accounts (a site
+// that was never built has no repo to pull), so callers report it plainly
+// rather than retrying or suggesting a workaround.
+var ErrBuildsGated = errors.New("website building is in limited internal preview — this account can't build or push sites yet")
+
+// APIError is a non-2xx response from memcode.ai: the HTTP status plus the
+// server's {error} message. Kept typed so callers branch on the status, never
+// on the wording of a message someone may later rephrase.
+type APIError struct {
+	Status  int
+	Message string
+}
+
+func (e *APIError) Error() string { return e.Message }
+
+// gatedErr maps the build-path routes' 403 to ErrBuildsGated. On /build and
+// POST /bundle a 403 has exactly one source — the internal-preview gate
+// (entitlement failures are 402s) — so the status alone identifies it.
+func gatedErr(err error) error {
+	var apiErr *APIError
+	if errors.As(err, &apiErr) && apiErr.Status == http.StatusForbidden {
+		return ErrBuildsGated
+	}
+	return err
+}
+
 const (
 	// defaultWebAppURL deliberately duplicates the artifacts client's constant —
 	// internal packages must not import cmd. Same env override, same default.
@@ -43,11 +73,33 @@ const (
 
 // Site is one website, as the www API reports it.
 type Site struct {
-	ID      string `json:"id"`
-	Name    string `json:"name"`
-	Slug    string `json:"slug"`
-	Status  string `json:"status"`
-	LiveURL string `json:"url,omitempty"` // www list route emits `url` (siteUrl(slug))
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Slug        string `json:"slug"`
+	Status      string `json:"status"`
+	Model       string `json:"model,omitempty"`
+	HasPreview  bool   `json:"has_preview,omitempty"`  // list route: a completed build exists to show
+	PublishedAt string `json:"published_at,omitempty"` // non-empty once Publish has run
+	LiveURL     string `json:"url,omitempty"`          // www list route emits `url` (siteUrl(slug))
+}
+
+// Build is one website_build row — a queued or finished build/edit run.
+type Build struct {
+	ID            string `json:"id"`
+	Status        string `json:"status"` // pending|running|completed|failed
+	Mode          string `json:"mode"`   // build|rebuild|edit
+	Prompt        string `json:"prompt,omitempty"`
+	Summary       string `json:"summary,omitempty"`
+	Error         string `json:"error,omitempty"`
+	DateStarted   string `json:"date_started,omitempty"`
+	DateCompleted string `json:"date_completed,omitempty"`
+}
+
+// Edit is one verbatim find/replace applied by an edit-mode build, bypassing
+// the agent for a fast, deterministic rebuild.
+type Edit struct {
+	Find    string `json:"find"`
+	Replace string `json:"replace"`
 }
 
 // Meta is the .memcode/website.json marker written at pull time.
@@ -123,6 +175,103 @@ func (c *Client) List(ctx context.Context) ([]Site, error) {
 	return nil, fmt.Errorf("decoding site list: unexpected response shape")
 }
 
+// Create makes a new site. At least one of name/prompt should be given — the
+// server distills a short name from the prompt when name is empty. This does
+// NOT queue a build; call Build afterward to produce content (internal
+// accounts only — others get ErrBuildsGated).
+func (c *Client) Create(ctx context.Context, name, prompt, model string) (Site, error) {
+	body := map[string]any{}
+	if name != "" {
+		body["name"] = name
+	}
+	if prompt != "" {
+		body["prompt"] = prompt
+	}
+	if model != "" {
+		body["model"] = model
+	}
+	raw, err := json.Marshal(body)
+	if err != nil {
+		return Site{}, err
+	}
+	resp, err := c.do(ctx, http.MethodPost, "/api/website", bytes.NewReader(raw), "application/json")
+	if err != nil {
+		return Site{}, err
+	}
+	var wrapped struct {
+		Website Site `json:"website"`
+	}
+	if err := json.Unmarshal(resp, &wrapped); err != nil {
+		return Site{}, fmt.Errorf("decoding created site: %w", err)
+	}
+	return wrapped.Website, nil
+}
+
+// Build queues a build for the site: a fresh build from a prompt (prompt
+// non-empty) or a no-prompt rebuild of the current state. model may be empty
+// to use the site's own pinned model. Returns ErrBuildsGated when the
+// server's canSeeTestPlans gate rejects the request.
+func (c *Client) Build(ctx context.Context, siteID, prompt, model string) (Build, error) {
+	mode := "build"
+	if prompt == "" {
+		mode = "rebuild"
+	}
+	return c.queueBuild(ctx, siteID, mode, prompt, model, nil)
+}
+
+// Edit queues an inline-edit build: verbatim find/replace edits applied by
+// the builder without the agent, then a fast vite rebuild. Returns
+// ErrBuildsGated when the server's canSeeTestPlans gate rejects the request.
+func (c *Client) Edit(ctx context.Context, siteID string, edits []Edit, model string) (Build, error) {
+	if len(edits) == 0 {
+		return Build{}, fmt.Errorf("at least one edit is required")
+	}
+	return c.queueBuild(ctx, siteID, "edit", "", model, edits)
+}
+
+func (c *Client) queueBuild(ctx context.Context, siteID, mode, prompt, model string, edits []Edit) (Build, error) {
+	body := map[string]any{"mode": mode}
+	if prompt != "" {
+		body["prompt"] = prompt
+	}
+	if model != "" {
+		body["model"] = model
+	}
+	if edits != nil {
+		body["edits"] = edits
+	}
+	raw, err := json.Marshal(body)
+	if err != nil {
+		return Build{}, err
+	}
+	resp, err := c.do(ctx, http.MethodPost, "/api/website/"+siteID+"/build", bytes.NewReader(raw), "application/json")
+	if err != nil {
+		return Build{}, gatedErr(err)
+	}
+	var wrapped struct {
+		Build Build `json:"build"`
+	}
+	if err := json.Unmarshal(resp, &wrapped); err != nil {
+		return Build{}, fmt.Errorf("decoding build: %w", err)
+	}
+	return wrapped.Build, nil
+}
+
+// ListBuilds returns the site's build history, newest first.
+func (c *Client) ListBuilds(ctx context.Context, siteID string) ([]Build, error) {
+	raw, err := c.do(ctx, http.MethodGet, "/api/website/"+siteID+"/builds", nil, "")
+	if err != nil {
+		return nil, err
+	}
+	var wrapped struct {
+		Builds []Build `json:"builds"`
+	}
+	if err := json.Unmarshal(raw, &wrapped); err != nil {
+		return nil, fmt.Errorf("decoding build list: %w", err)
+	}
+	return wrapped.Builds, nil
+}
+
 // Resolve finds a site by slug (exact match).
 func (c *Client) Resolve(ctx context.Context, slug string) (Site, error) {
 	sites, err := c.List(ctx)
@@ -150,6 +299,12 @@ func (c *Client) Pull(ctx context.Context, slug, destDir string) (Site, error) {
 
 	raw, err := c.do(ctx, http.MethodGet, "/api/website/"+site.ID+"/bundle", nil, "")
 	if err != nil {
+		var apiErr *APIError
+		if errors.As(err, &apiErr) && apiErr.Status == http.StatusNotFound {
+			// A site's repo only exists once a build has run — a fresh site
+			// has nothing to pull, and building is internal-preview gated.
+			return Site{}, fmt.Errorf("%q has no repository yet — it has never been built", slug)
+		}
 		return Site{}, err
 	}
 	var signed struct {
@@ -208,7 +363,7 @@ func (c *Client) Push(ctx context.Context, dir string) (Site, error) {
 
 	if _, err := c.do(ctx, http.MethodPost, "/api/website/"+meta.SiteID+"/bundle",
 		bytes.NewReader(bundle), "application/octet-stream"); err != nil {
-		return Site{}, err
+		return Site{}, gatedErr(err)
 	}
 	return Site{ID: meta.SiteID, Slug: meta.Slug}, nil
 }
@@ -269,8 +424,10 @@ func (c *Client) Update(ctx context.Context, siteID string, name, model *string)
 	return wrapped.Website, nil
 }
 
-// getSite fetches one site by id (not slug), including its live URL.
-func (c *Client) getSite(ctx context.Context, siteID string) (Site, error) {
+// Get fetches one site by id (not slug), including its live URL. The detail
+// route does NOT compute has_preview (only the list route does) — use
+// GetBySlug when you need it.
+func (c *Client) Get(ctx context.Context, siteID string) (Site, error) {
 	raw, err := c.do(ctx, http.MethodGet, "/api/website/"+siteID, nil, "")
 	if err != nil {
 		return Site{}, err
@@ -284,12 +441,29 @@ func (c *Client) getSite(ctx context.Context, siteID string) (Site, error) {
 	return wrapped.Website, nil
 }
 
+// GetBySlug resolves a slug and returns the site's full detail. It merges the
+// two routes' views: the detail route has every column (model, published_at,
+// …) but not has_preview, which only the list route computes — so the list
+// row's HasPreview is carried over instead of being reset to false.
+func (c *Client) GetBySlug(ctx context.Context, slug string) (Site, error) {
+	listed, err := c.Resolve(ctx, slug)
+	if err != nil {
+		return Site{}, err
+	}
+	full, err := c.Get(ctx, listed.ID)
+	if err != nil {
+		return Site{}, err
+	}
+	full.HasPreview = listed.HasPreview
+	return full, nil
+}
+
 // Preview mints a short-lived draft-preview URL: preview--{slug}.{apex},
 // carrying the token website-host's draft serving path checks. Mirrors the
 // exact construction the web app's UI does from the same /preview-token
 // response — there is no separate CLI auth scheme.
 func (c *Client) Preview(ctx context.Context, siteID string) (string, error) {
-	site, err := c.getSite(ctx, siteID)
+	site, err := c.Get(ctx, siteID)
 	if err != nil {
 		return "", err
 	}
@@ -451,10 +625,11 @@ func (c *Client) do(ctx context.Context, method, path string, body io.Reader, co
 		var e struct {
 			Error string `json:"error"`
 		}
+		msg := "memcode.ai returned " + resp.Status
 		if json.Unmarshal(raw, &e) == nil && e.Error != "" {
-			return nil, fmt.Errorf("%s", e.Error)
+			msg = e.Error
 		}
-		return nil, fmt.Errorf("memcode.ai returned %s", resp.Status)
+		return nil, &APIError{Status: resp.StatusCode, Message: msg}
 	}
 	return raw, nil
 }

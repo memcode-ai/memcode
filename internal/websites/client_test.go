@@ -3,6 +3,7 @@ package websites
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -285,6 +286,225 @@ func TestUpdate(t *testing.T) {
 }
 
 func strPtr(s string) *string { return &s }
+
+func TestCreate(t *testing.T) {
+	var gotMethod, gotPath string
+	var gotBody []byte
+	c, _ := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requireBearer(t, r)
+		gotMethod, gotPath = r.Method, r.URL.Path
+		gotBody, _ = io.ReadAll(r.Body)
+		json.NewEncoder(w).Encode(map[string]any{
+			"website": Site{ID: "s1", Name: "Cafe", Slug: "cafe", Status: "draft"},
+		})
+	}))
+	site, err := c.Create(context.Background(), "Cafe", "a one-page site for my coffee shop", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if site.Slug != "cafe" {
+		t.Fatalf("site %+v", site)
+	}
+	if gotMethod != http.MethodPost || gotPath != "/api/website" {
+		t.Fatalf("got %s %s", gotMethod, gotPath)
+	}
+	if !strings.Contains(string(gotBody), `"prompt"`) || !strings.Contains(string(gotBody), `"name"`) {
+		t.Fatalf("body missing fields: %s", gotBody)
+	}
+}
+
+func TestCreateClientAllowsEmptyNameAndPrompt(t *testing.T) {
+	// The name-or-prompt rule lives in the callers (CLI, tool); the server names
+	// an empty site "Untitled site". Lock that the client invents no rule of its own.
+	c, _ := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{"website": Site{ID: "s1", Slug: "untitled-site"}})
+	}))
+	if _, err := c.Create(context.Background(), "", "", ""); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestBuildQueuesAndDecodesBuild(t *testing.T) {
+	var gotBody map[string]any
+	c, _ := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/website/s1/build" || r.Method != http.MethodPost {
+			t.Fatalf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+		raw, _ := io.ReadAll(r.Body)
+		json.Unmarshal(raw, &gotBody)
+		json.NewEncoder(w).Encode(map[string]any{
+			"build": Build{ID: "b1", Status: "pending", Mode: "build", Prompt: "add a contact form"},
+		})
+	}))
+	build, err := c.Build(context.Background(), "s1", "add a contact form", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if build.ID != "b1" || build.Mode != "build" {
+		t.Fatalf("build %+v", build)
+	}
+	if gotBody["mode"] != "build" || gotBody["prompt"] != "add a contact form" {
+		t.Fatalf("posted body %+v", gotBody)
+	}
+}
+
+func TestBuildWithNoPromptIsARebuild(t *testing.T) {
+	var gotMode string
+	c, _ := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		raw, _ := io.ReadAll(r.Body)
+		json.Unmarshal(raw, &body)
+		gotMode, _ = body["mode"].(string)
+		json.NewEncoder(w).Encode(map[string]any{"build": Build{ID: "b2", Status: "pending", Mode: "rebuild"}})
+	}))
+	if _, err := c.Build(context.Background(), "s1", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if gotMode != "rebuild" {
+		t.Fatalf("mode = %q, want rebuild", gotMode)
+	}
+}
+
+// Gating is detected by STATUS (403 on the build routes), never by wording —
+// the fake's message is deliberately unlike the real server's.
+func TestBuildGatedReturnsErrBuildsGated(t *testing.T) {
+	c, _ := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		json.NewEncoder(w).Encode(map[string]string{"error": "reworded someday"})
+	}))
+	_, err := c.Build(context.Background(), "s1", "add a page", "")
+	if !errors.Is(err, ErrBuildsGated) {
+		t.Fatalf("want ErrBuildsGated, got %v", err)
+	}
+}
+
+// A non-403 failure (e.g. the 402 credits gate) must surface as itself.
+func TestBuildNonGateErrorPassesThrough(t *testing.T) {
+	c, _ := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusPaymentRequired)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Out of credits"})
+	}))
+	_, err := c.Build(context.Background(), "s1", "add a page", "")
+	var apiErr *APIError
+	if errors.Is(err, ErrBuildsGated) || !errors.As(err, &apiErr) || apiErr.Status != http.StatusPaymentRequired || err.Error() != "Out of credits" {
+		t.Fatalf("want the 402 APIError, got %v", err)
+	}
+}
+
+// Push rebuilds on the server, so it carries the same gate as Build.
+func TestPushGatedReturnsErrBuildsGated(t *testing.T) {
+	dir := t.TempDir()
+	if err := writeMeta(dir, Meta{SiteID: "s9", Slug: "cafe"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "MEMCODE.md"), []byte("doctrine"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c, _ := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Website builds are in limited internal preview"})
+	}))
+	c.runGit = func(_ string, args ...string) error { return os.WriteFile(args[2], []byte("B"), 0o644) }
+	if _, err := c.Push(context.Background(), dir); !errors.Is(err, ErrBuildsGated) {
+		t.Fatalf("want ErrBuildsGated, got %v", err)
+	}
+}
+
+// A never-built site has no repo bundle (404) — say so plainly.
+func TestPullNeverBuiltSite(t *testing.T) {
+	c, _ := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/website" {
+			json.NewEncoder(w).Encode(map[string]any{"websites": []Site{{ID: "s1", Slug: "cafe"}}})
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]string{"error": "No repository yet — build the site first"})
+	}))
+	dest := filepath.Join(t.TempDir(), "cafe")
+	if _, err := c.Pull(context.Background(), "cafe", dest); err == nil || !strings.Contains(err.Error(), "never been built") {
+		t.Fatalf("want never-built error, got %v", err)
+	}
+}
+
+func TestEditRequiresEdits(t *testing.T) {
+	c, _ := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("must not hit the network with no edits")
+	}))
+	if _, err := c.Edit(context.Background(), "s1", nil, ""); err == nil {
+		t.Fatal("want error")
+	}
+}
+
+func TestEditPostsEditsAsEditMode(t *testing.T) {
+	var gotBody map[string]any
+	c, _ := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		json.Unmarshal(raw, &gotBody)
+		json.NewEncoder(w).Encode(map[string]any{"build": Build{ID: "b3", Status: "pending", Mode: "edit"}})
+	}))
+	build, err := c.Edit(context.Background(), "s1", []Edit{{Find: "Hello", Replace: "Hi"}}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if build.Mode != "edit" {
+		t.Fatalf("build %+v", build)
+	}
+	if gotBody["mode"] != "edit" {
+		t.Fatalf("mode = %v", gotBody["mode"])
+	}
+	edits, ok := gotBody["edits"].([]any)
+	if !ok || len(edits) != 1 {
+		t.Fatalf("edits = %v", gotBody["edits"])
+	}
+}
+
+func TestListBuilds(t *testing.T) {
+	c, _ := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/website/s1/builds" || r.Method != http.MethodGet {
+			t.Fatalf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+		json.NewEncoder(w).Encode(map[string]any{
+			"builds": []Build{
+				{ID: "b2", Status: "completed", Mode: "build"},
+				{ID: "b1", Status: "completed", Mode: "build"},
+			},
+		})
+	}))
+	builds, err := c.ListBuilds(context.Background(), "s1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(builds) != 2 || builds[0].ID != "b2" {
+		t.Fatalf("builds %+v", builds)
+	}
+}
+
+// GetBySlug merges the two routes as the real server shapes them: the detail
+// route carries model/published_at but NOT has_preview (only the list route
+// computes it). Regression: the merged result used to read preview=false.
+func TestGetBySlugMergesListAndDetail(t *testing.T) {
+	c, _ := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/website":
+			json.NewEncoder(w).Encode(map[string]any{"websites": []map[string]any{
+				{"id": "s1", "slug": "cafe", "has_preview": true},
+			}})
+		case "/api/website/s1":
+			json.NewEncoder(w).Encode(map[string]any{"website": map[string]any{
+				"id": "s1", "slug": "cafe", "model": "claude-sonnet-5", "published_at": "2026-10-01T00:00:00Z",
+			}})
+		default:
+			t.Fatalf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	site, err := c.GetBySlug(context.Background(), "cafe")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if site.Model != "claude-sonnet-5" || site.PublishedAt == "" || !site.HasPreview {
+		t.Fatalf("site %+v", site)
+	}
+}
 
 func TestPreview(t *testing.T) {
 	var sawPreviewToken bool

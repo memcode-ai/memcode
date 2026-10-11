@@ -38,10 +38,13 @@ func (s *appState) answerAsk(answer string) {
 		s.askReply <- runtime.AskResponse{Answer: answer}
 	}
 	s.SetState(func() {
+		// Restore any ordinary draft that existed before this ask card. The
+		// temporary answer buffer is discarded; it must never turn into a
+		// separate submitted chat message after the user chooses an option.
+		s.finishModalInput()
 		s.askReq = nil
 		s.askReply = nil
 		s.askChoice = 0
-		s.clearComposerInput() // also resets the paste stash — don't leak it into the next turn
-		s.advanceHitl()        // pop this card; show the next queued prompt (or resume the clock if none)
+		s.advanceHitl() // pop this card; show the next queued prompt (or resume the clock if none)
 	})
 }
