@@ -37,10 +37,11 @@ func (s *Session) skillNudge(text string) string {
 		return ""
 	}
 	words := skillWordSet(text)
+	lower := strings.ToLower(text)
 	var triggers []string
 	for _, sk := range s.skills {
 		for _, trig := range skillTriggers(sk) { // ["supabase"]; "vercel:ai-sdk" → ["vercel"]; or metadata.triggers
-			if len(trig) < 4 || !words[trig] || s.nudgedSkills[trig] {
+			if len(trig) < 4 || !triggerMatches(trig, words, lower) || s.nudgedSkills[trig] {
 				continue
 			}
 			s.nudgedSkills[trig] = true

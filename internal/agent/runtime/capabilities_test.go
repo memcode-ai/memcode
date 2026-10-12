@@ -56,21 +56,22 @@ func TestDeferredToolsAreAbsentByDefault(t *testing.T) {
 	}
 }
 
-// "What websites do I have?" turns the tool on before the model is called,
-// so it costs no extra model turn.
-func TestPrefetchEnablesANamedCapability(t *testing.T) {
+// A machine identifier in the request (a memcode.app host) turns the tool on
+// before the model is called; natural language never does — the model routes
+// that from the index.
+func TestPrefetchOnlyOnMachineIdentifiers(t *testing.T) {
 	s := capSession(t)
-	s.prefetchCapabilities("what websites do I have?")
+	s.prefetchCapabilities("what websites do I have? schedule a nightly check. run my saved recipe.")
+	if len(s.enabledCaps) != 0 {
+		t.Fatalf("natural language enabled %v", s.enabledCaps)
+	}
+	s.prefetchCapabilities("is cafe.memcode.app up?")
 	defs := defNames(s.toolDefs())
 	if _, ok := defs[tools.Websites]; !ok {
-		t.Fatal("websites must be on after a request that names it")
+		t.Fatal("a memcode.app host must turn websites on")
 	}
 	if _, ok := defs[tools.Task]; ok {
-		t.Fatal("only the named capability turns on")
-	}
-	s.prefetchCapabilities("check example.memcode.app")
-	if !s.enabledCaps[tools.Websites] {
-		t.Fatal("a memcode.app host names the websites capability")
+		t.Fatal("only the identified capability turns on")
 	}
 }
 
@@ -255,5 +256,29 @@ func TestCodeVocabularyDoesNotPrefetch(t *testing.T) {
 	s.prefetchCapabilities("find every call site of runLoop")
 	if s.enabledCaps[tools.Websites] {
 		t.Fatal("'call site' must not load the websites tool")
+	}
+}
+
+// A website that is not memcode-hosted (this repo's own site, a page to read)
+// must not pull in the memcode Websites tool or skill.
+func TestOrdinaryWebsiteTalkLoadsNothing(t *testing.T) {
+	s := capSession(t)
+	s.skills = skills.DiscoverIn(s.root, s.extraSkillRoots) // includes the built-in websites skill
+	for _, p := range []string{
+		"Add a phone number to the contact line on my website.",
+		"Fetch https://example.com and tell me what that website says.",
+		"Is my website mobile friendly?",
+	} {
+		s.prefetchCapabilities(p)
+		if nudge := s.skillNudge(p); nudge != "" {
+			t.Errorf("%q nudged a skill: %s", p, nudge)
+		}
+	}
+	if s.enabledCaps[tools.Websites] {
+		t.Fatal("ordinary website talk must not load the memcode websites tool")
+	}
+	s.prefetchCapabilities("check my cafe.memcode.app site")
+	if !s.enabledCaps[tools.Websites] {
+		t.Fatal("a memcode.app host must load it")
 	}
 }

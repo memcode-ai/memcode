@@ -58,7 +58,7 @@ func (s *Session) prefetchCapabilities(text string) {
 	lower := strings.ToLower(text)
 	for _, c := range s.availableCaps() {
 		for _, t := range c.Triggers {
-			if words[t] || (strings.Contains(t, ".") && strings.Contains(lower, t)) {
+			if triggerMatches(t, words, lower) {
 				s.enableCapability(c.Tool)
 				break
 			}
@@ -79,6 +79,15 @@ func (s *Session) enableCapabilitiesUsedIn(msgs []wire.Message) {
 			}
 		}
 	}
+}
+
+// triggerMatches: a single-word trigger matches a whole word; one containing
+// a space or dot ("memcode website", "memcode.app") matches as a phrase.
+func triggerMatches(trig string, words map[string]bool, lower string) bool {
+	if strings.ContainsAny(trig, " .") {
+		return strings.Contains(lower, trig)
+	}
+	return words[trig]
 }
 
 // capabilitiesIndex is the system-prompt index of deferred capabilities.

@@ -1,9 +1,9 @@
 ---
 name: websites
-description: "Use when the user wants to create, inspect, build, edit, preview, publish, or manage an AI-built static website hosted at memcode.ai (the Websites feature) — or work on one locally (pull/dev/push). Covers the lifecycle, what is internal-preview gated, assets, draft vs. live, publish/unpublish, delete."
+description: "Use when the user wants to create, inspect, build, edit, preview, publish, or manage an AI-built static website HOSTED BY memcode.ai ({slug}.memcode.app, the Websites feature) — or work on one locally (pull/dev/push). Not for other websites: a site in this repo or hosted elsewhere is ordinary file work. Covers the lifecycle, what is internal-preview gated, assets, draft vs. live, publish/unpublish, delete."
 metadata:
   version: "2"
-  triggers: website, websites
+  triggers: memcode.app
 ---
 
 # Websites

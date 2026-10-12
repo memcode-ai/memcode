@@ -606,7 +606,7 @@ func Defs() []wire.ToolDef {
 		},
 		{
 			Name:        Websites,
-			Description: "Manage an AI-built static website at memcode.ai, by slug. Actions: list, get, create(name/prompt/model), build(prompt/model), edit(edits), builds, preview, publish, unpublish, update(name/model), delete, assets_list, assets_upload(asset_path[,asset_name]), assets_delete(asset_name). Building (build/edit, and CLI push) is internal-preview only: a gated error is an account restriction — tell the user, don't retry. Load the `websites` skill first. Changes are gated; publish/unpublish/delete/assets always ask.",
+			Description: "Manage an AI-built static website HOSTED BY memcode.ai ({slug}.memcode.app), by slug. Only for those: a site in this repo or hosted elsewhere is ordinary file work, and reading a public web page is fetch/web_search. Actions: list, get, create(name/prompt/model), build(prompt/model), edit(edits), builds, preview, publish, unpublish, update(name/model), delete, assets_list, assets_upload(asset_path[,asset_name]), assets_delete(asset_name). Building (build/edit, and CLI push) is internal-preview only: a gated error is an account restriction — tell the user, don't retry. The `websites` skill has the full lifecycle if you need it. Changes are gated; publish/unpublish/delete/assets always ask.",
 			InputSchema: obj(map[string]any{
 				"action":     enum("websites operation", []string{"list", "get", "create", "build", "edit", "builds", "preview", "publish", "unpublish", "delete", "update", "assets_list", "assets_upload", "assets_delete"}),
 				"slug":       str("required except list/create"),

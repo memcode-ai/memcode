@@ -25,10 +25,9 @@ type Capability struct {
 	Tool string
 	// Summary is the index line: what it does, in the user's words.
 	Summary string
-	// Triggers are words in a request that turn the tool on before the model
-	// is called, so a plain "what websites do I have?" never costs an extra
-	// model turn. Over-matching costs one schema; under-matching falls back to
-	// the model enabling it from the index.
+	// Triggers are machine identifiers (a hostname, a URL) whose presence in a
+	// request turns the tool on before the model is called, saving a turn.
+	// Natural language is never a trigger; see the catalog note below.
 	Triggers []string
 }
 
@@ -36,16 +35,29 @@ type Capability struct {
 const CapabilityTool = "capability"
 
 // Capabilities is the catalog, in index order.
+//
+// Summary is the model's ROUTER line: what the capability is for and what it
+// is not. The main model reading this index is the classifier; the summaries
+// are where the understanding of what users mean belongs.
+//
+// Triggers are a latency shortcut for MACHINE identifiers only (a product
+// hostname, a product URL), never natural language: approximating intent with
+// a growing list of words and phrases misroutes ordinary requests, and a false
+// trigger puts an irrelevant schema in front of the model. A capability with
+// no identifier has no triggers and is reached through the index.
 var Capabilities = []Capability{
-	{Tool: Websites, Summary: "AI-built websites hosted at memcode.ai: list, create, build, preview, publish, domains, assets",
-		// Not "site": "call site" is everyday code vocabulary.
-		Triggers: []string{"website", "websites", "memcode.app"}},
-	{Tool: Task, Summary: "scheduled automations memcode runs without the user: create, list, pause, delete",
-		Triggers: []string{"schedule", "scheduled", "schedules", "automate", "automation", "automations", "cron", "recurring", "nightly", "weekly", "daily"}},
-	{Tool: Script, Summary: "saved multi-step command recipes, replayed by name: save, find, run, delete",
-		Triggers: []string{"script", "scripts", "recipe", "recipes"}},
-	{Tool: Artifact, Summary: "publish a local self-contained HTML file as a shareable memcode.ai page",
-		Triggers: []string{"artifact", "artifacts", "shareable", "share"}},
+	{Tool: Websites,
+		Summary:  "create, edit, preview, publish or manage websites hosted by memcode (*.memcode.app). For a website in this repo use the file tools; for public sites elsewhere use fetch/web_search",
+		Triggers: []string{"memcode.app"}},
+	{Tool: Task,
+		Summary: "scheduled automations memcode runs on its own, without the user (create, list, pause, delete). Not for doing the work now",
+	},
+	{Tool: Script,
+		Summary: "the user's SAVED command recipes, replayed by name (save, find, run, delete). Not for writing a script file in the repo",
+	},
+	{Tool: Artifact,
+		Summary:  "publish a local self-contained HTML file as a shareable memcode.ai page (publish, update, list, delete)",
+		Triggers: []string{"memcode.ai/code/artifact"}},
 }
 
 // IsDeferred reports whether name is a deferred capability's tool.
