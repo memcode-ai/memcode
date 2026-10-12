@@ -95,16 +95,45 @@ var evalCases = []evalCase{
 		Note:      "debugging one incident",
 	},
 
+	// Started by the user's own work — recurs, but no timer can know when.
+	// These four are real false positives from a working session.
+	{
+		Request:   "Tag v0.41.3 and push it so the release workflow publishes the binaries.",
+		Summary:   "Tagged v0.41.3, pushed; the release workflow is running.",
+		WantOffer: false,
+		Note:      "a release is cut when the work is ready, not on a clock",
+	},
+	{
+		Request:   "Watch the release run until it finishes and tell me if it passed.",
+		Summary:   "Release workflow completed successfully; 7 assets published.",
+		WantOffer: false,
+		Note:      "that run ended; the next run is a different instance",
+	},
+	{
+		Request:   "Redeploy the website builder and host services with the new code.",
+		Summary:   "Built and deployed both Cloud Run services; new revisions serve 100% of traffic.",
+		WantOffer: false,
+		Note:      "deploys follow merges, and shipping is never unattended",
+	},
+	{
+		Request:   "Check the website runtime deploy went out and the site serves.",
+		Summary:   "Deploy finished; the site returns 200 and the preview needs its token.",
+		WantOffer: false,
+		Note:      "verifying what was just shipped",
+	},
+
+	{
+		Request:   "Check that our docs still match the CLI's actual flags.",
+		Summary:   "Found two stale flags in docs/cli.md and corrected them.",
+		WantOffer: false,
+		Note:      "docs drift because someone changed a flag; the fix rides with that change",
+	},
+
 	// Ambiguous — no assertion, printed for inspection.
 	{
 		Request: "Clean up the stale TODOs in this package.",
 		Summary: "Removed 4 obsolete TODOs and filed 2 as issues.",
 		Note:    "AMBIGUOUS: a user pattern at best, not inherently recurring",
-	},
-	{
-		Request: "Check that our docs still match the CLI's actual flags.",
-		Summary: "Found two stale flags in docs/cli.md and corrected them.",
-		Note:    "AMBIGUOUS: recurs as the CLI changes — internal recurrence is defensible",
 	},
 }
 
@@ -129,16 +158,28 @@ which proves the pipeline and says nothing about the judgement.`,
 		classify := sess.TaskShapeClassifier()
 
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(w, "VERDICT\tOFFER\tKIND\tCONF\tSHAPE\tREQUEST\tCAUSE")
+		fmt.Fprintln(w, "VERDICT\tOFFER\tTRIGGER\tKIND\tCONF\tSHAPE\tREQUEST\tCAUSE")
 		var falsePos, falseNeg, wrongKind int
 
+		match, _ := cmd.Flags().GetString("match")
+		repeat, _ := cmd.Flags().GetInt("repeat")
+		var cases []evalCase
 		for _, c := range evalCases {
+			if match != "" && !strings.Contains(strings.ToLower(c.Request), strings.ToLower(match)) {
+				continue
+			}
+			for i := 0; i < max(repeat, 1); i++ {
+				cases = append(cases, c)
+			}
+		}
+
+		for _, c := range cases {
 			p, ok, err := classify(ctx, taskdetect.Turn{
 				SessionID: "eval", Project: cfg.Root,
 				Request: c.Request, Summary: c.Summary,
 			})
 			if err != nil {
-				fmt.Fprintf(w, "ERROR\t\t\t\t\t%s\t%v\n", clipTo(c.Request, 40), err)
+				fmt.Fprintf(w, "ERROR\t\t\t\t\t\t%s\t%v\n", clipTo(c.Request, 40), err)
 				continue
 			}
 			// Mirror the detector's first-contact rule exactly, so the eval
@@ -160,8 +201,8 @@ which proves the pipeline and says nothing about the judgement.`,
 			case ok && c.WantKind != "" && p.Recurrence.Kind != c.WantKind:
 				verdict, wrongKind = "kind?", wrongKind+1
 			}
-			fmt.Fprintf(w, "%s\t%t\t%s\t%.2f\t%.2f\t%s\t%s\n",
-				verdict, offered, p.Recurrence.Kind, p.Recurrence.Confidence, p.Confidence,
+			fmt.Fprintf(w, "%s\t%t\t%s\t%s\t%.2f\t%.2f\t%s\t%s\n",
+				verdict, offered, p.Trigger, p.Recurrence.Kind, p.Recurrence.Confidence, p.Confidence,
 				clipTo(c.Request, 40), clipTo(p.Recurrence.Cause, 48))
 		}
 		w.Flush()
@@ -184,4 +225,10 @@ func clipTo(s string, n int) string {
 	return s[:n-1] + "…"
 }
 
-func init() { taskCmd.AddCommand(taskEvalCmd) }
+func init() {
+	// The classifier is not deterministic: one run per case says little about
+	// a rate. --repeat runs each selected case N times; --match narrows the set.
+	taskEvalCmd.Flags().String("match", "", "only cases whose request contains this text")
+	taskEvalCmd.Flags().Int("repeat", 1, "run each selected case this many times")
+	taskCmd.AddCommand(taskEvalCmd)
+}

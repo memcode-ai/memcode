@@ -84,6 +84,24 @@ func (r Recurrence) Inherent() bool {
 	return r.Kind == RecurrenceExternal || r.Kind == RecurrenceInternal
 }
 
+// Trigger is what STARTS the work. Only clock-triggered work can be a
+// schedule: a timer can notice that a vendor shipped or a certificate is near
+// expiry, but it cannot know that the user just merged a change or cut a
+// release. Work that follows a step in the user's own work recurs, but each
+// occurrence is started by a decision, not by time.
+type Trigger string
+
+const (
+	// TriggerClock: something changes on its own time, and checking on a
+	// schedule notices it (models ship and retire, packages release,
+	// advisories appear, certificates near expiry, data lands).
+	TriggerClock Trigger = "clock"
+	// TriggerYourWork: it follows a step in the user's own work (after a
+	// change merges, after a release is cut, after a deploy). Shipping and
+	// watching what was just shipped belong here.
+	TriggerYourWork Trigger = "your_work"
+)
+
 // Effect says what a run of this work does to the repository.
 type Effect string
 
@@ -130,6 +148,10 @@ type Proposal struct {
 	Effect Effect `json:"code_changes"`
 	// Confidence that the work is well-shaped enough to automate at all.
 	Confidence float64 `json:"confidence"`
+	// Trigger is what starts each occurrence. Only TriggerClock work is a
+	// schedule; anything else (including a proposal recorded before this field
+	// existed) is not offered unless the user asked for the automation.
+	Trigger Trigger `json:"trigger,omitempty"`
 	// Recurrence is the causal claim about whether it will be needed again.
 	// Separate from Confidence on purpose: work can be perfectly automatable and
 	// still never need doing twice.
@@ -156,7 +178,13 @@ type Proposal struct {
 // Eligible reports whether the work qualifies at all, independent of how
 // confident or how often it has been seen.
 func (p Proposal) Eligible() bool {
-	return p.Bounded && p.Reproducible && p.UnattendedSafe && p.Evaluable
+	return p.Bounded && p.Reproducible && p.UnattendedSafe && p.Evaluable && p.scheduleable()
+}
+
+// scheduleable: a timer can start this work. Clock-triggered work, or anything
+// the user explicitly asked to automate (their call, not an inference).
+func (p Proposal) scheduleable() bool {
+	return p.Trigger == TriggerClock || p.ExplicitRequest
 }
 
 // IneligibleReason names the first failing gate, for a log line.
@@ -170,6 +198,8 @@ func (p Proposal) IneligibleReason() string {
 		return "not safe unattended — it needs a human in the loop"
 	case !p.Evaluable:
 		return "not evaluable — success cannot be checked"
+	case !p.scheduleable():
+		return "started by the user's own work, not by time — a schedule cannot know when it is needed"
 	}
 	return ""
 }

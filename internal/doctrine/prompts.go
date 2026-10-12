@@ -875,7 +875,9 @@ TWO separate judgements. Do not conflate them.
 1. SHAPE — is this automatable at all? All four must hold:
    bounded (a clear finish, not open-ended improvement)
    reproducible (the same procedure works next month)
-   unattended (safe with nobody to ask; no judgement only a human can make)
+   unattended (safe with nobody to ask; no judgement only a human can make). Shipping is
+              never unattended: deploying, publishing, pushing, tagging or cutting a release,
+              and running migrations happen when the user decides something is ready.
    evaluable (success is checkable by running something, not by opinion)
 
    Be strict. "Make this better", "clean this up", "improve performance" are not bounded
@@ -900,6 +902,23 @@ TWO separate judgements. Do not conflate them.
    migrating a format once does not recur because formats change again someday. If the
    honest answer is "a different instance of this general area may come up", that is
    one_off. This is the most common way to be wrong here.
+
+3. TRIGGER — what STARTS each occurrence? A schedule is a timer; it can only start work
+   whose need arises on its own time. The test is one question:
+
+       Would this need arise if nobody on this project did anything?
+
+   yes → clock      a vendor ships or retires a model, a package releases, an advisory is
+                    published, a certificate nears expiry, the week's data lands.
+   no  → your_work  the need exists only because someone here changed something: a change
+                    merged, a release was cut, a deploy went out, a flag was renamed and the
+                    docs fell behind. It recurs, but each time because of the user's own
+                    work, and the fix belongs with that work — no timer can know when it
+                    happened.
+
+   Releasing, deploying, watching a particular run until it finishes, and keeping this
+   project's own files in step with each other (docs matching code, generated files
+   matching sources) are all your_work.
 
 Shape and recurrence are INDEPENDENT. "Rename the company from X to Y" passes all four
 gates and is one_off, because a product is renamed once. Passing the gates is not a reason

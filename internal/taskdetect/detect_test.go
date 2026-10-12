@@ -44,6 +44,7 @@ func catalogProposal(name, target string, conf float64) Proposal {
 		Verify:         []string{"go test ./catalog/"},
 		SuggestedEvery: "168h", Effect: EffectPossible, Confidence: conf,
 		Bounded: true, Reproducible: true, UnattendedSafe: true, Evaluable: true,
+		Trigger: TriggerClock, // vendors ship on their own time
 		// Deliberately WEAK prospective reasoning, so this fixture exercises the
 		// historical path. The prospective path has its own tests.
 		Recurrence: Recurrence{Kind: RecurrenceUncertain, Confidence: 0.3},
@@ -783,5 +784,41 @@ func TestExplicitRequestBecomesARunnableTask(t *testing.T) {
 	}
 	if err := tk.Validate(start); err != nil {
 		t.Errorf("must be valid without editing: %v", err)
+	}
+}
+
+// Work started by the user's own work recurs, but no timer can know when: a
+// release is cut, a deploy follows a merge, a run is watched until it ends.
+// It must never become a schedule, however often it happens, unless the user
+// asks for that automation themselves.
+func TestYourWorkTriggerIsNeverAScheduleUnlessAsked(t *testing.T) {
+	release := inherentlyRecurring(0.95)
+	release.Family = "release-workflow-monitoring"
+	release.Trigger = TriggerYourWork
+	release.Recurrence.Kind = RecurrenceInternal
+	release.Recurrence.Cause = "each new release triggers a workflow that must be watched until it finishes"
+
+	if release.Eligible() {
+		t.Fatal("a release-triggered job must not be eligible")
+	}
+	if !strings.Contains(release.IneligibleReason(), "user's own work") {
+		t.Fatalf("reason = %q", release.IneligibleReason())
+	}
+	if Ready(Cluster{Latest: release, Sessions: 10, Weight: 10}) {
+		t.Fatal("repetition must not turn a your-work job into a schedule")
+	}
+
+	// A proposal stored before the trigger existed has none: not a schedule.
+	legacy := release
+	legacy.Trigger = ""
+	if legacy.Eligible() {
+		t.Fatal("a proposal with no trigger must not be offered")
+	}
+
+	// The user asking for it is their call, not an inference.
+	asked := release
+	asked.ExplicitRequest = true
+	if !asked.Eligible() {
+		t.Fatal("an explicit request must still be eligible")
 	}
 }

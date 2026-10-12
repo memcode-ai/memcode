@@ -44,12 +44,14 @@ func TestDoctrineBudgets(t *testing.T) {
 		// nothing but this rule stops "mention it" being read as "print it".
 		"chat": 18_000, "exec": 16_000, "plan": 11_100, "apply": 13_100,
 		"review": 2_400, "compact": 1_700, "distill": 1_600,
-		// task_shape is the largest judge on purpose: it makes TWO independent
-		// judgements (is this automatable, and is there a causal reason it will
-		// recur) and carries the recurrence taxonomy that keeps the second from
-		// collapsing into "it looks scriptable". Raised deliberately from 1_500
-		// when prospective reasoning was added; it sits just under review's 2_400.
-		"task_shape": 2_800, "adhere": 1_100, "classify": 900, "extract": 900, "facts": 1_100,
+		// task_shape is the largest judge on purpose: it makes THREE independent
+		// judgements (is this automatable, is there a causal reason it will
+		// recur, and does a clock or the user's own work start it) and carries
+		// the taxonomies that keep each from collapsing into "it looks
+		// scriptable". Raised deliberately from 1_500 when prospective reasoning
+		// was added, and from 2_800 when the trigger test was (release and
+		// deploy steps were being offered as schedules).
+		"task_shape": 3_900, "adhere": 1_100, "classify": 900, "extract": 900, "facts": 1_100,
 		"turn_intent": 2_500,
 	}
 	for mode, budget := range budgets {

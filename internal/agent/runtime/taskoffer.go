@@ -62,12 +62,14 @@ var proposeTaskTool = wire.ToolDef{
 				},
 				"required": []string{"kind", "confidence"},
 			},
+			"trigger": map[string]any{"type": "string", "enum": []string{"clock", "your_work"},
+				"description": "would this need arise if nobody on this project did anything? yes = clock (vendors, packages, advisories, expiries, incoming data); no = your_work (it exists only because someone here changed something: a merge, a release, a deploy, code the docs must follow)"},
 			"bounded":         map[string]any{"type": "boolean"},
 			"reproducible":    map[string]any{"type": "boolean"},
 			"unattended_safe": map[string]any{"type": "boolean"},
 			"evaluable":       map[string]any{"type": "boolean"},
 		},
-		"required": []string{"standing_job"},
+		"required": []string{"standing_job", "trigger"},
 	},
 }
 
@@ -91,6 +93,7 @@ func (c sessionClassifier) Classify(ctx context.Context, in taskdetect.Turn) (ta
 		CodeChanges     string   `json:"code_changes"`
 		Confidence      float64  `json:"confidence"`
 		ExplicitRequest bool     `json:"explicit_request"`
+		Trigger         string   `json:"trigger"`
 		Recurrence      struct {
 			Kind       string  `json:"kind"`
 			Cause      string  `json:"cause"`
@@ -124,6 +127,9 @@ func (c sessionClassifier) Classify(ctx context.Context, in taskdetect.Turn) (ta
 		Verify: out.Verify, SuggestedEvery: out.SuggestedEvery, SuggestedCron: out.SuggestedCron,
 		Effect: effect, Confidence: out.Confidence,
 		ExplicitRequest: out.ExplicitRequest,
+		// Anything but an exact "clock" is not a schedule: an unrecognised
+		// value must never read as one.
+		Trigger: taskdetect.Trigger(strings.TrimSpace(out.Trigger)),
 		Recurrence: taskdetect.Recurrence{
 			Kind:       recurrenceKind(out.Recurrence.Kind),
 			Cause:      out.Recurrence.Cause,
