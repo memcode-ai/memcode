@@ -513,7 +513,10 @@ func (c *Client) ListAssets(ctx context.Context, siteID string) ([]Asset, error)
 }
 
 // UploadAsset uploads the file at localPath, named by its own base name
-// unless name is non-empty.
+// unless name is non-empty. The file goes straight to storage through a signed
+// URL (no request-body limit in the way), then the server checks and adopts
+// the stored object. A server without the signed flow gets the multipart
+// upload instead.
 func (c *Client) UploadAsset(ctx context.Context, siteID, localPath, name string) (Asset, error) {
 	if name == "" {
 		name = filepath.Base(localPath)
@@ -523,7 +526,65 @@ func (c *Client) UploadAsset(ctx context.Context, siteID, localPath, name string
 		return Asset{}, err
 	}
 	defer f.Close()
+	st, err := f.Stat()
+	if err != nil {
+		return Asset{}, err
+	}
 
+	ticketReq, _ := json.Marshal(map[string]any{"name": name, "size": st.Size()})
+	raw, err := c.do(ctx, http.MethodPost, "/api/website/"+siteID+"/assets/uploads", bytes.NewReader(ticketReq), "application/json")
+	var apiErr *APIError
+	if errors.As(err, &apiErr) && apiErr.Status == http.StatusNotFound && !strings.Contains(apiErr.Message, "Site not found") {
+		return c.uploadAssetMultipart(ctx, siteID, f, name)
+	}
+	if err != nil {
+		return Asset{}, err
+	}
+	var ticket struct {
+		UploadID string            `json:"upload_id"`
+		Name     string            `json:"name"`
+		URL      string            `json:"url"`
+		Headers  map[string]string `json:"headers"`
+	}
+	if err := json.Unmarshal(raw, &ticket); err != nil || ticket.URL == "" {
+		return Asset{}, fmt.Errorf("decoding upload ticket: %v", err)
+	}
+
+	put, err := http.NewRequestWithContext(ctx, http.MethodPut, ticket.URL, f)
+	if err != nil {
+		return Asset{}, err
+	}
+	put.ContentLength = st.Size()
+	for k, v := range ticket.Headers {
+		put.Header.Set(k, v)
+	}
+	resp, err := c.http.Do(put)
+	if err != nil {
+		return Asset{}, fmt.Errorf("uploading %s: %w", name, err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		return Asset{}, fmt.Errorf("uploading %s: storage returned %s", name, resp.Status)
+	}
+
+	doneReq, _ := json.Marshal(map[string]string{"name": ticket.Name})
+	raw, err = c.do(ctx, http.MethodPost, "/api/website/"+siteID+"/assets/uploads/"+url.PathEscape(ticket.UploadID), bytes.NewReader(doneReq), "application/json")
+	if err != nil {
+		return Asset{}, err
+	}
+	var asset Asset
+	if err := json.Unmarshal(raw, &asset); err != nil {
+		return Asset{}, fmt.Errorf("decoding uploaded asset: %w", err)
+	}
+	return asset, nil
+}
+
+// uploadAssetMultipart is the pre-signed-upload path: the file rides the
+// request body, so it only works for files under the server's body limit.
+func (c *Client) uploadAssetMultipart(ctx context.Context, siteID string, f *os.File, name string) (Asset, error) {
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		return Asset{}, err
+	}
 	var buf bytes.Buffer
 	w := multipart.NewWriter(&buf)
 	part, err := w.CreateFormFile("file", name)

@@ -561,6 +561,10 @@ func TestAssetsListUploadDelete(t *testing.T) {
 			json.NewEncoder(w).Encode(map[string]any{
 				"assets": []Asset{{Name: "brochure.pdf", Size: 9, URL: "https://cafe.memcode.app/assets/brochure.pdf"}},
 			})
+		case r.URL.Path == "/api/website/s9/assets/uploads":
+			// An older server without the signed flow: the client falls back
+			// to the multipart upload.
+			http.NotFound(w, r)
 		case r.URL.Path == "/api/website/s9/assets" && r.Method == http.MethodPost:
 			uploadedContentType = r.Header.Get("Content-Type")
 			uploadedBody, _ = io.ReadAll(r.Body)
@@ -600,5 +604,60 @@ func TestAssetsListUploadDelete(t *testing.T) {
 	}
 	if deletedPath != "/api/website/s9/assets/brochure.pdf" {
 		t.Fatalf("deleted path %q", deletedPath)
+	}
+}
+
+// The signed flow: ask for a ticket, PUT the bytes straight to storage with
+// the ticket's headers, then have the server adopt the stored object.
+func TestUploadAssetSignedDirect(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "big.pdf")
+	if err := os.WriteFile(file, []byte("%PDF-big"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stored []byte
+	var storedRange string
+	storage := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut {
+			t.Fatalf("storage got %s", r.Method)
+		}
+		storedRange = r.Header.Get("x-goog-content-length-range")
+		stored, _ = io.ReadAll(r.Body)
+	}))
+	defer storage.Close()
+
+	var adopted string
+	c, _ := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requireBearer(t, r)
+		switch r.URL.Path {
+		case "/api/website/s9/assets/uploads":
+			var body struct {
+				Name string `json:"name"`
+				Size int64  `json:"size"`
+			}
+			json.NewDecoder(r.Body).Decode(&body)
+			if body.Name != "big.pdf" || body.Size != 8 {
+				t.Fatalf("ticket request %+v", body)
+			}
+			json.NewEncoder(w).Encode(map[string]any{
+				"upload_id": "u-1", "name": "big.pdf", "url": storage.URL + "/put",
+				"headers": map[string]string{"Content-Type": "application/pdf", "x-goog-content-length-range": "0,10485760"},
+			})
+		case "/api/website/s9/assets/uploads/u-1":
+			adopted = r.URL.Path
+			json.NewEncoder(w).Encode(Asset{Name: "big.pdf", Size: 8})
+		default:
+			t.Fatalf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+	}))
+
+	asset, err := c.UploadAsset(context.Background(), "s9", file, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(stored) != "%PDF-big" || storedRange != "0,10485760" {
+		t.Fatalf("storage got %q with range %q", stored, storedRange)
+	}
+	if adopted == "" || asset.Name != "big.pdf" {
+		t.Fatalf("not adopted: %q %+v", adopted, asset)
 	}
 }
