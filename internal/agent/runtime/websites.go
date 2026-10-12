@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/memcode-ai/memcode/internal/authflow"
 	"os"
 	"path/filepath"
 	"strings"
@@ -90,7 +91,8 @@ func (s *Session) websitesTool(ctx context.Context, input json.RawMessage) toolR
 		case buildErr != nil:
 			return textResult(fmt.Sprintf("created %q (%s), but the build failed to queue: %s", site.Name, site.Slug, buildErr.Error()))
 		}
-		return textResult(fmt.Sprintf("created %q (%s) and queued a build (%s, status %s) — check progress with websites{action:\"builds\", slug:%q}", site.Name, site.Slug, build.ID, build.Status, site.Slug))
+		s.watchSiteBuild(client, site, build)
+		return textResult(fmt.Sprintf("created %q (%s) and queued a build (%s, status %s). %s", site.Name, site.Slug, build.ID, build.Status, s.buildFollowUp(site.Slug)))
 	}
 
 	// Every remaining action targets one existing site.
@@ -133,7 +135,8 @@ func (s *Session) websitesTool(ctx context.Context, input json.RawMessage) toolR
 			return errResult("websites " + in.Action + " failed: " + err.Error())
 		}
 		s.toolLine(true, "Websites", in.Action, site.Slug, false)
-		return textResult(fmt.Sprintf("%s queued (%s), status %s — check progress with websites{action:\"builds\", slug:%q}", in.Action, build.ID, build.Status, site.Slug))
+		s.watchSiteBuild(client, site, build)
+		return textResult(fmt.Sprintf("%s queued (%s), status %s. %s", in.Action, build.ID, build.Status, s.buildFollowUp(site.Slug)))
 
 	case "builds":
 		builds, err := client.ListBuilds(ctx, site.ID)
@@ -162,7 +165,7 @@ func (s *Session) websitesTool(ctx context.Context, input json.RawMessage) toolR
 			return errResult("websites preview failed: " + err.Error())
 		}
 		s.toolLine(true, "Websites", "preview", site.Slug, false)
-		return textResult(url)
+		return s.offerPreview(ctx, site.Slug, url, in.Reveal)
 
 	case "publish":
 		if denied := s.gateWebsites(ctx, in.Action, risk, "Publish website", site.Slug, "replaces what the public sees at the live URL"); denied != nil {
@@ -451,4 +454,55 @@ func (s *Session) rememberWebsitesApproval(action string) {
 	}
 	defer f.Close()
 	_, _ = f.WriteString(action + "\n")
+}
+
+// buildFollowUp tells the model what happens next with a queued build. In an
+// interactive session the session watches it: the user sees it in the status
+// bar and is told when it finishes, with an offer to open the preview, so
+// the model must not ask them to check back or poll for it.
+func (s *Session) buildFollowUp(slug string) string {
+	if s.conversational {
+		return "memcode is watching this build: the user sees it in the status bar and is told when it finishes, with an offer to open the preview. Don't ask them to check back, and don't poll for it."
+	}
+	return fmt.Sprintf("Check progress with websites{action:\"builds\", slug:%q}.", slug)
+}
+
+// openBrowser opens a URL in the user's browser; a var so tests never launch one.
+var openBrowser = authflow.OpenBrowser
+
+// Preview choices offered to the user.
+const (
+	previewOpen = "Open it in my browser"
+	previewLink = "Show me the link"
+)
+
+// offerPreview hands a preview to the user without putting its link into
+// the conversation: the link carries a private access token. Interactive
+// sessions offer to open it in the browser (or show the link to the user);
+// the model only learns what happened. With reveal, or with no one to ask (a
+// one-shot run), the link itself is returned.
+func (s *Session) offerPreview(ctx context.Context, slug, url string, reveal bool) toolResult {
+	if reveal || !s.conversational || s.ask == nil {
+		return textResult(url + "\n(The link carries a private access token: anyone with it can view the draft for 6 hours.)")
+	}
+	resp := s.ask(ctx, AskRequest{
+		Question: "The preview of " + slug + " is ready. Open it?",
+		Options: []AskOption{
+			{Label: previewOpen},
+			{Label: previewLink, Description: "for you only; it's a private link that works for 6 hours"},
+			{Label: "Not now"},
+		},
+	})
+	switch resp.Answer {
+	case previewOpen:
+		if err := openBrowser(url); err != nil {
+			s.printf("  preview: %s\n", url)
+			return textResult("couldn't open a browser here, so the link was shown to the user. Don't repeat it.")
+		}
+		return textResult("opened the preview of " + slug + " in the user's browser.")
+	case previewLink:
+		s.printf("  preview: %s\n", url)
+		return textResult("showed the user the preview link. It carries a private access token: don't repeat it.")
+	}
+	return textResult("the user chose not to open the preview now.")
 }

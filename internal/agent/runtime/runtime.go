@@ -167,6 +167,7 @@ type Session struct {
 	approvedWebsites  map[string]bool    // per-action "don't ask again" for Medium websites actions (.memcode/websites-approvals); Dangerous ones always ask
 	nudgedSkills      map[string]bool    // skill triggers already nudged this session (nudge once, don't nag) — see skillNudge
 	enabledCaps       map[string]bool    // deferred capability tools turned on this session (monotonic) — see capabilities.go
+	siteBuilds        siteBuildWatches   // website builds this session queued and is watching — see sitebuilds.go
 	scripts           []scripts.Script   // saved reusable command sequences (.memcode/scripts) — see script.go, scripts_prompt.go
 	nudgedScripts     map[string]bool    // script slugs already nudged this session (nudge once, don't nag) — see scriptNudge
 	userMd            string             // user's MEMCODE.md instructions, loaded once per session, injected every turn

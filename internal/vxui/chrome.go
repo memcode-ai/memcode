@@ -155,6 +155,16 @@ func (s *appState) footerRow() ui.Widget {
 		frame := string(spinFrames[s.spin%len(spinFrames)])
 		add(fmt.Sprintf("%s %d shell%s", frame, len(sh), pluralS(len(sh))), s.sty.info)
 	}
+	// Website builds the session is watching: the same live spinner, with the
+	// site and how long it has been building (or a count when several are).
+	if b := s.w.sess.RunningSiteBuilds(); len(b) > 0 {
+		frame := string(spinFrames[s.spin%len(spinFrames)])
+		label := fmt.Sprintf("%s building %s %s", frame, b[0].Slug, elapsedShort(time.Since(b[0].Started)))
+		if len(b) > 1 {
+			label = fmt.Sprintf("%s %d site builds", frame, len(b))
+		}
+		add(label, s.sty.info)
+	}
 	// Plan mode is a distinct state from the permission mode (auto/allow-all/ask) — and so is
 	// the ambient Read Only stop — and both override the segment when active (modeLabel wins
 	// in that order), otherwise the footer reads "auto" while you're actually planning/read-only.

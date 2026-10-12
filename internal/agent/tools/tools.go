@@ -277,6 +277,7 @@ type (
 		Edits     []WebsitesEditWire `json:"edits,omitempty"`      // edit: verbatim find/replace pairs applied without the agent
 		AssetPath string             `json:"asset_path,omitempty"` // assets_upload: repo-relative path of the file to upload
 		AssetName string             `json:"asset_name,omitempty"` // assets_upload (optional override name) / assets_delete (required)
+		Reveal    bool               `json:"reveal,omitempty"`     // preview: return the link itself (only when the user asks for it)
 	}
 	MemcodeInput struct {
 		Command string `json:"command"`
@@ -616,6 +617,7 @@ func Defs() []wire.ToolDef {
 				"edits":      arr("edit: find/replace pairs", obj(map[string]any{"find": str("text to find"), "replace": str("replacement")}, "find", "replace")),
 				"asset_path": str("assets_upload: file path"),
 				"asset_name": str("assets_upload override / assets_delete target"),
+				"reveal":     map[string]any{"type": "boolean", "description": "preview: return the link itself. Only when the user explicitly asks for the URL; otherwise the user is offered to open it in their browser"},
 			}, "action"),
 		},
 		{

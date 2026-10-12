@@ -244,6 +244,9 @@ type appState struct {
 
 	agentJobs  []jobs.Job      // running detached agents (live panel rows), refreshed by the 1s agent ticker
 	agentKnown map[string]bool // job ids already announced in the transcript (launch-tree dedupe); nil = unseeded
+	// askFn is the engine-facing question callback (the one SetAsker installs),
+	// kept so the UI can ask on its own: "your site finished building, open it?"
+	askFn func(context.Context, runtime.AskRequest) runtime.AskResponse
 
 	appendBuf   strings.Builder // line-buffers engine output (scrollback wants whole lines)
 	inCodeFence bool            // stream state: inside a ``` block
@@ -278,7 +281,7 @@ func (s *appState) InitState() {
 	s.w.sess.SetObserver(vxObserver{s: s})
 	// Inline clarifying question: show the card in the live region, block the engine on a reply
 	// chan. An empty answer (Esc / interrupt) = the agent proceeds on best judgment.
-	s.w.sess.SetAsker(func(c context.Context, req runtime.AskRequest) runtime.AskResponse {
+	s.askFn = func(c context.Context, req runtime.AskRequest) runtime.AskResponse {
 		reply := make(chan runtime.AskResponse, 1)
 		r := req
 		id := s.nextHitlID()
@@ -299,7 +302,8 @@ func (s *appState) InitState() {
 			s.rt.Dispatch(func() { s.SetState(func() { s.withdrawHitl(id) }) })
 			return runtime.AskResponse{}
 		}
-	})
+	}
+	s.w.sess.SetAsker(s.askFn)
 	// Inline approval: show the request in the live region, block the engine on a reply chan.
 	s.w.sess.SetApprover(func(c context.Context, req runtime.ApprovalRequest) runtime.ApprovalDecision {
 		reply := make(chan runtime.ApprovalDecision, 1)
@@ -393,7 +397,7 @@ func (s *appState) InitState() {
 				case <-s.w.ctx.Done():
 					return
 				case <-t.C:
-					if len(s.w.sess.RunningShells()) == 0 {
+					if len(s.w.sess.RunningShells()) == 0 && len(s.w.sess.RunningSiteBuilds()) == 0 {
 						continue
 					}
 					s.rt.Dispatch(func() {
@@ -480,6 +484,11 @@ func (s *appState) refreshFooter() {
 				// A foreground bash command that outran the turn budget was promoted to a
 				// background shell; when it finishes, hand its result back as a new turn (same
 				// contract as a report-back agent) so the model can act on the outcome.
+				// A website build this session watched has finished: say so, and
+				// offer to open the preview. The UI's own question, no model turn.
+				for _, r := range s.w.sess.DrainSiteBuildReports() {
+					s.announceSiteBuild(r)
+				}
 				for _, sb := range s.w.sess.DrainShellReportBacks() {
 					verb := "finished"
 					if sb.Failed {
