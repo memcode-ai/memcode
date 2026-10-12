@@ -155,27 +155,28 @@ type Session struct {
 
 	planCtl *plan.Controller // plan-mode state (active/revision/models/apply), owned by EnterPlan/ExitPlan (plan.go)
 
-	metrics           metricsState       // session accounting counters (tool calls, reads, edit/verify seqs) (metricsstate.go)
-	served            servedState        // backend/routing telemetry of the last main call (servedstate.go)
-	dispMu            sync.Mutex         // guards served + turnEffort: the TUI render goroutine reads them every frame while the engine writes them mid-turn (separate from mu so a render read never blocks on output I/O)
-	turnEffort        wire.Effort        // thinking effort for THIS turn (set per turn; default off — see turnintent.go) — read under dispMu
-	servingDefault    string             // the everyday serving model (gateway cheap lane) shown before any turn runs — read under dispMu
-	turn              *turnState         // per-turn loop state, reset each runLoop (turnstate.go)
-	skills            []skills.Skill     // discovered skill catalog (own + Claude Code plugins)
-	approvedSkills    map[string]bool    // skills the user said "don't ask again" for (loaded from + persisted to .memcode/skill-approvals)
-	approvedArtifacts bool               // repo-scoped "don't ask again" for artifact publishing (.memcode/artifact-approvals)
-	approvedWebsites  map[string]bool    // per-action "don't ask again" for Medium websites actions (.memcode/websites-approvals); Dangerous ones always ask
-	nudgedSkills      map[string]bool    // skill triggers already nudged this session (nudge once, don't nag) — see skillNudge
-	enabledCaps       map[string]bool    // deferred capability tools turned on this session (monotonic) — see capabilities.go
-	siteBuilds        siteBuildWatches   // website builds this session queued and is watching — see sitebuilds.go
-	scripts           []scripts.Script   // saved reusable command sequences (.memcode/scripts) — see script.go, scripts_prompt.go
-	nudgedScripts     map[string]bool    // script slugs already nudged this session (nudge once, don't nag) — see scriptNudge
-	userMd            string             // user's MEMCODE.md instructions, loaded once per session, injected every turn
-	memoryMd          string             // durable memory (global + project memory.md), loaded once per session, injected every turn
-	supplemental      []ContextItem      // caller-supplied supplemental context (empty for the CLI/Desktop; set only by the agent runtime), injected every turn
-	extraSkillRoots   []string           // caller-supplied extra skill roots (a gateway agent's skills dir); empty for the CLI/Desktop
-	taskAttachments   []input.Attachment // caller-resolved attachments for the next submitted turn (gateway channel media); consumed by Submit
-	editsAllowed      bool               // user said "don't ask again for edits" this session (scoped: edits only, not commands; never catastrophic)
+	metrics           metricsState         // session accounting counters (tool calls, reads, edit/verify seqs) (metricsstate.go)
+	served            servedState          // backend/routing telemetry of the last main call (servedstate.go)
+	dispMu            sync.Mutex           // guards served + turnEffort: the TUI render goroutine reads them every frame while the engine writes them mid-turn (separate from mu so a render read never blocks on output I/O)
+	turnEffort        wire.Effort          // thinking effort for THIS turn (set per turn; default off — see turnintent.go) — read under dispMu
+	servingDefault    string               // the everyday serving model (gateway cheap lane) shown before any turn runs — read under dispMu
+	turn              *turnState           // per-turn loop state, reset each runLoop (turnstate.go)
+	skills            []skills.Skill       // discovered skill catalog (own + Claude Code plugins)
+	approvedSkills    map[string]bool      // skills the user said "don't ask again" for (loaded from + persisted to .memcode/skill-approvals)
+	approvedArtifacts bool                 // repo-scoped "don't ask again" for artifact publishing (.memcode/artifact-approvals)
+	approvedWebsites  map[string]bool      // per-action "don't ask again" for Medium websites actions (.memcode/websites-approvals); Dangerous ones always ask
+	nudgedSkills      map[string]bool      // skill triggers already nudged this session (nudge once, don't nag) — see skillNudge
+	enabledCaps       map[string]bool      // deferred capability tools turned on this session (monotonic) — see capabilities.go
+	siteBuilds        siteBuildWatches     // website builds this session queued and is watching — see sitebuilds.go
+	devServers        map[string]devServer // local website dev servers this session started, by source dir — see websites_local.go
+	scripts           []scripts.Script     // saved reusable command sequences (.memcode/scripts) — see script.go, scripts_prompt.go
+	nudgedScripts     map[string]bool      // script slugs already nudged this session (nudge once, don't nag) — see scriptNudge
+	userMd            string               // user's MEMCODE.md instructions, loaded once per session, injected every turn
+	memoryMd          string               // durable memory (global + project memory.md), loaded once per session, injected every turn
+	supplemental      []ContextItem        // caller-supplied supplemental context (empty for the CLI/Desktop; set only by the agent runtime), injected every turn
+	extraSkillRoots   []string             // caller-supplied extra skill roots (a gateway agent's skills dir); empty for the CLI/Desktop
+	taskAttachments   []input.Attachment   // caller-resolved attachments for the next submitted turn (gateway channel media); consumed by Submit
+	editsAllowed      bool                 // user said "don't ask again for edits" this session (scoped: edits only, not commands; never catastrophic)
 
 	lastCompactSummary string // most recent in-session compaction summary (the warm layer)
 

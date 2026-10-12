@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -24,18 +25,20 @@ var websitesCmd = &cobra.Command{
 	Long: `Work on your memcode Websites locally.
 
   memcode websites list            Your org's sites and their status
-  memcode websites create [name]   Create a site (optionally --prompt to build it)
+  memcode websites init <name>     Create a site on this machine only (push later)
+  memcode websites create [name]   Create a site on memcode.ai (optionally --prompt to build it there)
   memcode websites get <slug>      Show one site's details
   memcode websites build <slug>    Queue a hosted build (internal preview)
   memcode websites builds <slug>   List a site's build history
   memcode websites pull <slug>     Clone a site's repo into ./<slug>
-  memcode websites push [dir]      Upload local changes; rebuilds the preview (internal preview)
+  memcode websites push [dir|name] Upload local changes (creates the site on first push); rebuilds the preview
   memcode websites publish [dir]   Promote the preview to the live site
   memcode websites unpublish [dir] Take the live site offline
   memcode websites delete <slug>   Delete a website
   memcode websites update <slug>   Rename it or change its model
   memcode websites open <slug>     Open the live site (or --preview the draft)
   memcode websites dev [slug|dir]  Run its real Vite dev server locally
+  memcode websites zip [dir|name]  Save a shareable .zip of the project
   memcode websites assets ...      Manage its uploaded, rebuild-proof assets
 
 After pull, run ` + "`memcode`" + ` inside the directory to iterate on the site with
@@ -109,6 +112,9 @@ var websitesPublishCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		if meta.SiteID == "" {
+			return fmt.Errorf("%s exists only on this machine — run `memcode websites push %s` first", meta.Name, meta.Name)
+		}
 		url, err := c.Publish(cmd.Context(), meta.SiteID)
 		if err != nil {
 			return err
@@ -135,6 +141,9 @@ var websitesUnpublishCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		if meta.SiteID == "" {
+			return fmt.Errorf("%s exists only on this machine — run `memcode websites push %s` first", meta.Name, meta.Name)
+		}
 		if err := c.Unpublish(cmd.Context(), meta.SiteID); err != nil {
 			return err
 		}
@@ -144,8 +153,16 @@ var websitesUnpublishCmd = &cobra.Command{
 }
 
 // websitesDirArg resolves the optional [dir] positional, defaulting to cwd.
+// A name that isn't a directory is looked up among the managed local copies
+// ("memcode websites push crumb-bakery" from anywhere).
 func websitesDirArg(args []string) string {
 	if len(args) > 0 {
+		if info, err := os.Stat(args[0]); err == nil && info.IsDir() {
+			return args[0]
+		}
+		if local, ok := websites.FindLocal(args[0]); ok {
+			return local.Source
+		}
 		return args[0]
 	}
 	if wd, err := os.Getwd(); err == nil {
@@ -359,12 +376,75 @@ func runWebsitesList(cmd *cobra.Command) error {
 		fmt.Println(string(b))
 		return nil
 	}
-	if len(sites) == 0 {
-		fmt.Println("No websites yet — run `memcode websites create` (or just ask: \"make me a website for …\")")
+	var localOnly []websites.LocalSite
+	if all, err := websites.ListLocal(); err == nil {
+		for _, l := range all {
+			if !l.Pushed() {
+				localOnly = append(localOnly, l)
+			}
+		}
+	}
+	if len(sites) == 0 && len(localOnly) == 0 {
+		fmt.Println("No websites yet — run `memcode websites init <name>` (or just ask: \"make me a website for …\")")
 		return nil
 	}
-	fmt.Println(websites.RenderList(sites))
+	if len(sites) > 0 {
+		fmt.Println(websites.RenderList(sites))
+	}
+	if len(localOnly) > 0 {
+		fmt.Println("\nOnly on this machine (push to create them on memcode.ai):")
+		for _, l := range localOnly {
+			fmt.Printf("  %-28s %s\n", l.Meta.Name, l.Source)
+		}
+	}
 	return nil
+}
+
+var websitesZipCmd = &cobra.Command{
+	Use:   "zip [dir|name]",
+	Short: "Save a shareable .zip of a site's project (no node_modules or build output)",
+	Args:  cobra.MaximumNArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		dir := websitesDirArg(args)
+		out, _ := cmd.Flags().GetString("output")
+		if out == "" {
+			name := filepath.Base(dir)
+			if meta, err := websites.ReadMeta(dir); err == nil {
+				if name = meta.Slug; name == "" {
+					name = meta.Name
+				}
+			}
+			out = strings.ReplaceAll(strings.ToLower(name), " ", "-") + ".zip"
+		}
+		n, err := websites.Zip(dir, out)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("Saved %s (%d files)\n", out, n)
+		return nil
+	},
+}
+
+var websitesInitCmd = &cobra.Command{
+	Use:   "init <name>",
+	Short: "Create a website on this machine only; push it when you're ready",
+	Long: `Create a website locally, the way git init makes a repository: the starter
+project in ~/.memcode/websites/<name>, ready for 'memcode websites dev <name>'.
+Nothing is created on memcode.ai until you run 'memcode websites push <name>'.`,
+	Args: cobra.MinimumNArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		c, err := websites.New()
+		if err != nil {
+			return err
+		}
+		site, err := c.InitLocal(cmd.Context(), strings.Join(args, " "))
+		if err != nil {
+			return err
+		}
+		fmt.Printf("Created %s at %s\n", site.Meta.Name, site.Source)
+		fmt.Printf("Run `memcode websites dev %q` to see it, `memcode` in that folder to change it, and `memcode websites push %q` to put it on memcode.ai.\n", site.Meta.Name, site.Meta.Name)
+		return nil
+	},
 }
 
 func init() {
@@ -375,7 +455,8 @@ func init() {
 	websitesUpdateCmd.Flags().String("name", "", "new display name")
 	websitesUpdateCmd.Flags().String("model", "", "new chat model id")
 	websitesOpenCmd.Flags().Bool("preview", false, "open the draft preview instead of the live site")
-	websitesCmd.AddCommand(websitesListCmd, websitesPullCmd, websitesPushCmd,
+	websitesZipCmd.Flags().StringP("output", "o", "", "where to write the zip (default: ./<site>.zip)")
+	websitesCmd.AddCommand(websitesListCmd, websitesInitCmd, websitesZipCmd, websitesPullCmd, websitesPushCmd,
 		websitesPublishCmd, websitesUnpublishCmd, websitesDeleteCmd, websitesUpdateCmd,
 		websitesOpenCmd, websitesAssetsCmd)
 	rootCmd.AddCommand(websitesCmd)

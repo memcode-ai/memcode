@@ -34,7 +34,7 @@ func (s *Session) websitesTool(ctx context.Context, input json.RawMessage) toolR
 	}
 	risk, known := websiteActionRisk(in.Action)
 	if !known {
-		return errResult("websites: unknown action " + in.Action + " (list | get | create | build | edit | builds | preview | publish | unpublish | delete | update | assets_list | assets_upload | assets_delete)")
+		return errResult("websites: unknown action " + in.Action + " (list | get | create | develop | push | zip | build | edit | builds | preview | publish | unpublish | delete | update | assets_list | assets_upload | assets_delete)")
 	}
 	// Plan mode and read-only sub-agents research; they don't mutate a live site — check
 	// this BEFORE the account check so the Read Only denial always wins, with or without a
@@ -60,11 +60,61 @@ func (s *Session) websitesTool(ctx context.Context, input json.RawMessage) toolR
 		if err != nil {
 			return errResult("websites list failed: " + err.Error())
 		}
-		s.toolLine(true, "Websites", "list", fmt.Sprintf("%d sites", len(sites)), false)
-		if len(sites) == 0 {
+		var localOnly []string
+		if all, err := websites.ListLocal(); err == nil {
+			for _, l := range all {
+				if !l.Pushed() {
+					localOnly = append(localOnly, l.Meta.Name)
+				}
+			}
+		}
+		s.toolLine(true, "Websites", "list", fmt.Sprintf("%d sites", len(sites)+len(localOnly)), false)
+		if len(sites) == 0 && len(localOnly) == 0 {
 			return textResult("no websites yet — create one with websites{action:\"create\", name:..., prompt:...}")
 		}
-		return textResult(websites.RenderList(sites))
+		var b strings.Builder
+		if len(sites) > 0 {
+			b.WriteString(websites.RenderList(sites))
+		}
+		if len(localOnly) > 0 {
+			fmt.Fprintf(&b, "\nOnly on this machine (not pushed yet): %s", strings.Join(localOnly, ", "))
+		}
+		return textResult(strings.TrimSpace(b.String()))
+	}
+
+	// Local-first: in an interactive session a new site starts on this
+	// machine, and memcode.ai changes only when the user pushes or publishes.
+	// A one-shot run has no one to look at a local preview, so it builds on
+	// memcode.ai as before.
+	switch in.Action {
+	case "create":
+		if !in.Remote && s.conversational {
+			return s.createLocal(ctx, client, in.Name, in.Prompt)
+		}
+	case "develop":
+		if !s.conversational {
+			return errResult("websites develop runs a local preview and needs an interactive session; use build to change the site on memcode.ai")
+		}
+		return s.developSite(ctx, client, in.Slug, in.Prompt)
+	case "push":
+		return s.pushSite(ctx, client, in.Slug)
+	case "zip":
+		return s.zipSite(in.Slug)
+	case "publish":
+		if l, ok := websites.FindLocal(in.Slug); ok && l.NeedsPush() {
+			detail := "pushes your local changes, then replaces what the public sees at the live URL"
+			if !l.Pushed() {
+				detail = "creates it on memcode.ai, uploads it, then makes it live"
+			}
+			if denied := s.gateWebsites(ctx, in.Action, risk, "Publish website", l.Label(), detail); denied != nil {
+				return *denied
+			}
+			site, err := s.pushBeforePublish(ctx, client, l)
+			if err != nil {
+				return errResult("websites publish stopped before going live: " + err.Error())
+			}
+			return s.publish(ctx, client, site)
+		}
 	}
 
 	if in.Action == "create" {
@@ -95,7 +145,14 @@ func (s *Session) websitesTool(ctx context.Context, input json.RawMessage) toolR
 		return textResult(fmt.Sprintf("created %q (%s) and queued a build (%s, status %s). %s", site.Name, site.Slug, build.ID, build.Status, s.buildFollowUp(site.Slug)))
 	}
 
-	// Every remaining action targets one existing site.
+	// Every remaining action targets one existing site on memcode.ai. A local
+	// site is named by its local name until pushed.
+	if l, ok := websites.FindLocal(in.Slug); ok {
+		if !l.Pushed() {
+			return errResult(fmt.Sprintf("%q exists only on this machine (%s); websites %s needs it on memcode.ai — push it first if the user wants that", l.Meta.Name, l.Source, in.Action))
+		}
+		in.Slug = l.Meta.Slug
+	}
 	if in.Action == "get" {
 		site, err := client.GetBySlug(ctx, in.Slug)
 		if err != nil {
@@ -171,15 +228,7 @@ func (s *Session) websitesTool(ctx context.Context, input json.RawMessage) toolR
 		if denied := s.gateWebsites(ctx, in.Action, risk, "Publish website", site.Slug, "replaces what the public sees at the live URL"); denied != nil {
 			return *denied
 		}
-		url, err := client.Publish(ctx, site.ID)
-		if err != nil {
-			return errResult("websites publish failed: " + err.Error())
-		}
-		s.toolLine(true, "Websites", "publish", site.Slug, false)
-		if url != "" {
-			return textResult("published — live at " + url)
-		}
-		return textResult("published " + site.Slug)
+		return s.publish(ctx, client, site)
 
 	case "unpublish":
 		if denied := s.gateWebsites(ctx, in.Action, risk, "Unpublish website", site.Slug, "takes the live site offline"); denied != nil {
@@ -264,14 +313,30 @@ func (s *Session) websitesTool(ctx context.Context, input json.RawMessage) toolR
 // URL, removing an asset live pages may link to).
 func websiteActionRisk(action string) (permissions.Risk, bool) {
 	switch action {
-	case "list", "get", "builds", "preview", "assets_list":
+	case "list", "get", "builds", "preview", "assets_list", "develop", "zip":
+		// develop changes only the local copy, through a worker whose own
+		// file tools are gated as usual; zip writes one file locally.
 		return permissions.Safe, true
+	case "push":
+		return websitesPushRisk, true
 	case "create", "build", "edit", "update":
 		return permissions.Medium, true
 	case "publish", "unpublish", "delete", "assets_upload", "assets_delete":
 		return permissions.Dangerous, true
 	}
 	return permissions.Safe, false
+}
+
+func (s *Session) publish(ctx context.Context, client *websites.Client, site websites.Site) toolResult {
+	url, err := client.Publish(ctx, site.ID)
+	if err != nil {
+		return errResult("websites publish failed: " + err.Error())
+	}
+	s.toolLine(true, "Websites", "publish", site.Slug, false)
+	if url != "" {
+		return textResult("published — live at " + url)
+	}
+	return textResult("published " + site.Slug)
 }
 
 // validateWebsitesInput checks arguments up front, before any network call or

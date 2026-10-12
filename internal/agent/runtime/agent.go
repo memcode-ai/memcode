@@ -30,6 +30,10 @@ type AgentSpec struct {
 	IterCap  int         // 0 = mode default
 	Purpose  llm.Purpose // ledger attribution; also picks the run shape (Explore → scout prompt)
 	Effort   wire.Effort // pin the sub-agent's thinking effort ("" = its own per-turn heuristic)
+	// Root roots the sub-agent at another folder ("" = the parent's root). Its
+	// file tools are confined there, exactly as the parent's are to its own
+	// root: a website worker edits the site's managed copy and nothing else.
+	Root string
 }
 
 // AgentResult is a sub-agent's report-back: its final text plus the telemetry callers surface
@@ -66,7 +70,11 @@ func (s *Session) spawnAgent(ctx context.Context, spec AgentSpec) (AgentResult, 
 		model = s.model
 	}
 
-	sub := New(s.store, runner, s.root, model, s.effectiveMode(), io.Discard)
+	root := s.root
+	if spec.Root != "" {
+		root = spec.Root
+	}
+	sub := New(s.store, runner, root, model, s.effectiveMode(), io.Discard)
 	sub.policy, sub.pin = s.policy, s.pin // a worker's own workers resolve the same way
 	if spec.Purpose != "" {
 		sub.purpose = spec.Purpose

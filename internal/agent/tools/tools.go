@@ -41,7 +41,7 @@ const (
 	Task             = "task"              // turn recurring work into a durable autonomous task (gated; asks when underspecified)
 	Script           = "script"            // save/find/run/delete a reusable multi-step command sequence (each gated ONCE at the script level, not per inner command)
 	Artifact         = "artifact"          // publish/update/list/delete a self-contained HTML page hosted at memcode.ai (publish gated)
-	Websites         = "websites"          // manage an AI-built static website hosted at memcode.ai — list/create/build/edit/publish/assets (mutating actions gated); local pull/dev/push stay on the CLI
+	Websites         = "websites"          // make memcode websites locally (git-like: create/develop, then push/publish to memcode.ai) and manage hosted ones
 	Knowledge        = "knowledge"         // consult memcode's baseline facts/idioms for a stack (ungated reference)
 	Trace            = "trace"             // trace an artifact across pipeline stages to locate where data is lost (alias: wiretap)
 	EnterPlan        = "enter_plan"        // switch into research-and-approve plan mode (offered in normal chat only)
@@ -269,7 +269,7 @@ type (
 	// update, assets_upload, assets_delete) are gated; list/get/builds/preview/
 	// assets_list are read-only.
 	WebsitesInput struct {
-		Action    string             `json:"action"`               // list | get | create | build | edit | builds | preview | publish | unpublish | delete | update | assets_list | assets_upload | assets_delete
+		Action    string             `json:"action"`               // list | get | create | develop | push | zip | build | edit | builds | preview | publish | unpublish | delete | update | assets_list | assets_upload | assets_delete
 		Slug      string             `json:"slug,omitempty"`       // required for everything but list/create
 		Name      string             `json:"name,omitempty"`       // create (display name) / update (rename)
 		Prompt    string             `json:"prompt,omitempty"`     // create / build: describes the site/change to build
@@ -278,6 +278,7 @@ type (
 		AssetPath string             `json:"asset_path,omitempty"` // assets_upload: repo-relative path of the file to upload
 		AssetName string             `json:"asset_name,omitempty"` // assets_upload (optional override name) / assets_delete (required)
 		Reveal    bool               `json:"reveal,omitempty"`     // preview: return the link itself (only when the user asks for it)
+		Remote    bool               `json:"remote,omitempty"`     // create: on memcode.ai with a hosted build, not on this machine
 	}
 	MemcodeInput struct {
 		Command string `json:"command"`
@@ -607,13 +608,14 @@ func Defs() []wire.ToolDef {
 		},
 		{
 			Name:        Websites,
-			Description: "Manage an AI-built static website HOSTED BY memcode.ai ({slug}.memcode.app), by slug. Only for those: a site in this repo or hosted elsewhere is ordinary file work, and reading a public web page is fetch/web_search. Actions: list, get, create(name/prompt/model), build(prompt/model), edit(edits), builds, preview, publish, unpublish, update(name/model), delete, assets_list, assets_upload(asset_path[,asset_name]), assets_delete(asset_name). Building (build/edit, and CLI push) is internal-preview only: a gated error is an account restriction — tell the user, don't retry. The `websites` skill has the full lifecycle if you need it. Changes are gated; publish/unpublish/delete/assets always ask.",
+			Description: "Memcode websites: sites made with memcode (on this machine, hosted at {slug}.memcode.app). Only those: a site in this repo or elsewhere is ordinary file work; reading a web page is fetch/web_search. Works like git. Interactive default is local: create makes it on this machine with a live local preview; develop(slug, prompt) changes it locally; memcode.ai changes only when the user asks to push (creates/updates it there) or publish (goes live, pushing first). create(remote:true)/build/edit are the hosted path, only when asked. Actions: list, get, create(name/prompt[,remote]), develop, push, zip (shareable, no node_modules), build(prompt), edit(edits), builds, preview, publish, unpublish, update(name/model), delete, assets_list, assets_upload(asset_path[,asset_name]), assets_delete(asset_name). A gated build error is an account restriction: tell the user, don't retry.",
 			InputSchema: obj(map[string]any{
-				"action":     enum("websites operation", []string{"list", "get", "create", "build", "edit", "builds", "preview", "publish", "unpublish", "delete", "update", "assets_list", "assets_upload", "assets_delete"}),
-				"slug":       str("required except list/create"),
+				"action":     enum("websites operation", []string{"list", "get", "create", "develop", "push", "zip", "build", "edit", "builds", "preview", "publish", "unpublish", "delete", "update", "assets_list", "assets_upload", "assets_delete"}),
+				"slug":       str("the site's name or address; required except list/create"),
 				"name":       str("create/update: site name"),
-				"prompt":     str("create/build: what to build"),
-				"model":      str("create/build/update: chat model id"),
+				"prompt":     str("create/develop/build: what to make or change"),
+				"remote":     map[string]any{"type": "boolean", "description": "create: make it on memcode.ai and build it there, instead of on this machine. Only when the user asks for that"},
+				"model":      str("create(remote)/build/update: chat model id"),
 				"edits":      arr("edit: find/replace pairs", obj(map[string]any{"find": str("text to find"), "replace": str("replacement")}, "find", "replace")),
 				"asset_path": str("assets_upload: file path"),
 				"asset_name": str("assets_upload override / assets_delete target"),

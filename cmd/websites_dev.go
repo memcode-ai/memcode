@@ -58,6 +58,7 @@ alongside the site's own public/ files.`,
 }
 
 func init() {
+	websitesDevCmd.Flags().Bool("no-open", false, "don't open a browser when the dev server is ready")
 	websitesCmd.AddCommand(websitesDevCmd)
 }
 
@@ -89,7 +90,8 @@ func runWebsitesDev(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Printf("Starting the dev server for %s in %s …\n", meta.Slug, ws.SourceDir)
-	return runViteDevServer(ctx, ws.SourceDir, overridePath)
+	noOpen, _ := cmd.Flags().GetBool("no-open")
+	return runViteDevServer(ctx, ws.SourceDir, overridePath, !noOpen)
 }
 
 // resolveDevWorkspace picks explicit-dir mode (an existing pulled checkout —
@@ -124,9 +126,19 @@ func resolveDevWorkspace(ctx context.Context, c *websites.Client, args []string)
 			"not a pulled website here — pass a slug or a directory: `memcode websites dev <slug>`")
 	}
 
+	// A site with a managed working copy (made here with `init`, or pulled
+	// earlier) runs from that copy: no network, and one folder per site.
+	if local, ok := websites.FindLocal(arg); ok {
+		ws, err := local.Workspace()
+		return ws, local.Meta, err
+	}
 	site, err := c.Resolve(ctx, arg)
 	if err != nil {
 		return websites.Workspace{}, websites.Meta{}, err
+	}
+	if local, ok := websites.FindLocal(site.ID); ok {
+		ws, err := local.Workspace()
+		return ws, local.Meta, err
 	}
 	ws, err := websites.ManagedWorkspace(site.ID)
 	if err != nil {
@@ -314,7 +326,7 @@ var devServerURLRE = regexp.MustCompile(`https?://[^\s]+`)
 // (node_modules/.bin — no npx/network touch) with the generated override,
 // streaming its output live and opening a browser the moment its "Local:"
 // line reports the dev server is ready.
-func runViteDevServer(ctx context.Context, sourceDir, overridePath string) error {
+func runViteDevServer(ctx context.Context, sourceDir, overridePath string, open bool) error {
 	bin := filepath.Join(sourceDir, "node_modules", ".bin", "vite-react-ssg")
 	if _, err := os.Stat(bin); err != nil {
 		return fmt.Errorf("vite-react-ssg not found in node_modules/.bin — try deleting node_modules and re-running")
@@ -327,7 +339,7 @@ func runViteDevServer(ctx context.Context, sourceDir, overridePath string) error
 
 	opened := false
 	run.Stdout = &urlWatcher{out: os.Stdout, onFound: func(url string) {
-		if opened {
+		if opened || !open {
 			return
 		}
 		opened = true

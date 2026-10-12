@@ -1,113 +1,86 @@
 ---
 name: websites
-description: "Use when the user wants to create, inspect, build, edit, preview, publish, or manage an AI-built static website HOSTED BY memcode.ai ({slug}.memcode.app, the Websites feature) — or work on one locally (pull/dev/push). Not for other websites: a site in this repo or hosted elsewhere is ordinary file work. Covers the lifecycle, what is internal-preview gated, assets, draft vs. live, publish/unpublish, delete."
+description: "Use when the user wants to make a new website with memcode, or create, change, preview, publish, or manage a memcode website ({slug}.memcode.app, the Websites feature). Not for other websites: a site in this repo or hosted elsewhere is ordinary file work. Covers the local-first lifecycle (create → develop → push → publish), the hosted path, what is internal-preview gated, assets, draft vs. live."
 metadata:
-  version: "2"
+  version: "3"
   triggers: memcode.app
 ---
 
 # Websites
 
-memcode.ai hosts AI-built static sites (Vite + React, no TypeScript):
-prompt → build → preview → publish to `{slug}.memcode.app`. There are two
-surfaces over the same API:
+Memcode websites are static sites (Vite + React, no TypeScript) that end up
+hosted at `{slug}.memcode.app`. In the CLI they work like git: the site is
+made and changed **on this machine** with a live local preview, and
+memcode.ai only changes when the user crosses that boundary.
 
-- **The `websites` tool**: remote actions by slug (list, get, create,
-  build, edit, builds, preview, publish, unpublish, update, delete, assets).
-  One call each, no shell.
-- **The `memcode websites` CLI** (via bash): anything needing real local
-  files: `pull` (clone the site's repo), `push` (upload changes and
-  rebuild), `dev` (the actual Vite dev server). Inside a pulled checkout,
-  plain `memcode` is website mode: the same doctrine the hosted builder
-  uses.
+| Step | Tool action | CLI | Touches memcode.ai |
+| --- | --- | --- | --- |
+| Make a site | `create` | `memcode websites init <name>` | no |
+| Change it | `develop` (slug, prompt) | `memcode` in its folder | no |
+| See it | (develop starts it) | `memcode websites dev <name>` | no |
+| Share the code | `zip` | `memcode websites zip <name>` | no |
+| Put it online (draft) | `push` | `memcode websites push <name>` | yes: creates it the first time |
+| Make it live | `publish` | `memcode websites publish` | yes: what the public sees |
 
-Sites are addressed by **slug**. Resolve it with `list`/`get`; never guess
-ids. A pulled checkout records its site in `.memcode/website.json`.
+Local copies live in `~/.memcode/websites/<name>/source`, from any
+directory. A site is named by its local name until it is pushed, then by its
+slug; both work.
 
-## What is gated: building is internal-preview only
+## The default: local
 
-Anything that **builds** a site is limited to internal accounts
-(`canSeeTestPlans`) right now:
+- **"Make me a website for my bakery."** `create` with a name and the
+  prompt. The site is made on this machine, the change is made, and a local
+  preview starts (the user is asked whether to open it). Nothing exists on
+  memcode.ai yet; say so, and that pushing puts it online.
+- **"Make the header smaller."** `develop` with the slug and the change.
+  The preview updates live; no build, no waiting.
+- **"Work on my existing crumb site."** `develop`: a site that is only on
+  memcode.ai is pulled into a local copy first; an existing copy is reused
+  (and caught up with memcode.ai when it has no changes of its own).
+- **"Push it" / "put it online."** `push`. The first push creates the site
+  on memcode.ai and builds its draft; later pushes update it. If memcode.ai
+  has changes the local copy doesn't (from a hosted build), they are merged
+  in first; a conflict stops the push, and you tell the user.
+- **"Publish it."** `publish`. If the local copy is ahead, it is pushed and
+  built first, so what goes live is what the user saw locally.
 
-- the tool's `build` and `edit`, and `create` when given a prompt;
-- `memcode websites build` and `memcode websites push` (a push rebuilds).
+Node.js runs the local preview. If it's missing, the user is offered an
+install; if they decline, offer the hosted path instead.
 
-For any other account these fail with "website building is in limited
-internal preview". That is an **account restriction, not a transient
-error**:
+## The hosted path: only when asked
 
-1. Tell the user plainly that hosted building isn't available on their
-   account yet.
-2. **Don't retry, and don't invent a workaround.** In particular, there
-   is no local fallback for a site that was never built: a site only
-   has a repo to `pull` once a build has run.
+When the user asks to build it on memcode.ai ("create it remotely", "build
+a hosted preview"), use `create` with `remote:true` and a prompt, `build`
+(a prompt runs the hosted agent), or `edit` (verbatim find/replace, no
+agent). The status bar shows the build and the user is told when it
+finishes. A one-shot `memcode run` has no local preview, so its `create`
+builds on memcode.ai.
 
-Not gated: `list`, `get`, `create` (without a build), `builds`, `preview`,
-`update`, `publish`/`unpublish` of an already-built site, `delete`,
-`assets_*`, and `pull` of a site that has been built.
+`preview` offers to open the hosted draft (`preview--{slug}.memcode.app`).
+Its link carries a private token: only pass `reveal:true` when the user
+explicitly asks for the URL itself.
 
-## Lifecycle
+## What is gated: hosted building is internal-preview only
 
-1. **Create**: `websites{action:"create", name, prompt}` or
-   `memcode websites create "Name" --prompt "…"`. Creating always
-   succeeds. With a prompt it also queues a build, which is subject to
-   the gate above; if the build is refused, the site exists but is empty.
-2. **Build / change** (internal accounts):
-   - `build` with a prompt runs the hosted agent; with no prompt it
-     rebuilds the current state.
-   - `edit` applies verbatim find/replace edits with no agent; fastest
-     for small text tweaks.
-   - Hands-on: `memcode websites pull <slug>`, edit with the normal
-     tools (or run `memcode` inside it), then `memcode websites push`.
-   - Check progress with `builds`.
-3. **Preview**: the draft lives at `preview--{slug}.memcode.app` (tool
-   `preview`, or `memcode websites open <slug> --preview`), token-gated and
-   separate from the live site. Check work there before publishing.
-4. **Publish / unpublish**: `publish` promotes the current draft to
-   `{slug}.memcode.app`; `unpublish` takes it offline without deleting.
-   Nothing is live until published.
-
-## Running it locally: `memcode websites dev`
-
-`memcode websites dev <slug>` runs the site's real Vite dev server (full
-HMR, real devtools). With a slug it uses (or first clones into) a managed
-workspace under `~/.memcode/websites/<id>`; inside a pulled checkout, run it
-with no argument. Like `pull`, it needs a site that has been built. **It's
-long-running: launch it with bash `background:true`** and read its output
-for the local URL.
+Anything that **builds on memcode.ai** (`push`, `build`, `edit`, and a
+remote `create` with a prompt) is limited to internal accounts right now.
+Elsewhere it fails with "website building is in limited internal preview".
+That is an **account restriction, not a transient error**: tell the user,
+don't retry. Making and developing sites locally, and `zip`, work for
+everyone.
 
 ## Assets
 
-Uploaded files (`assets_list` / `assets_upload` / `assets_delete`, or
-`memcode websites assets …`) live in a durable prefix served publicly at
-`/assets/<filename>`, separate from the build output, so they survive every
-rebuild. Use it for files the user wants attached permanently (a PDF, a
-logo). Everything uploaded is **public**: the tool refuses hidden files and
-anything that looks like credentials, and you should never try to work
-around that.
+Uploaded files (`assets_list` / `assets_upload` / `assets_delete`) live
+apart from the build output, served publicly at `/assets/<filename>`, and
+survive every rebuild. Everything uploaded is **public**: the tool refuses
+hidden files and anything that looks like credentials; never work around
+that.
 
 ## Approvals
 
-Draft and metadata changes (`create`, `build`, `edit`, `update`) follow the
-normal approval mode. Anything the public sees or that destroys data
-(`publish`, `unpublish`, `delete`, `assets_upload`, `assets_delete`)
-**always asks**, even in auto mode, and can't be pre-approved. Don't call
-`delete` unless the user asked for it.
-
-## Worked scenarios
-
-**"Make me a website for my coffee shop."** `create` with a descriptive
-name and prompt. If the build queued: watch `builds`, then share the
-`preview` URL and offer to `publish`. If the build was refused by the
-gate: say the site was created but hosted building isn't available on
-their account yet. Stop there; don't retry.
-
-**"Work on my X website."** Resolve the slug. For small text changes,
-`edit`. For anything bigger: `memcode websites pull <slug>`, make the
-changes with the normal tools, `memcode websites push`, then share the
-preview. If `pull` says the site has never been built, there is nothing to
-work on locally yet.
-
-**"Add this PDF to my site."** Resolve the slug, `assets_upload` the file,
-and give the user its `/assets/<name>` URL, noting it survives rebuilds and
-can be linked from the site's pages.
+Making and changing a site locally asks nothing beyond the usual file
+approvals. `push`, `create(remote)`, `build`, `edit` and `update` follow the
+approval mode. Anything the public sees or that destroys data (`publish`,
+`unpublish`, `delete`, `assets_upload`, `assets_delete`) **always asks**,
+even in auto mode. Don't call `delete` unless the user asked for it.

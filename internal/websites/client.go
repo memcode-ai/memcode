@@ -104,8 +104,14 @@ type Edit struct {
 
 // Meta is the .memcode/website.json marker written at pull time.
 type Meta struct {
-	SiteID string `json:"site_id"`
-	Slug   string `json:"slug"`
+	SiteID string `json:"site_id,omitempty"` // empty until a local-only site is first pushed
+	Slug   string `json:"slug,omitempty"`
+	// A site created on this machine (InitLocal) before it exists on memcode.ai.
+	LocalID string `json:"local_id,omitempty"`
+	Name    string `json:"name,omitempty"`
+	// PushedHead is the commit the last push uploaded: a working copy whose
+	// HEAD differs, or that has uncommitted changes, has something to push.
+	PushedHead string `json:"pushed_head,omitempty"`
 }
 
 // Asset is one uploaded file in the site's durable assets/ prefix — a
@@ -336,14 +342,35 @@ func (c *Client) Pull(ctx context.Context, slug, destDir string) (Site, error) {
 }
 
 // Push bundles the repo at dir and uploads it; the server rebuilds the draft
-// preview from the pushed source.
+// preview from the pushed source. A site that exists only on this machine is
+// created on memcode.ai by its first push, like pushing a new git repo.
+// Pending changes in a managed working copy are committed first, so the push
+// carries what the dev server shows.
 func (c *Client) Push(ctx context.Context, dir string) (Site, error) {
 	meta, err := ReadMeta(dir)
 	if err != nil {
 		return Site{}, err
 	}
-	if _, err := os.Stat(filepath.Join(dir, "MEMCODE.md")); err != nil {
-		return Site{}, fmt.Errorf("%s doesn't look like a memcode website repo (no MEMCODE.md)", dir)
+	if _, err := os.Stat(filepath.Join(dir, "package.json")); err != nil {
+		return Site{}, fmt.Errorf("%s doesn't look like a memcode website repo (no package.json)", dir)
+	}
+	if err := c.commitManaged(dir, "Changes made locally with memcode"); err != nil {
+		return Site{}, err
+	}
+	if meta.SiteID != "" {
+		if err := c.checkNotBehind(ctx, dir, meta.SiteID); err != nil {
+			return Site{}, err
+		}
+	}
+	if meta.SiteID == "" {
+		site, err := c.Create(ctx, meta.Name, "", "")
+		if err != nil {
+			return Site{}, fmt.Errorf("creating %q on memcode.ai: %w", meta.Name, err)
+		}
+		meta.SiteID, meta.Slug = site.ID, site.Slug
+		if err := writeMeta(dir, meta); err != nil {
+			return Site{}, err
+		}
 	}
 
 	tmp, err := os.CreateTemp("", "memcode-site-*.bundle")
@@ -364,6 +391,10 @@ func (c *Client) Push(ctx context.Context, dir string) (Site, error) {
 	if _, err := c.do(ctx, http.MethodPost, "/api/website/"+meta.SiteID+"/bundle",
 		bytes.NewReader(bundle), "application/octet-stream"); err != nil {
 		return Site{}, gatedErr(err)
+	}
+	if head, err := gitHead(dir); err == nil {
+		meta.PushedHead = head
+		_ = writeMeta(dir, meta)
 	}
 	return Site{ID: meta.SiteID, Slug: meta.Slug}, nil
 }
@@ -625,7 +656,7 @@ func ReadMeta(dir string) (Meta, error) {
 		return Meta{}, fmt.Errorf("%s is not a pulled memcode website (missing %s) — use `memcode websites pull <slug>`", dir, metaRelPath)
 	}
 	var m Meta
-	if err := json.Unmarshal(raw, &m); err != nil || m.SiteID == "" {
+	if err := json.Unmarshal(raw, &m); err != nil || (m.SiteID == "" && m.LocalID == "") {
 		return Meta{}, fmt.Errorf("corrupt %s", metaRelPath)
 	}
 	return m, nil

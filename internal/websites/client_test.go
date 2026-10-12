@@ -145,13 +145,17 @@ func TestPushBundlesAndPosts(t *testing.T) {
 	if err := writeMeta(dir, Meta{SiteID: "s9", Slug: "cafe"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "MEMCODE.md"), []byte("doctrine"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte("{}"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
 	var postedBody []byte
 	var postedType string
 	c, _ := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/api/website/s9/bundle" {
+			http.NotFound(w, r) // never built: nothing hosted to fall behind
+			return
+		}
 		if r.URL.Path != "/api/website/s9/bundle" || r.Method != http.MethodPost {
 			t.Fatalf("unexpected %s %s", r.Method, r.URL.Path)
 		}
@@ -180,14 +184,16 @@ func TestPushBundlesAndPosts(t *testing.T) {
 	}
 }
 
-func TestPushRequiresDoctrine(t *testing.T) {
+// A push needs a website project (its package.json), not the builder's
+// doctrine: sites made locally don't carry MEMCODE.md.
+func TestPushRequiresAProject(t *testing.T) {
 	dir := t.TempDir()
 	if err := writeMeta(dir, Meta{SiteID: "s9", Slug: "cafe"}); err != nil {
 		t.Fatal(err)
 	}
 	c, _ := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
-	if _, err := c.Push(context.Background(), dir); err == nil || !strings.Contains(err.Error(), "MEMCODE.md") {
-		t.Fatalf("want doctrine error, got %v", err)
+	if _, err := c.Push(context.Background(), dir); err == nil || !strings.Contains(err.Error(), "package.json") {
+		t.Fatalf("want a not-a-project error, got %v", err)
 	}
 }
 
@@ -397,10 +403,14 @@ func TestPushGatedReturnsErrBuildsGated(t *testing.T) {
 	if err := writeMeta(dir, Meta{SiteID: "s9", Slug: "cafe"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "MEMCODE.md"), []byte("doctrine"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte("{}"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	c, _ := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			http.NotFound(w, r)
+			return
+		}
 		w.WriteHeader(http.StatusForbidden)
 		json.NewEncoder(w).Encode(map[string]string{"error": "Website builds are in limited internal preview"})
 	}))
