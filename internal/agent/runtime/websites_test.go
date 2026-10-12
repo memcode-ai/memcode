@@ -59,6 +59,10 @@ func fakeWebsitesServer(t *testing.T) (*int, http.HandlerFunc) {
 			json.NewEncoder(w).Encode(map[string]any{"success": true})
 		case r.URL.Path == "/api/website/s1/assets" && r.Method == http.MethodGet:
 			json.NewEncoder(w).Encode(map[string]any{"assets": []map[string]any{{"name": "brochure.pdf", "size": 9}}})
+		case r.URL.Path == "/api/website/s1/assets/uploads":
+			// An older server without the signed upload: the client falls
+			// back to the multipart route below.
+			http.NotFound(w, r)
 		case r.URL.Path == "/api/website/s1/assets" && r.Method == http.MethodPost:
 			json.NewEncoder(w).Encode(map[string]any{"name": "logo.png", "size": 4, "url": "https://cafe.memcode.app/assets/logo.png"})
 		case r.URL.Path == "/api/website/s1/assets/brochure.pdf" && r.Method == http.MethodDelete:
