@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -36,6 +37,11 @@ const (
 	// EnvEndpointModel is the endpoint's INITIAL model id — used until a /model
 	// choice is remembered for the endpoint (config wins once one exists).
 	EnvEndpointModel = "MEMCODE_ENDPOINT_MODEL"
+	// EnvEndpointContextWindow / EnvEndpointMaxOutput declare the endpoint's
+	// token limits (optional): the context window input+output share, and the
+	// largest output it accepts. Unset = unknown; requests go out unclamped.
+	EnvEndpointContextWindow = "MEMCODE_ENDPOINT_CONTEXT_WINDOW"
+	EnvEndpointMaxOutput     = "MEMCODE_ENDPOINT_MAX_OUTPUT"
 )
 
 // Endpoint describes one arbitrary OpenAI-compatible endpoint. Resolved from
@@ -58,6 +64,38 @@ type Endpoint struct {
 	// request (a Claude subscription token expires mid-session or is replaced
 	// by a Claude Code re-auth). nil for static keys.
 	Tokens TokenSource
+
+	// Limits are the endpoint's declared token budgets (env or config), the
+	// default for every model it serves; ModelLimits overrides per model id.
+	// Zero fields are unknown. The runner fits each request inside them before
+	// dispatch, so a small-window server never gets a request it must reject.
+	Limits      Limits
+	ModelLimits map[string]Limits
+}
+
+// Limits is one model's token budget on an endpoint. 0 = unknown.
+type Limits struct {
+	ContextWindow int `json:"context_window,omitempty"`
+	MaxOutput     int `json:"max_output_tokens,omitempty"`
+}
+
+// LimitsFor resolves the budget for model: its per-model entry, field by
+// field over the endpoint default, with the catalog's window for a model the
+// catalog knows when nothing was declared.
+func (e Endpoint) LimitsFor(model string) Limits {
+	l := e.Limits
+	if m, ok := e.ModelLimits[model]; ok {
+		if m.ContextWindow > 0 {
+			l.ContextWindow = m.ContextWindow
+		}
+		if m.MaxOutput > 0 {
+			l.MaxOutput = m.MaxOutput
+		}
+	}
+	if l.ContextWindow == 0 {
+		l.ContextWindow = CatalogWindow(model)
+	}
+	return l
 }
 
 // TokenSource is a live, self-healing credential: Token returns the current
@@ -83,7 +121,20 @@ func EndpointFromEnv() (Endpoint, bool) {
 		BaseURL: base,
 		Key:     key,
 		Model:   strings.TrimSpace(os.Getenv(EnvEndpointModel)),
+		Limits: Limits{
+			ContextWindow: envTokens(EnvEndpointContextWindow),
+			MaxOutput:     envTokens(EnvEndpointMaxOutput),
+		},
 	}, true
+}
+
+// envTokens reads a positive token count from env, 0 when unset or invalid.
+func envTokens(name string) int {
+	n, err := strconv.Atoi(strings.TrimSpace(os.Getenv(name)))
+	if err != nil || n < 0 {
+		return 0
+	}
+	return n
 }
 
 // conventionalKeyVars maps well-known provider hosts to the ecosystem-standard

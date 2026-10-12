@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -218,7 +219,7 @@ func TestThemeEmptyPersists(t *testing.T) {
 // clearEndpointEnv strips the endpoint env inputs so each case is explicit.
 func clearEndpointEnv(t *testing.T) {
 	t.Helper()
-	for _, k := range []string{provider.EnvEndpointURL, provider.EnvEndpointKey, provider.EnvEndpointModel, "OLLAMA_TEST_KEY"} {
+	for _, k := range []string{provider.EnvEndpointURL, provider.EnvEndpointKey, provider.EnvEndpointModel, provider.EnvEndpointContextWindow, provider.EnvEndpointMaxOutput, "OLLAMA_TEST_KEY"} {
 		t.Setenv(k, "")
 	}
 }
@@ -427,5 +428,33 @@ func TestEnsureGitignoreMigratesOnlyOurTemplates(t *testing.T) {
 	b, _ := os.ReadFile(p)
 	if string(b) != userEdited {
 		t.Errorf("a user-edited gitignore must be left alone, got:\n%s", b)
+	}
+}
+
+// Endpoint token limits come from config (endpoint default + per model) and
+// env; env wins field by field, and config.json round-trips them.
+func TestEndpointLimitsResolve(t *testing.T) {
+	clearEndpointEnv(t)
+	var cfg Config
+	if err := json.Unmarshal([]byte(`{"endpoints":[{"name":"tsubasa","base_url":"http://t:8000/v1",
+		"context_window":32768,"model_limits":{"tsubasa-fast":{"max_output_tokens":8192}}}]}`), &cfg); err != nil {
+		t.Fatal(err)
+	}
+	ep, ok := cfg.ResolveEndpoint()
+	if !ok {
+		t.Fatal("endpoint not resolved")
+	}
+	if l := ep.LimitsFor("tsubasa-fast"); l.ContextWindow != 32768 || l.MaxOutput != 8192 {
+		t.Errorf("fast limits = %+v, want the endpoint window and its own output cap", l)
+	}
+	if l := ep.LimitsFor("tsubasa-pro"); l.ContextWindow != 32768 || l.MaxOutput != 0 {
+		t.Errorf("pro limits = %+v, want the endpoint window and no output cap", l)
+	}
+
+	t.Setenv(provider.EnvEndpointURL, "http://t:8000/v1")
+	t.Setenv(provider.EnvEndpointMaxOutput, "4096")
+	ep, _ = cfg.ResolveEndpoint()
+	if ep.Limits.ContextWindow != 32768 || ep.Limits.MaxOutput != 4096 {
+		t.Errorf("env + config limits = %+v, want config window and env output", ep.Limits)
 	}
 }

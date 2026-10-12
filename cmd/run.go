@@ -143,7 +143,7 @@ for local gateway development. Never store keys in .memcode.`,
 		if epr, ok := prov.(provider.Endpointer); ok {
 			if e, on := epr.Endpoint(); on {
 				onEndpoint = true
-				sess.SetPin(e.Model, provider.CatalogWindow(e.Model))
+				sess.SetPin(e.Model, e.LimitsFor(e.Model).ContextWindow)
 			}
 		}
 		if !onEndpoint {

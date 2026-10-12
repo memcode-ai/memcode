@@ -83,7 +83,7 @@ func runAdmin(ctx context.Context) error {
 	sess := agentrt.New(st, llm.NewRunner(prov), cfg.Root, model, permissions.ModeAsk, os.Stdout)
 	sess.SetAdmin(adminExecute)
 	if ep, onEndpoint := prov.Endpoint(); onEndpoint {
-		sess.SetPin(ep.Model, provider.CatalogWindow(ep.Model))
+		sess.SetPin(ep.Model, ep.LimitsFor(ep.Model).ContextWindow)
 	} else {
 		pin, win := config.ResolvePin(cfg, "")
 		sess.SetPin(pin, win)

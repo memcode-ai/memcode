@@ -2,6 +2,7 @@ package llm
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -224,10 +225,16 @@ func hasBlock(req wire.Request, t string) bool {
 }
 
 // estimateTokens is the pre-flight size estimate (~4 chars/token with a 1.25
-// safety margin — the gateway's exact formula, kept so the client-side
-// overflow pre-check fires where the server-side one did).
+// safety margin, the gateway's formula), counting the system prompt, tool
+// schemas, and history.
 func estimateTokens(req wire.Request) int {
 	n := len(req.System) + len(req.SystemVolatile)
+	for _, t := range req.Tools {
+		// Tool schemas ride every request; with a full tool list they are a
+		// large share of a small window.
+		schema, _ := json.Marshal(t.InputSchema)
+		n += len(t.Name) + len(t.Description) + len(schema)
+	}
 	for _, m := range req.Messages {
 		for _, b := range m.Blocks {
 			n += len(b.Text) + len(b.Content) + len(b.Input) + len(b.Thinking)

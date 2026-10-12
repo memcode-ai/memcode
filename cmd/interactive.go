@@ -77,7 +77,7 @@ func runInteractive(ctx context.Context, mode permissions.Mode, modeExplicit boo
 		// meaningless (or worse, misrouting) against an arbitrary endpoint. The
 		// endpoint's resolved model IS the session model; its window comes from
 		// the embedded catalog when the id is known, else the serve teaches it.
-		sess.SetPin(ep.Model, provider.CatalogWindow(ep.Model))
+		sess.SetPin(ep.Model, ep.LimitsFor(ep.Model).ContextWindow)
 	} else {
 		// The session's model: session override -> workspace -> user -> the
 		// default_model seed (persisted on first use). ResolvePin is the ONLY

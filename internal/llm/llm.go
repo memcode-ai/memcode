@@ -12,6 +12,7 @@ package llm
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -277,6 +278,13 @@ func (r *Runner) prepare(ctx context.Context, p Purpose, req *wire.Request) (res
 	req.Purpose, req.Session = string(p), r.session
 	if !r.hostedPolicy() {
 		req.Pin = r.pin // endpoint mode / test fakes: session model or raw pass-through
+		if ep, ok := r.prov.(provider.Endpointer); ok {
+			if e, on := ep.Endpoint(); on {
+				if err := fitEndpointLimits(req, e.LimitsFor(req.Pin)); err != nil {
+					return resolved{}, provider.ModelsInfo{}, false, err
+				}
+			}
+		}
 		return resolved{}, provider.ModelsInfo{}, false, nil
 	}
 	info := r.sel.models(ctx)
@@ -295,6 +303,33 @@ func (r *Runner) prepare(ctx context.Context, p Purpose, req *wire.Request) (res
 	// that sentence are gone — there is no cheap lane and no stronger tier to
 	// delegate to, only the model the user chose.
 	return res, info, true, nil
+}
+
+// fitEndpointLimits fits a request inside a custom endpoint's declared
+// limits before it is sent: the output budget drops to the endpoint's maximum
+// output and to whatever room the window leaves after the instructions, tool
+// schemas and history. A request with no room left is a context overflow,
+// which the loop answers by compacting and retrying; a server would only
+// reject it.
+func fitEndpointLimits(req *wire.Request, l provider.Limits) error {
+	if l.MaxOutput > 0 && (req.MaxTokens == 0 || req.MaxTokens > l.MaxOutput) {
+		req.MaxTokens = l.MaxOutput
+	}
+	if l.ContextWindow <= 0 {
+		return nil
+	}
+	// Measure what will actually be sent: the transport composes the doctrine
+	// into the system prompt after this point.
+	est := estimateTokens(provider.ComposedForEstimate(*req))
+	room := l.ContextWindow - est
+	if room <= 0 {
+		return fmt.Errorf("request is about %d tokens, past the endpoint's %d-token window: %w",
+			est, l.ContextWindow, wire.ErrContextOverflow)
+	}
+	if req.MaxTokens == 0 || req.MaxTokens > room {
+		req.MaxTokens = room
+	}
+	return nil
 }
 
 // delegateDoctrine is DELETED. It told the cheap Automatic coding lane it was

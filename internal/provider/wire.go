@@ -34,6 +34,20 @@ func composeDoctrine(r wire.Request) (wire.Request, error) {
 	return r, nil
 }
 
+// ComposedForEstimate returns r as the transport will send it, with the
+// doctrine composed into the system prompt, for sizing a request before
+// dispatch. A request that is already composed, or fails to compose, comes
+// back unchanged.
+func ComposedForEstimate(r wire.Request) wire.Request {
+	if r.Mode == "" || r.SystemVolatile != "" {
+		return r
+	}
+	if c, err := composeDoctrine(r); err == nil {
+		return c
+	}
+	return r
+}
+
 // turnTransport is what the turn wire must provide: the model calls plus the
 // retry-notify seam.
 type turnTransport interface {

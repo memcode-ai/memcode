@@ -167,6 +167,11 @@ type Endpoint struct {
 	// LastModel is the remembered /model choice for this endpoint — the
 	// session model on the next launch.
 	LastModel string `json:"last_model,omitempty"`
+	// Token limits the server enforces (optional): context_window and
+	// max_output_tokens apply to every model; model_limits overrides per model
+	// id. Requests are fitted inside them before they are sent.
+	provider.Limits
+	ModelLimits map[string]provider.Limits `json:"model_limits,omitempty"`
 }
 
 // SyncConfig stores the user's /sync preferences.
@@ -431,6 +436,14 @@ func (c *Config) ResolveEndpoint() (provider.Endpoint, bool) {
 			if ep.Key == "" && entry.KeyEnv != "" {
 				ep.Key = strings.TrimSpace(os.Getenv(entry.KeyEnv))
 			}
+			// Env limits win field by field; config fills the rest.
+			if ep.Limits.ContextWindow == 0 {
+				ep.Limits.ContextWindow = entry.ContextWindow
+			}
+			if ep.Limits.MaxOutput == 0 {
+				ep.Limits.MaxOutput = entry.MaxOutput
+			}
+			ep.ModelLimits = entry.ModelLimits
 		}
 		if ep.Model == "" && len(ep.Models) > 0 {
 			ep.Model = ep.Models[0]
@@ -450,10 +463,12 @@ func (c *Config) ResolveEndpoint() (provider.Endpoint, bool) {
 		return provider.Endpoint{}, false
 	}
 	ep := provider.Endpoint{
-		Name:    entry.Name,
-		BaseURL: strings.TrimSpace(entry.BaseURL),
-		Models:  entry.Models,
-		Model:   entry.LastModel,
+		Name:        entry.Name,
+		BaseURL:     strings.TrimSpace(entry.BaseURL),
+		Models:      entry.Models,
+		Model:       entry.LastModel,
+		Limits:      entry.Limits,
+		ModelLimits: entry.ModelLimits,
 	}
 	if ep.Name == "" {
 		ep.Name = provider.EndpointName(ep.BaseURL)

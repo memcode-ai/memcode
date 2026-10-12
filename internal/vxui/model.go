@@ -84,9 +84,10 @@ func (s *appState) endpointModelSlash(ep provider.Endpoint, arg string) {
 		}
 		entries := make([]modelEntry, 0, len(ids)+1)
 		for _, id := range ids {
-			// Window from the embedded catalog when the id is known, blank
-			// otherwise — never a made-up number for a local model.
-			entries = append(entries, modelEntry{label: id, name: id, window: provider.CatalogWindow(id)})
+			// Window as declared for the endpoint, else from the embedded
+			// catalog when the id is known, blank otherwise — never a made-up
+			// number for a local model.
+			entries = append(entries, modelEntry{label: id, name: id, window: ep.LimitsFor(id).ContextWindow})
 		}
 		entries = append(entries, modelEntry{freeText: true})
 		s.openModelPicker(entries, cur)
@@ -116,10 +117,10 @@ func (s *appState) openModelPicker(entries []modelEntry, cur string) {
 
 // applyEndpointModel pins a concrete endpoint model for the whole session and
 // remembers it per-endpoint in config (endpoints never touch the hosted
-// pinned_model — the two namespaces must not mix). Window from the embedded
-// catalog when known; the serve teaches it otherwise.
+// pinned_model — the two namespaces must not mix). Window as declared for the
+// endpoint or from the embedded catalog when known; the serve teaches it otherwise.
 func (s *appState) applyEndpointModel(ep provider.Endpoint, model string) {
-	win := provider.CatalogWindow(model)
+	win := ep.LimitsFor(model).ContextWindow
 	s.w.sess.SetPin(model, win)
 	s.persistModel(func(cfg *config.Config) { cfg.RememberEndpointModel(ep, model) })
 	msg := "model → " + model
@@ -150,7 +151,7 @@ func (s *appState) resolveEndpointModel() {
 		return
 	}
 	model := ids[0]
-	s.w.sess.SetPin(model, provider.CatalogWindow(model))
+	s.w.sess.SetPin(model, ep.LimitsFor(model).ContextWindow)
 	s.persistModel(func(cfg *config.Config) { cfg.RememberEndpointModel(ep, model) })
 	s.rt.Dispatch(func() {
 		s.SetState(func() {})

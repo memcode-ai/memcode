@@ -139,6 +139,14 @@ MEMCODE_ENDPOINT_URL=https://api.anthropic.com memcode      # your Anthropic key
 
 Your provider API keys are picked up automatically from the standard environment variables.
 
+If your server has a small context window or output limit, tell memcode and every request is sized to fit:
+
+```bash
+MEMCODE_ENDPOINT_CONTEXT_WINDOW=32768 MEMCODE_ENDPOINT_MAX_OUTPUT=8192 memcode
+```
+
+For a saved endpoint, set `context_window` and `max_output_tokens` on its entry in `config.json`, or per model under `model_limits`.
+
 With a memcode account you get one balance across every vendor, a key vault for BYOK, and hosted web search:
 
 ```bash
