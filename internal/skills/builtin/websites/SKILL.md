@@ -58,7 +58,10 @@ builds on memcode.ai.
 
 `preview` offers to open the hosted draft (`preview--{slug}.memcode.app`).
 Its link carries a private token: only pass `reveal:true` when the user
-explicitly asks for the URL itself.
+explicitly asks for the URL itself. When they want to **share** the preview
+with someone, use `share`: a short `memcode.ai/p/...` link anyone can use to
+view the draft for 7 days, which can be turned off
+(`memcode websites share <slug> --off <link>`).
 
 ## What is gated: hosted building is internal-preview only
 

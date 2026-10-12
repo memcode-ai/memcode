@@ -37,6 +37,7 @@ var websitesCmd = &cobra.Command{
   memcode websites delete <slug>   Delete a website
   memcode websites update <slug>   Rename it or change its model
   memcode websites open <slug>     Open the live site (or --preview the draft)
+  memcode websites share <slug>    Make a short link anyone can use to view the preview
   memcode websites dev [slug|dir]  Run its real Vite dev server locally
   memcode websites zip [dir|name]  Save a shareable .zip of the project
   memcode websites assets ...      Manage its uploaded, rebuild-proof assets
@@ -400,6 +401,61 @@ func runWebsitesList(cmd *cobra.Command) error {
 	return nil
 }
 
+var websitesShareCmd = &cobra.Command{
+	Use:   "share <name|slug>",
+	Short: "Make a short link anyone can use to view the site's preview",
+	Long: `Make a short memcode.ai/p/... link to the site's draft preview. Anyone with
+the link can view the preview (never the live site, never to change it) until
+it expires, a week by default. --list shows the links that still work; --off
+turns one off.`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		c, err := websites.New()
+		if err != nil {
+			return err
+		}
+		key := args[0]
+		if l, ok := websites.FindLocal(key); ok {
+			if !l.Pushed() {
+				return fmt.Errorf("%s exists only on this machine — run `memcode websites push %q` first", l.Meta.Name, l.Meta.Name)
+			}
+			key = l.Meta.Slug
+		}
+		site, err := c.Resolve(cmd.Context(), key)
+		if err != nil {
+			return err
+		}
+		if off, _ := cmd.Flags().GetString("off"); off != "" {
+			if err := c.Unshare(cmd.Context(), site.ID, off); err != nil {
+				return err
+			}
+			fmt.Println("Turned that link off.")
+			return nil
+		}
+		if list, _ := cmd.Flags().GetBool("list"); list {
+			links, err := c.ShareLinks(cmd.Context(), site.ID)
+			if err != nil {
+				return err
+			}
+			if len(links) == 0 {
+				fmt.Println("No share links that still work.")
+			}
+			for _, l := range links {
+				fmt.Printf("%s  until %s\n", l.URL, l.ExpiresAt.Local().Format("Jan 2 15:04"))
+			}
+			return nil
+		}
+		days, _ := cmd.Flags().GetInt("days")
+		link, err := c.Share(cmd.Context(), site.ID, days)
+		if err != nil {
+			return err
+		}
+		fmt.Println(link.URL)
+		fmt.Printf("Anyone with this link can view the preview of %s until %s.\n", site.Slug, link.ExpiresAt.Local().Format("Jan 2 15:04"))
+		return nil
+	},
+}
+
 var websitesZipCmd = &cobra.Command{
 	Use:   "zip [dir|name]",
 	Short: "Save a shareable .zip of a site's project (no node_modules or build output)",
@@ -455,8 +511,11 @@ func init() {
 	websitesUpdateCmd.Flags().String("name", "", "new display name")
 	websitesUpdateCmd.Flags().String("model", "", "new chat model id")
 	websitesOpenCmd.Flags().Bool("preview", false, "open the draft preview instead of the live site")
+	websitesShareCmd.Flags().Int("days", 0, "how long the link works, 1-30 days (default 7)")
+	websitesShareCmd.Flags().Bool("list", false, "list the links that still work")
+	websitesShareCmd.Flags().String("off", "", "turn off a link (its code or the whole link)")
 	websitesZipCmd.Flags().StringP("output", "o", "", "where to write the zip (default: ./<site>.zip)")
-	websitesCmd.AddCommand(websitesListCmd, websitesInitCmd, websitesZipCmd, websitesPullCmd, websitesPushCmd,
+	websitesCmd.AddCommand(websitesListCmd, websitesInitCmd, websitesZipCmd, websitesShareCmd, websitesPullCmd, websitesPushCmd,
 		websitesPublishCmd, websitesUnpublishCmd, websitesDeleteCmd, websitesUpdateCmd,
 		websitesOpenCmd, websitesAssetsCmd)
 	rootCmd.AddCommand(websitesCmd)

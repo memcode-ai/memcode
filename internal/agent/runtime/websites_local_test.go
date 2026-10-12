@@ -255,3 +255,23 @@ func TestSiteWorkerIsConfinedToTheSite(t *testing.T) {
 		t.Fatal("the session's own root changed")
 	}
 }
+
+// share makes a short preview link the user asked for, behind the approval
+// mode; a site only on this machine has nothing to share yet.
+func TestShareMakesAShortLink(t *testing.T) {
+	_, h := fakeWebsitesServer(t)
+	s := websitesSession(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/website/s1/share" && r.Method == http.MethodPost {
+			json.NewEncoder(w).Encode(map[string]any{"link": map[string]string{
+				"code": "Abc23xyz", "url": "https://memcode.ai/p/Abc23xyz", "expiresAt": "2026-10-20T00:00:00Z"}})
+			return
+		}
+		h(w, r)
+	}))
+	asked := 0
+	s.approve = allowAll(&asked)
+	r := websitesCall(s, tools.WebsitesInput{Action: "share", Slug: "cafe"})
+	if r.isError || !strings.Contains(r.text(), "https://memcode.ai/p/Abc23xyz") || asked != 1 {
+		t.Fatalf("share = %s (asked %d)", r.text(), asked)
+	}
+}

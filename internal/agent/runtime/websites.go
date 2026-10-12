@@ -34,7 +34,7 @@ func (s *Session) websitesTool(ctx context.Context, input json.RawMessage) toolR
 	}
 	risk, known := websiteActionRisk(in.Action)
 	if !known {
-		return errResult("websites: unknown action " + in.Action + " (list | get | create | develop | push | zip | build | edit | builds | preview | publish | unpublish | delete | update | assets_list | assets_upload | assets_delete)")
+		return errResult("websites: unknown action " + in.Action + " (list | get | create | develop | push | zip | share | build | edit | builds | preview | publish | unpublish | delete | update | assets_list | assets_upload | assets_delete)")
 	}
 	// Plan mode and read-only sub-agents research; they don't mutate a live site — check
 	// this BEFORE the account check so the Read Only denial always wins, with or without a
@@ -216,6 +216,18 @@ func (s *Session) websitesTool(ctx context.Context, input json.RawMessage) toolR
 		}
 		return textResult(strings.TrimRight(b.String(), "\n"))
 
+	case "share":
+		if denied := s.gateWebsites(ctx, in.Action, risk, "Share website preview", site.Slug, "a link anyone can use to view the preview for 7 days"); denied != nil {
+			return *denied
+		}
+		link, err := client.Share(ctx, site.ID, 0)
+		if err != nil {
+			return errResult("websites share failed: " + err.Error())
+		}
+		s.toolLine(true, "Websites", "share", site.Slug, false)
+		return textResult(fmt.Sprintf("Share link: %s (anyone with it can view the preview, not change it, until %s; `memcode websites share %s --off <link>` turns it off).",
+			link.URL, link.ExpiresAt.Local().Format("Jan 2 15:04"), site.Slug))
+
 	case "preview":
 		url, err := client.Preview(ctx, site.ID)
 		if err != nil {
@@ -319,7 +331,8 @@ func websiteActionRisk(action string) (permissions.Risk, bool) {
 		return permissions.Safe, true
 	case "push":
 		return websitesPushRisk, true
-	case "create", "build", "edit", "update":
+	case "create", "build", "edit", "update", "share":
+		// share: a link that lets anyone holding it view the draft for a week.
 		return permissions.Medium, true
 	case "publish", "unpublish", "delete", "assets_upload", "assets_delete":
 		return permissions.Dangerous, true

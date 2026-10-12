@@ -269,7 +269,7 @@ type (
 	// update, assets_upload, assets_delete) are gated; list/get/builds/preview/
 	// assets_list are read-only.
 	WebsitesInput struct {
-		Action    string             `json:"action"`               // list | get | create | develop | push | zip | build | edit | builds | preview | publish | unpublish | delete | update | assets_list | assets_upload | assets_delete
+		Action    string             `json:"action"`               // list | get | create | develop | push | zip | share | build | edit | builds | preview | publish | unpublish | delete | update | assets_list | assets_upload | assets_delete
 		Slug      string             `json:"slug,omitempty"`       // required for everything but list/create
 		Name      string             `json:"name,omitempty"`       // create (display name) / update (rename)
 		Prompt    string             `json:"prompt,omitempty"`     // create / build: describes the site/change to build
@@ -608,9 +608,9 @@ func Defs() []wire.ToolDef {
 		},
 		{
 			Name:        Websites,
-			Description: "Memcode websites: sites made with memcode (on this machine, hosted at {slug}.memcode.app). Only those: a site in this repo or elsewhere is ordinary file work; reading a web page is fetch/web_search. Works like git. Interactive default is local: create makes it on this machine with a live local preview; develop(slug, prompt) changes it locally; memcode.ai changes only when the user asks to push (creates/updates it there) or publish (goes live, pushing first). create(remote:true)/build/edit are the hosted path, only when asked. Actions: list, get, create(name/prompt[,remote]), develop, push, zip (shareable, no node_modules), build(prompt), edit(edits), builds, preview, publish, unpublish, update(name/model), delete, assets_list, assets_upload(asset_path[,asset_name]), assets_delete(asset_name). A gated build error is an account restriction: tell the user, don't retry.",
+			Description: "Memcode websites: sites made with memcode (on this machine, hosted at {slug}.memcode.app). Only those: a site in this repo or elsewhere is ordinary file work; reading a web page is fetch/web_search. Works like git. Interactive default is local: create makes it on this machine with a live local preview; develop(slug, prompt) changes it locally; memcode.ai changes only when the user asks to push (creates/updates it there) or publish (goes live, pushing first). create(remote:true)/build/edit are the hosted path, only when asked. Actions: list, get, create(name/prompt[,remote]), develop, push, zip (no node_modules), share (short preview link), build(prompt), edit(edits), builds, preview, publish, unpublish, update(name/model), delete, assets_list, assets_upload(asset_path[,asset_name]), assets_delete(asset_name). A gated build error is an account restriction: tell the user, don't retry.",
 			InputSchema: obj(map[string]any{
-				"action":     enum("websites operation", []string{"list", "get", "create", "develop", "push", "zip", "build", "edit", "builds", "preview", "publish", "unpublish", "delete", "update", "assets_list", "assets_upload", "assets_delete"}),
+				"action":     enum("websites operation", []string{"list", "get", "create", "develop", "push", "zip", "share", "build", "edit", "builds", "preview", "publish", "unpublish", "delete", "update", "assets_list", "assets_upload", "assets_delete"}),
 				"slug":       str("the site's name or address; required except list/create"),
 				"name":       str("create/update: site name"),
 				"prompt":     str("create/develop/build: what to make or change"),
