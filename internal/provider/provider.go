@@ -199,11 +199,15 @@ func NewFromEnv(endpoints ...Endpoint) (ModelProvider, error) {
 	if ep, ok := resolveEndpoint(endpoints); ok {
 		return dialEndpoint(ep), nil
 	}
-	// The FIRST thing a fresh install hits. Lead with the command that fixes
-	// it — `memcode login` opens the browser and writes the token itself; the
-	// env-file and local-endpoint details are the advanced paths, not the
-	// onboarding path.
-	return nil, fmt.Errorf("not connected to memcode.ai — run `memcode login` to sign in and set up this machine\n(advanced: set %s in %s, or point memcode at a local endpoint with %s)", EnvAPIToken, GlobalEnvPath(), EnvEndpointURL)
+	return nil, ErrNotConnected()
+}
+
+// ErrNotConnected is the no-backend error. The FIRST thing a fresh install
+// hits, so it leads with the command that fixes it — `memcode login` opens the
+// browser and writes the token itself; the env-file and local-endpoint
+// details are the advanced paths, not the onboarding path.
+func ErrNotConnected() error {
+	return fmt.Errorf("not connected to memcode.ai — run `memcode login` to sign in and set up this machine\n(advanced: set %s in %s, or point memcode at a local endpoint with %s)", EnvAPIToken, GlobalEnvPath(), EnvEndpointURL)
 }
 
 // resolveConfiguredEndpoint picks only an explicitly configured custom

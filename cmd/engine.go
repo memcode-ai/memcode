@@ -61,9 +61,13 @@ func openProject(ctx context.Context) (store.Store, *config.Config, error) {
 // provider from it, and wrap it in a runner.
 func newModelRunner() (provider.ModelProvider, *llm.Runner, error) {
 	provider.LoadDotEnv()
-	prov, err := provider.NewFromEnv()
-	if err != nil {
-		return nil, nil, err
+	// The same backend selection as the TUI: a login's gateway PLUS the
+	// attached subscription and own-key lanes, a configured endpoint, or
+	// lanes alone. One-shot runs used to dial the gateway only, so `memcode
+	// run` spent credits on a model the user's subscription serves.
+	prov := provider.NewFromEnvLazy()
+	if !prov.Connected() {
+		return nil, nil, provider.ErrNotConnected()
 	}
 	return prov, llm.NewRunner(prov), nil
 }

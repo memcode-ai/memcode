@@ -99,7 +99,7 @@ func (s *Session) capabilitiesIndex() string {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString("AVAILABLE CAPABILITIES — not loaded by default. When the request needs one, call `capability` with its name; its tool is on from your next step for the rest of the session. If its tool is already in your tool list, just use it.\n")
+	b.WriteString("AVAILABLE CAPABILITIES — not loaded by default. Before acting on a request, check whether it needs one of these; if it does, call `capability` with its name first, and its tool is on from your next step for the rest of the session. If its tool is already in your tool list, just use it.\n")
 	for _, c := range caps {
 		b.WriteString("- " + c.Tool + ": " + c.Summary + "\n")
 	}
