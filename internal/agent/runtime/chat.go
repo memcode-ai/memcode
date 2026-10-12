@@ -92,6 +92,9 @@ func (s *Session) StartChat(ctx context.Context) *ChatState {
 	// Skills are NOT dumped into context — the prompt only POINTS at the skill dirs (a blurb
 	// for every installed skill, ≈100+ with host plugins, would be wasted context == money).
 	// The model greps/reads them on demand and loads one with the skill tool. See skills.Roots.
+	if idx := s.capabilitiesIndex(); idx != "" { // deferred tools: one line each, turned on when needed
+		sys = sys.withExtra(idx)
+	}
 	if ptr := skillsPointer(skills.RootsIn(s.root, s.extraSkillRoots)); ptr != "" {
 		sys = sys.withExtra(ptr)
 	}
@@ -449,6 +452,7 @@ func (s *Session) runTurn(ctx context.Context, st *ChatState, b input.Bundle) {
 	if blk := supplementalBlock(s.supplemental); blk != "" { // caller-supplied context (agent runtime); empty for CLI
 		base = base.withExtra(blk)
 	}
+	s.prefetchCapabilities(b.Text)                  // request names a deferred capability → its tool is on for this turn and after
 	if nudge := s.skillNudge(b.Text); nudge != "" { // request names an installed skill → point right at it
 		base = base.withExtra(nudge)
 	}

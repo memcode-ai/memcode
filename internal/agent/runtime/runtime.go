@@ -166,6 +166,7 @@ type Session struct {
 	approvedArtifacts bool               // repo-scoped "don't ask again" for artifact publishing (.memcode/artifact-approvals)
 	approvedWebsites  map[string]bool    // per-action "don't ask again" for Medium websites actions (.memcode/websites-approvals); Dangerous ones always ask
 	nudgedSkills      map[string]bool    // skill triggers already nudged this session (nudge once, don't nag) — see skillNudge
+	enabledCaps       map[string]bool    // deferred capability tools turned on this session (monotonic) — see capabilities.go
 	scripts           []scripts.Script   // saved reusable command sequences (.memcode/scripts) — see script.go, scripts_prompt.go
 	nudgedScripts     map[string]bool    // script slugs already nudged this session (nudge once, don't nag) — see scriptNudge
 	userMd            string             // user's MEMCODE.md instructions, loaded once per session, injected every turn
@@ -519,6 +520,10 @@ func (s *Session) Run(ctx context.Context, task string) (Result, error) {
 	defer s.closeMCP()
 	// Point at the skill dirs (don't dump blurbs) — the model greps/reads on demand and
 	// recruits any discovered skill by name via the skill tool.
+	if idx := s.capabilitiesIndex(); idx != "" { // deferred tools: one line each, turned on when needed
+		sys = sys.withExtra(idx)
+	}
+	s.prefetchCapabilities(task) // the task names a deferred capability → its tool is on from the first call
 	if ptr := skillsPointer(skills.RootsIn(s.root, s.extraSkillRoots)); ptr != "" {
 		sys = sys.withExtra(ptr)
 	}

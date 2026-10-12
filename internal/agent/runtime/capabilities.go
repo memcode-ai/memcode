@@ -1,0 +1,107 @@
+package runtime
+
+import (
+	"encoding/json"
+	"strings"
+
+	"github.com/memcode-ai/memcode/internal/agent/tools"
+)
+
+// Deferred capabilities (see tools.Capabilities): typed tools left out of the
+// default tool list and turned on for the rest of the session when needed.
+// Three ways a capability turns on, all through enableCapability:
+//
+//   1. prefetchCapabilities — the request names it ("what websites do I
+//      have?"): enabled before the model is called, no extra model turn.
+//   2. the `capability` tool — the model reads the index and asks for one.
+//   3. a direct call to the deferred tool — honored, never refused for not
+//      having been announced first.
+//
+// Only the catalog's IDs can be enabled. Skills never enable tools.
+
+// availableCaps returns the deferred capabilities this session could use:
+// the same mode and account gating (allowTool) as any other tool.
+func (s *Session) availableCaps() []tools.Capability {
+	if s.adminMode {
+		return nil
+	}
+	var out []tools.Capability
+	for _, c := range tools.Capabilities {
+		if s.allowTool(c.Tool) {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// enableCapability turns a deferred tool on for the rest of the session.
+// Monotonic: there is no disable. Reports whether it was newly enabled.
+func (s *Session) enableCapability(id string) bool {
+	if !tools.IsDeferred(id) || !s.allowTool(id) {
+		return false
+	}
+	if s.enabledCaps == nil {
+		s.enabledCaps = map[string]bool{}
+	}
+	if s.enabledCaps[id] {
+		return false
+	}
+	s.enabledCaps[id] = true
+	return true
+}
+
+// prefetchCapabilities enables every available capability the request names,
+// before the model is called.
+func (s *Session) prefetchCapabilities(text string) {
+	words := skillWordSet(text)
+	lower := strings.ToLower(text)
+	for _, c := range s.availableCaps() {
+		for _, t := range c.Triggers {
+			if words[t] || (strings.Contains(t, ".") && strings.Contains(lower, t)) {
+				s.enableCapability(c.Tool)
+				break
+			}
+		}
+	}
+}
+
+// capabilitiesIndex is the system-prompt index of deferred capabilities.
+// Stable for the session (it lists every available capability, enabled or
+// not), so turning one on never rewrites the cached prompt prefix.
+func (s *Session) capabilitiesIndex() string {
+	caps := s.availableCaps()
+	if len(caps) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("AVAILABLE CAPABILITIES — not loaded by default. When the request needs one, call `capability` with its name; its tool is on from your next step for the rest of the session. If its tool is already in your tool list, just use it.\n")
+	for _, c := range caps {
+		b.WriteString("- " + c.Tool + ": " + c.Summary + "\n")
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+// capabilityTool handles the `capability` call.
+func (s *Session) capabilityTool(input json.RawMessage) toolResult {
+	var in struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(input, &in); err != nil {
+		return errResult(err.Error())
+	}
+	id := strings.TrimSpace(in.Name)
+	available := false
+	for _, c := range s.availableCaps() {
+		if c.Tool == id {
+			available = true
+		}
+	}
+	if !available {
+		return errResult("no capability named " + id + " is available in this session")
+	}
+	if !s.enableCapability(id) {
+		return textResult("`" + id + "` is already on — call it directly.")
+	}
+	s.toolLine(true, "Capability", id, "", false)
+	return textResult("`" + id + "` is on. Call it directly from your next step.")
+}

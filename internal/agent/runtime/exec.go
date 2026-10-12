@@ -296,7 +296,15 @@ func (s *Session) dispatch(ctx context.Context, u wire.Block) toolResult {
 	if s.toolNotify != nil {
 		s.toolNotify(toolActivityLabel(u.Name, u.Input))
 	}
+	// A direct call to a deferred tool is honored (and turns it on): the model
+	// may know it from earlier in the conversation. Permission gates below are
+	// unchanged.
+	if tools.IsDeferred(u.Name) {
+		s.enableCapability(u.Name)
+	}
 	switch u.Name {
+	case tools.CapabilityTool:
+		return s.capabilityTool(u.Input)
 	case tools.ReadFile:
 		return s.readFile(ctx, u.Input)
 	case tools.ListDir:
@@ -841,9 +849,21 @@ func (s *Session) toolDefs() []wire.ToolDef {
 	defs := tools.Defs()
 	out := make([]wire.ToolDef, 0, len(defs))
 	for _, d := range defs {
+		// A deferred capability's schema rides only once it is on (see
+		// capabilities.go); until then the index line and `capability` stand in.
+		if tools.IsDeferred(d.Name) && !s.enabledCaps[d.Name] {
+			continue
+		}
 		if s.allowTool(d.Name) {
 			out = append(out, d)
 		}
+	}
+	if caps := s.availableCaps(); len(caps) > 0 {
+		ids := make([]string, len(caps))
+		for i, c := range caps {
+			ids[i] = c.Tool
+		}
+		out = append(out, tools.CapabilityDef(ids))
 	}
 	// Browser tools — only advertised when --chrome is set, and never to read-only
 	// explorer sub-agents (the browser is an executive-session capability).
