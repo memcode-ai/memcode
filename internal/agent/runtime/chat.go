@@ -161,6 +161,7 @@ func (s *Session) StartChat(ctx context.Context) *ChatState {
 	if out := s.runSessionHooks(ctx, hooks.SessionStart); out != "" {
 		sys = sys.withExtra("Session-start hook context (user-configured):\n" + out)
 	}
+	s.enableCapabilitiesUsedIn(resumedMsgs) // a resumed history's deferred tool calls keep their tools declared
 	st := &ChatState{sys: sys, messages: resumedMsgs}
 	s.liveChat = st // wire so SetPin/SetVendor can strip thinking blocks on a model switch
 	if resumedMsgs != nil {

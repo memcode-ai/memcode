@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/memcode-ai/memcode/internal/agent/tools"
+	"github.com/memcode-ai/memcode/internal/wire"
 )
 
 // Deferred capabilities (see tools.Capabilities): typed tools left out of the
@@ -60,6 +61,21 @@ func (s *Session) prefetchCapabilities(text string) {
 			if words[t] || (strings.Contains(t, ".") && strings.Contains(lower, t)) {
 				s.enableCapability(c.Tool)
 				break
+			}
+		}
+	}
+}
+
+// enableCapabilitiesUsedIn turns on every deferred tool the history already
+// called. Within a session a tool never disappears (enabling is monotonic);
+// a RESUMED session starts with nothing enabled, and its history would
+// otherwise carry calls to tools the request no longer declares, which some
+// providers reject.
+func (s *Session) enableCapabilitiesUsedIn(msgs []wire.Message) {
+	for _, m := range msgs {
+		for _, b := range m.Blocks {
+			if b.Type == "tool_use" && tools.IsDeferred(b.Name) {
+				s.enableCapability(b.Name)
 			}
 		}
 	}

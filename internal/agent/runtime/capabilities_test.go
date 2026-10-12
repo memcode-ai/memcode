@@ -230,3 +230,30 @@ func TestProviderRequestsCarryOnlyEnabledCapabilities(t *testing.T) {
 		}
 	}
 }
+
+// A resumed session keeps the deferred tools its history already called, so
+// the restored tool_use blocks never reference an undeclared tool.
+func TestResumedHistoryKeepsItsDeferredTools(t *testing.T) {
+	s := capSession(t)
+	in, _ := json.Marshal(tools.WebsitesInput{Action: "list"})
+	s.enableCapabilitiesUsedIn([]wire.Message{
+		{Role: "assistant", Blocks: []wire.Block{{Type: "tool_use", ID: "t1", Name: tools.Websites, Input: in}}},
+		{Role: "assistant", Blocks: []wire.Block{{Type: "tool_use", ID: "t2", Name: tools.ReadFile}}},
+	})
+	defs := defNames(s.toolDefs())
+	if _, ok := defs[tools.Websites]; !ok {
+		t.Fatal("a deferred tool called in the resumed history must be declared")
+	}
+	if _, ok := defs[tools.Task]; ok {
+		t.Fatal("only tools the history used are enabled")
+	}
+}
+
+// "call site" is code vocabulary, not a request about websites.
+func TestCodeVocabularyDoesNotPrefetch(t *testing.T) {
+	s := capSession(t)
+	s.prefetchCapabilities("find every call site of runLoop")
+	if s.enabledCaps[tools.Websites] {
+		t.Fatal("'call site' must not load the websites tool")
+	}
+}

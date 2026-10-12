@@ -38,7 +38,8 @@ const CapabilityTool = "capability"
 // Capabilities is the catalog, in index order.
 var Capabilities = []Capability{
 	{Tool: Websites, Summary: "AI-built websites hosted at memcode.ai: list, create, build, preview, publish, domains, assets",
-		Triggers: []string{"website", "websites", "site", "sites", "memcode.app"}},
+		// Not "site": "call site" is everyday code vocabulary.
+		Triggers: []string{"website", "websites", "memcode.app"}},
 	{Tool: Task, Summary: "scheduled automations memcode runs without the user: create, list, pause, delete",
 		Triggers: []string{"schedule", "scheduled", "schedules", "automate", "automation", "automations", "cron", "recurring", "nightly", "weekly", "daily"}},
 	{Tool: Script, Summary: "saved multi-step command recipes, replayed by name: save, find, run, delete",
