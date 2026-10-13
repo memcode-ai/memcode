@@ -528,6 +528,23 @@ func (s *Session) DisplayModel() string {
 	return s.ServingModel()
 }
 
+// ProviderLabel names WHO is serving — the footer's "provider · model" word
+// before the model name. A custom endpoint (subscription login or own key)
+// wins and is shown via ServingLabel ("claude-sub" → "claude", "ollama" stays
+// "ollama"); otherwise it falls back to the serving model's catalog vendor
+// ("anthropic", "openai", …) so the hosted/default path still names a
+// provider instead of leaving the model alone. "" only when neither resolves
+// (an unrecognized model id with no endpoint).
+func (s *Session) ProviderLabel() string {
+	if ep, ok := s.Endpoint(); ok && ep.Name != "" {
+		return provider.ServingLabel(ep.Name)
+	}
+	if cm, ok := catalog.LookupModel(s.DisplayModel()); ok && cm.Vendor != "" {
+		return cm.Vendor
+	}
+	return ""
+}
+
 // ServedByok reports whether the LAST main call served on the user's own
 // provider key — the footer's per-turn byok segment. Strictly last-turn state:
 // recordServed writes it unconditionally, so a non-BYOK turn clears it.

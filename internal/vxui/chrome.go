@@ -98,7 +98,7 @@ func (s *appState) composerRow() ui.Widget {
 	return ui.RichText{Spans: spans, SoftWrap: true}
 }
 
-// footerRow is the bottom cockpit: build · branch · git stat · session tokens · model · mode.
+// footerRow is the bottom cockpit: build · branch · git stat · session tokens · provider · model · mode.
 func (s *appState) footerRow() ui.Widget {
 	model := s.w.sess.DisplayModel()
 	if model == "" {
@@ -135,7 +135,11 @@ func (s *appState) footerRow() ui.Widget {
 		}
 		add(fmt.Sprintf("ctx %d%%", pct), st)
 	}
-	add(provider.ShortModel(model), s.sty.muted)
+	modelText := provider.ShortModel(model)
+	if pl := s.w.sess.ProviderLabel(); pl != "" {
+		modelText = pl + " · " + modelText
+	}
+	add(modelText, s.sty.muted)
 	// The last turn served on the user's OWN provider key (zero credit debit).
 	// Strictly per-turn: the session clears the flag on every non-BYOK response.
 	if s.w.sess.ServedByok() {
