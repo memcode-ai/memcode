@@ -139,6 +139,13 @@ type Config struct {
 	// when the user picks either "don't ask again" option on the card.
 	CommitBeforeWork string `json:"commit_before_work,omitempty"`
 
+	// LaneFallback remembers "Continue and don't ask again" on the
+	// subscription-exhausted card, per vendor ("anthropic" → "gateway"): when
+	// that vendor's subscription/key hits its usage window, the turn continues
+	// on memcode credits without asking (the notice line still prints every
+	// time). Absent = ask. Delete the entry to be asked again.
+	LaneFallback map[string]string `json:"lane_fallback,omitempty"`
+
 	// Endpoints is the named custom-endpoint list (one-wire Phase C): arbitrary
 	// OpenAI-compatible backends (Ollama, LM Studio, vLLM, a provider cloud)
 	// the CLI can run against without a memcode account. Selection: a memcode

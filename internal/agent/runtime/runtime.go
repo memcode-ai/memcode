@@ -86,9 +86,8 @@ type Session struct {
 	// points, resolved deterministically (internal/policy). The delegated model
 	// is one policy among several rather than a bespoke field.
 	policy            *policy.Resolver
-	lastServedModel   string            // last turn's serving model — cross-family thinking-block hygiene (loop.go)
-	laneFallback      map[string]string // vendor → sticky exhaustion choice for this session ("gateway" | "stop")
-	pinWindow         int               // the pin's context window from the picker list (0 = unknown; sizes the meter before the first serve)
+	lastServedModel   string // last turn's serving model — cross-family thinking-block hygiene (loop.go)
+	pinWindow         int    // the pin's context window from the picker list (0 = unknown; sizes the meter before the first serve)
 	mode              permissions.Mode
 	modeMu            sync.RWMutex // guards mode: the TUI goroutine cycles it (Shift+Tab // /mode) while the engine reads it at the permission gate
 	personality       string       // chosen voice (built-in key or custom text); travels as a fact, tone-only

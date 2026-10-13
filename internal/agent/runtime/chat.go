@@ -14,6 +14,7 @@ import (
 	"github.com/memcode-ai/memcode/internal/events"
 	"github.com/memcode-ai/memcode/internal/hooks"
 	"github.com/memcode-ai/memcode/internal/objectives"
+	"github.com/memcode-ai/memcode/internal/provider"
 	"github.com/memcode-ai/memcode/internal/scripts"
 	"github.com/memcode-ai/memcode/internal/sessionlog"
 	"github.com/memcode-ai/memcode/internal/skills"
@@ -399,7 +400,7 @@ func (s *Session) runTurn(ctx context.Context, st *ChatState, b input.Bundle) {
 		_, _, err := s.runLoop(ctx, s.roomSpec(sys), &st.messages)
 		if err != nil {
 			s.lastErr = err
-			s.printf("  error: %v\n", err)
+			s.printTurnError(ctx, err)
 		}
 		return
 	}
@@ -462,7 +463,7 @@ func (s *Session) runTurn(ctx context.Context, st *ChatState, b input.Bundle) {
 	}
 	if _, _, err := s.runLoop(ctx, s.roomSpec(base), &st.messages); err != nil {
 		s.lastErr = err
-		s.printf("  error: %v\n", err)
+		s.printTurnError(ctx, err)
 	}
 	// The model called execute_plan this turn (the user told it to go): the state machine is now in
 	// the apply phase — run it immediately, chaining into runTurn's Applying branch above, so a
@@ -679,4 +680,16 @@ func coalesce(ch <-chan string, window time.Duration) (string, bool) {
 			return strings.Join(parts, " "), true
 		}
 	}
+}
+
+// printTurnError shows a turn's terminal error the way a person reads it — the
+// status in plain words plus the provider's own message (provider.FriendlyError)
+// — instead of the SDK's raw request line and JSON body. The raw text still
+// lands in the session log so nothing is lost for debugging.
+func (s *Session) printTurnError(ctx context.Context, err error) {
+	msg := provider.FriendlyError(err)
+	if raw := err.Error(); raw != msg {
+		s.emit(ctx, events.KindNote, map[string]any{"note": "turn_error", "raw": raw})
+	}
+	s.printf("\n■ %s\n", msg)
 }

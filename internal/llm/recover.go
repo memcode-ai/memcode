@@ -235,11 +235,9 @@ func (r *Runner) finalize(resp *wire.Response, res resolved, fallbackReason stri
 	}
 }
 
-// clipErr bounds an upstream error message for the ⇄ reason line.
+// clipErr renders an upstream error for the ⇄ reason line: the friendly
+// status + provider message (bounded, rune-safe), not a 120-byte cut of the
+// raw SDK dump that usually stopped before the message began.
 func clipErr(err error) string {
-	s := err.Error()
-	if len(s) > 120 {
-		return s[:120]
-	}
-	return s
+	return provider.FriendlyError(err)
 }

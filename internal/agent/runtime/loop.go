@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/memcode-ai/memcode/internal/agent/permissions"
+	"github.com/memcode-ai/memcode/internal/config"
 	"github.com/memcode-ai/memcode/internal/events"
 	"github.com/memcode-ai/memcode/internal/llm"
 	"github.com/memcode-ai/memcode/internal/provider"
@@ -307,15 +308,15 @@ func (s *Session) runLoop(ctx context.Context, sys promptSpec, messages *[]wire.
 			}
 			// A subscription/own-key lane hit its usage window. Same doctrine as
 			// BYOK: never SILENTLY move spend — the only path onto credits is an
-			// explicit per-vendor choice, sticky for this session. Headless
-			// sessions fail with the reason (and the reset time when known).
+			// explicit choice on the card (or a remembered "don't ask again").
+			// Headless sessions fail with the reason (and the reset time when known).
 			var laneExh *provider.ErrLaneExhausted
 			if errors.As(err, &laneExh) {
 				if s.consentLaneFallback(ctx, laneExh) {
-					s.printf("\n%s\n", metaStyle.Render("⊙ "+laneExh.Error()+" — continuing on memcode credits (session choice; /status to review)"))
+					s.printf("\n%s\n", metaStyle.Render("⊙ "+laneExh.Error()+" — continuing this turn on memcode credits"))
 					continue
 				}
-				s.printf("\n■ %s\n", metaStyle.Render(laneExh.Error()+" — turn stopped. Pick another family with /model, or wait for the window."))
+				s.printf("\n■ %s\n", metaStyle.Render(provider.FriendlyError(laneExh)+" — turn stopped. Pick another family with /model, or wait for the window."))
 				return iterations, false, nil
 			}
 			// Token rejected (401): the SESSION is signed out (expired or revoked
@@ -1265,41 +1266,63 @@ func estimateTokens(chars int) int {
 	return chars / 4
 }
 
-// consentLaneFallback asks (once per vendor per session) how to continue when
-// a lane's subscription/key hits its usage window. True = serve this and
-// future exhausted turns for that vendor on memcode credits via the gateway.
+// Lane-exhaustion card answers.
+const (
+	optLaneContinue = "Continue"
+	optLaneAlways   = "Continue and don't ask again"
+	optLaneCancel   = "Cancel"
+)
+
+// consentLaneFallback asks how to continue when a lane's subscription/key hits
+// its usage window. True = serve THIS turn on memcode credits via the gateway.
+// "Continue" is this turn only — the next turn tries the subscription again
+// (its window may have reset) and asks again if it's still exhausted. "Don't
+// ask again" is remembered per vendor in .memcode/config.json; Cancel stops
+// the turn and is not remembered.
 func (s *Session) consentLaneFallback(ctx context.Context, exh *provider.ErrLaneExhausted) bool {
 	if !exh.CanFallback {
 		return false // no gateway base — nothing to fall back to
 	}
-	if s.laneFallback == nil {
-		s.laneFallback = map[string]string{}
-	}
-	if choice, ok := s.laneFallback[exh.Lane.Vendor]; ok {
-		if choice == "gateway" {
-			s.turn.laneBypass = "gateway"
-			return true
-		}
-		return false
+	cfg, cfgErr := config.Load(s.root)
+	if cfgErr == nil && cfg.LaneFallback[exh.Lane.Vendor] == "gateway" {
+		s.turn.laneBypass = "gateway"
+		return true
 	}
 	if s.ask == nil || s.purpose != llm.MainLoop {
 		return false // headless / sub-agent: fail with the reason
 	}
 	resp := s.ask(ctx, AskRequest{
-		Question: exh.Error() + ". How should this session continue when it's exhausted?",
+		Question: exh.Error() + ". Continue this turn on memcode credits?",
 		Options: []AskOption{
-			{Label: "Stop the turn", Description: "Wait for the window, or /model another family"},
-			{Label: "Continue on memcode credits", Description: "This and future exhausted turns — billed to your credit balance"},
+			{Label: optLaneContinue, Description: "This turn only, billed to your memcode credits — the next turn tries your " + laneNoun(exh.Lane) + " again"},
+			{Label: optLaneAlways, Description: "Whenever your " + laneNoun(exh.Lane) + " is exhausted, continue on credits without asking (saved to .memcode/config.json)"},
+			{Label: optLaneCancel, Description: "Stop this turn — wait for the window, or /model another family"},
 		},
 	})
-	ans := strings.ToLower(strings.TrimSpace(resp.Answer))
-	if strings.HasPrefix(ans, "continue") {
-		s.laneFallback[exh.Lane.Vendor] = "gateway"
+	switch resp.Answer {
+	case optLaneAlways:
+		if cfgErr == nil {
+			if cfg.LaneFallback == nil {
+				cfg.LaneFallback = map[string]string{}
+			}
+			cfg.LaneFallback[exh.Lane.Vendor] = "gateway"
+			_ = cfg.Save()
+		}
+		fallthrough
+	case optLaneContinue:
 		s.turn.laneBypass = "gateway"
 		return true
 	}
-	s.laneFallback[exh.Lane.Vendor] = "stop"
 	return false
+}
+
+// laneNoun names an exhausted lane's credential for the card copy: "claude
+// subscription", "anthropic API key".
+func laneNoun(l provider.LaneInfo) string {
+	if l.Kind == "ownkey" {
+		return l.Vendor + " API key"
+	}
+	return provider.ServingLabel(l.Name) + " subscription"
 }
 
 // turnBillingLane returns the billing-lane extension for this turn's model
