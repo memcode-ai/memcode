@@ -96,6 +96,32 @@ func TestImageMatches(t *testing.T) {
 	}
 }
 
+// A drag-dropped path with a non-space shell-escaped character (e.g. "@" in a
+// filename like "Resume @ Memcode.pdf") must still resolve to the real file and
+// collapse to a chip, not fall through to raw text — the terminal escapes more
+// than just spaces when it pastes a dragged path.
+func TestImageMatchesUnescapesNonSpaceShellEscapes(t *testing.T) {
+	dir := t.TempDir()
+	pdf := filepath.Join(dir, "Tim Erwin - Resume @ Memcode.pdf")
+	if err := os.WriteFile(pdf, []byte("%PDF-1.7\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	escaped := strings.NewReplacer(" ", `\ `, "@", `\@`).Replace(pdf)
+
+	got := ImageMatches(escaped, dir)
+	if len(got) != 1 || got[0] != escaped {
+		t.Fatalf("ImageMatches = %q, want [%q] (exact substring, escapes intact)", got, escaped)
+	}
+
+	dec := Parse(escaped, dir)
+	if len(dec.Bundle.Attachments) != 1 || dec.Bundle.Attachments[0].Kind != KindPDF {
+		t.Fatalf("Parse attachments = %+v, want 1 pdf attachment", dec.Bundle.Attachments)
+	}
+	if !dec.Bundle.AttachmentOnly {
+		t.Error("AttachmentOnly = false, want true for a lone recognized attachment path")
+	}
+}
+
 func TestParseMarksOnlyRecognizedAttachments(t *testing.T) {
 	dir := t.TempDir()
 	cases := []struct {

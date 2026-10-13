@@ -1,9 +1,10 @@
 package runtime
 
 // providerlabel_test.go — the footer's "provider · model" segment names WHO is
-// serving before WHAT model: a custom endpoint's name (a subscription login or
-// an own key) wins, else it falls back to the serving model's catalog vendor
-// so the hosted/default path isn't bare either.
+// serving before WHAT model: the last served turn's subscription-lane stamp
+// wins first (a lane never sets a custom Endpoint), then a custom endpoint's
+// name (ollama, etc.), else it falls back to the serving model's catalog
+// vendor so the hosted/default path isn't bare either.
 
 import (
 	"context"
@@ -65,5 +66,42 @@ func TestProviderLabelHostedFallsBackToCatalogVendor(t *testing.T) {
 	s := labelSession(t, &captureProvider{}, "sonnet")
 	if got := s.ProviderLabel(); got != "anthropic" {
 		t.Errorf("ProviderLabel() hosted on sonnet = %q, want %q", got, "anthropic")
+	}
+}
+
+// TestProviderLabelSubscriptionLane: a subscription lane (claude/codex/
+// copilot/grok) never sets a custom Endpoint — it serves via Lazy.laneSet,
+// so Endpoint() reports ok=false. The footer must still read the LANE's
+// name off the per-turn backend stamp instead of falling through to the
+// catalog vendor — this was the bug: a claude subscription showed
+// "anthropic · sonnet" in the footer instead of "claude · sonnet".
+func TestProviderLabelSubscriptionLane(t *testing.T) {
+	cases := []struct {
+		backend string
+		want    string
+	}{
+		{"claude-sub", "claude"},
+		{"codex", "codex"},
+		{"copilot", "github"},
+		{"grok-sub", "grok"},
+	}
+	for _, c := range cases {
+		s := labelSession(t, &captureProvider{}, "sonnet")
+		s.recordServed(func(v *servedState) { v.backend = c.backend })
+		if got := s.ProviderLabel(); got != c.want {
+			t.Errorf("ProviderLabel() on lane backend %q = %q, want %q", c.backend, got, c.want)
+		}
+	}
+}
+
+// TestProviderLabelOwnKeyLane: an own-key lane (backend "ownkey:openai")
+// names its vendor plain — the footer's separate "byok" segment already
+// says whose key it was, so ProviderLabel must not repeat it as "your
+// openai key".
+func TestProviderLabelOwnKeyLane(t *testing.T) {
+	s := labelSession(t, &captureProvider{}, "gpt-5")
+	s.recordServed(func(v *servedState) { v.backend = "ownkey:openai" })
+	if got := s.ProviderLabel(); got != "openai" {
+		t.Errorf("ProviderLabel() on own-key lane = %q, want %q", got, "openai")
 	}
 }

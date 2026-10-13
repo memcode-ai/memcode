@@ -529,13 +529,24 @@ func (s *Session) DisplayModel() string {
 }
 
 // ProviderLabel names WHO is serving — the footer's "provider · model" word
-// before the model name. A custom endpoint (subscription login or own key)
-// wins and is shown via ServingLabel ("claude-sub" → "claude", "ollama" stays
-// "ollama"); otherwise it falls back to the serving model's catalog vendor
-// ("anthropic", "openai", …) so the hosted/default path still names a
-// provider instead of leaving the model alone. "" only when neither resolves
-// (an unrecognized model id with no endpoint).
+// before the model name. The last served turn's lane stamp wins when present:
+// a subscription lane (claude-sub/codex/copilot/grok-sub) reads "claude" /
+// "codex" / "github" / "grok" via ServingLabel, an own-key lane just names its
+// vendor plain (the footer's separate "byok" segment already says whose key
+// it was — no need to repeat it here). A subscription lane never sets a
+// custom Endpoint, so this has to come first. Next a custom endpoint (an
+// exclusive endpoint like ollama) is shown via ServingLabel; otherwise it
+// falls back to the serving model's catalog vendor ("anthropic", "openai", …)
+// so the hosted/default path still names a provider instead of leaving the
+// model alone. "" only when neither resolves (an unrecognized model id with
+// no endpoint, before any turn has served).
 func (s *Session) ProviderLabel() string {
+	if v, kind, ok := provider.LaneBackendVendor(s.servedSnapshot().backend); ok && v != "" {
+		if kind == "ownkey" {
+			return v
+		}
+		return provider.ServingLabel(s.servedSnapshot().backend)
+	}
 	if ep, ok := s.Endpoint(); ok && ep.Name != "" {
 		return provider.ServingLabel(ep.Name)
 	}

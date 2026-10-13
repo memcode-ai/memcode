@@ -120,10 +120,25 @@ func mkDecision(text, cwd string, route Route, reason string) Decision {
 }
 
 // imagePathRe matches an absolute path to an image file, allowing shell-escaped
-// spaces (`\ `) — exactly how macOS pastes a screenshot's path.
+// spaces (`\ `) — exactly how macOS pastes a screenshot's path. A drag-dropped path
+// escapes OTHER shell-special characters too (`\@`, `\(`, `\'`, …, e.g. a filename
+// with "@" in it) — those already match the bare [^\s] alternative character-by-
+// character, so the regex needs no special case for them; only the unescape step
+// (shellUnescape below) has to undo more than just `\ `.
 // Only the extensions the model actually accepts inline (supportedImageMimes). heic/bmp/tiff
 // were matched before, then sniffed + rejected downstream — confusing; don't consider them.
 var imagePathRe = regexp.MustCompile(`(?i)/(?:\\ |[^\s])+\.(?:png|jpe?g|gif|webp|pdf)`)
+
+// shellEscapeRe matches a backslash-escaped character — how a terminal's drag/drop
+// (or \-copy-path) encodes any shell-special byte in a pasted path, not just a space.
+var shellEscapeRe = regexp.MustCompile(`\\(.)`)
+
+// shellUnescape undoes backslash-escaping generically (`\ ` → ` `, `\@` → `@`, `\(` →
+// `(`, …) instead of only the space case — a dragged path with any other shell-special
+// character (e.g. "Resume @ Memcode.pdf") must still resolve to a real file on disk.
+func shellUnescape(s string) string {
+	return shellEscapeRe.ReplaceAllString(s, "$1")
+}
 
 // discoverImagePaths finds absolute paths to existing supported image/PDF files
 // without changing the submitted text. Pasted text is canonical; attachments are an
@@ -141,7 +156,7 @@ func discoverImagePaths(text, cwd string) (atts []Attachment, attachmentOnly boo
 	for _, match := range matches {
 		remainder.WriteString(text[last:match[0]])
 		matched := text[match[0]:match[1]]
-		path := strings.ReplaceAll(matched, `\ `, " ") // unescape shell-escaped spaces
+		path := shellUnescape(matched)
 		if att, ok := Resolve(path, cwd, "paste"); ok && (att.Kind == KindImage || att.Kind == KindPDF) {
 			atts = append(atts, att)
 		} else {
@@ -160,7 +175,7 @@ func discoverImagePaths(text, cwd string) (atts []Attachment, attachmentOnly boo
 func ImageMatches(text, cwd string) []string {
 	var out []string
 	for _, m := range imagePathRe.FindAllString(text, -1) {
-		path := strings.ReplaceAll(m, `\ `, " ")
+		path := shellUnescape(m)
 		if att, ok := Resolve(path, cwd, "paste"); ok && (att.Kind == KindImage || att.Kind == KindPDF) {
 			out = append(out, m)
 		}
