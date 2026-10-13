@@ -224,3 +224,20 @@ func lanesNames(ls []lane) []string {
 	}
 	return out
 }
+
+// PlannedBackend predicts route's choice without dispatching: the pin's family
+// lane when one is attached, "" when the turn rides the base (gateway).
+func TestPlannedBackendMatchesRoute(t *testing.T) {
+	lanes := []lane{laneFor(t, "anthropic", "claude-sub", "claude-sonnet-5", "http://127.0.0.1:0", nil)}
+	l := lazyWith(dialEndpoint(Endpoint{Name: "gw", BaseURL: "http://127.0.0.1:0", Key: "g"}), lanes)
+	if got := l.PlannedBackend("opus"); got != "claude-sub" {
+		t.Errorf("PlannedBackend(opus) = %q, want claude-sub", got)
+	}
+	if got := l.PlannedBackend("gpt-6-sol"); got != "" {
+		t.Errorf("PlannedBackend(gpt-6-sol) = %q, want \"\" (gateway)", got)
+	}
+	signedOut := lazyWith(nil, lanes)
+	if got := signedOut.PlannedBackend("gpt-6-sol"); got != "" {
+		t.Errorf("PlannedBackend(gpt-6-sol) with no lane or base = %q, want \"\"", got)
+	}
+}

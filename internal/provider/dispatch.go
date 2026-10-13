@@ -53,6 +53,25 @@ func (l *Lazy) route(r wire.Request) (wire.Request, *conn, *lane, error) {
 	return r, nil, nil, &ErrNoLane{Model: r.Pin, Vendor: vendor, Attached: l.Lanes()}
 }
 
+// Planner is the UI-side seam over route: what WILL serve the next turn on a
+// pin, before it runs — so the footer names the lane up front instead of
+// echoing whatever served last.
+type Planner interface {
+	PlannedBackend(pin string) string
+}
+
+// PlannedBackend reports the provenance stamp the next turn on pin routes to:
+// a lane's backendName ("claude-sub", "ownkey:openai", …), "" for the base
+// (gateway or exclusive endpoint) or no serving path. It runs route itself —
+// pure, no dispatch — so the prediction can never drift from real routing.
+func (l *Lazy) PlannedBackend(pin string) string {
+	_, _, ln, err := l.route(wire.Request{Pin: pin})
+	if err != nil || ln == nil {
+		return ""
+	}
+	return ln.backendName()
+}
+
 // pinCtxKey carries the session's pinned model to the side channels.
 type pinCtxKey struct{}
 

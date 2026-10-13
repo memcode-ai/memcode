@@ -528,24 +528,28 @@ func (s *Session) DisplayModel() string {
 	return s.ServingModel()
 }
 
-// ProviderLabel names WHO is serving — the footer's "provider · model" word
-// before the model name. The last served turn's lane stamp wins when present:
-// a subscription lane (claude-sub/codex/copilot/grok-sub) reads "claude" /
-// "codex" / "github" / "grok" via ServingLabel, an own-key lane just names its
-// vendor plain (the footer's separate "byok" segment already says whose key
-// it was — no need to repeat it here). A subscription lane never sets a
-// custom Endpoint, so this has to come first. Next a custom endpoint (an
-// exclusive endpoint like ollama) is shown via ServingLabel; otherwise it
-// falls back to the serving model's catalog vendor ("anthropic", "openai", …)
-// so the hosted/default path still names a provider instead of leaving the
-// model alone. "" only when neither resolves (an unrecognized model id with
-// no endpoint, before any turn has served).
+// ProviderLabel names WHO will serve the next turn — the footer's "provider ·
+// model" word before the model name. It asks the provider's router where the
+// displayed model routes NOW (Planner), not what served last: from the first
+// frame, and right after a /model switch, it names the lane the next turn
+// actually takes. A subscription lane (claude-sub/codex/copilot/grok-sub)
+// reads "claude" / "codex" / "github" / "grok" via ServingLabel; an own-key
+// lane names its vendor plain (the footer's separate "byok" segment already
+// says whose key it was). A subscription lane never sets a custom Endpoint,
+// so this has to come first. Next a custom endpoint (an exclusive endpoint
+// like ollama) is shown via ServingLabel; otherwise (the gateway) it falls
+// back to the model's catalog vendor ("anthropic", "openai", …) so the
+// hosted path still names a provider. "" only when nothing resolves (an
+// unrecognized model id with no endpoint and no lane).
 func (s *Session) ProviderLabel() string {
-	if v, kind, ok := provider.LaneBackendVendor(s.servedSnapshot().backend); ok && v != "" {
-		if kind == "ownkey" {
-			return v
+	if pl, ok := s.prov.(provider.Planner); ok {
+		backend := pl.PlannedBackend(s.DisplayModel())
+		if v, kind, ok := provider.LaneBackendVendor(backend); ok && v != "" {
+			if kind == "ownkey" {
+				return v
+			}
+			return provider.ServingLabel(backend)
 		}
-		return provider.ServingLabel(s.servedSnapshot().backend)
 	}
 	if ep, ok := s.Endpoint(); ok && ep.Name != "" {
 		return provider.ServingLabel(ep.Name)

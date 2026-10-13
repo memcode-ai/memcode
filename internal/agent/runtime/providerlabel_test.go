@@ -1,7 +1,7 @@
 package runtime
 
 // providerlabel_test.go — the footer's "provider · model" segment names WHO is
-// serving before WHAT model: the last served turn's subscription-lane stamp
+// serving before WHAT model: the lane the router will send the next turn to
 // wins first (a lane never sets a custom Endpoint), then a custom endpoint's
 // name (ollama, etc.), else it falls back to the serving model's catalog
 // vendor so the hosted/default path isn't bare either.
@@ -69,12 +69,20 @@ func TestProviderLabelHostedFallsBackToCatalogVendor(t *testing.T) {
 	}
 }
 
+// plannedProvider is a fake Planner: the router says the next turn on any pin
+// routes to backend — standing in for Lazy's lane set.
+type plannedProvider struct {
+	captureProvider
+	backend string
+}
+
+func (p *plannedProvider) PlannedBackend(string) string { return p.backend }
+
 // TestProviderLabelSubscriptionLane: a subscription lane (claude/codex/
 // copilot/grok) never sets a custom Endpoint — it serves via Lazy.laneSet,
-// so Endpoint() reports ok=false. The footer must still read the LANE's
-// name off the per-turn backend stamp instead of falling through to the
-// catalog vendor — this was the bug: a claude subscription showed
-// "anthropic · sonnet" in the footer instead of "claude · sonnet".
+// so Endpoint() reports ok=false. The footer must name the lane the NEXT turn
+// routes to, from the first frame (no turn served yet) — this was the bug: a
+// claude subscription showed "anthropic · sonnet" instead of "claude · sonnet".
 func TestProviderLabelSubscriptionLane(t *testing.T) {
 	cases := []struct {
 		backend string
@@ -86,22 +94,30 @@ func TestProviderLabelSubscriptionLane(t *testing.T) {
 		{"grok-sub", "grok"},
 	}
 	for _, c := range cases {
-		s := labelSession(t, &captureProvider{}, "sonnet")
-		s.recordServed(func(v *servedState) { v.backend = c.backend })
+		s := labelSession(t, &plannedProvider{backend: c.backend}, "sonnet")
 		if got := s.ProviderLabel(); got != c.want {
-			t.Errorf("ProviderLabel() on lane backend %q = %q, want %q", c.backend, got, c.want)
+			t.Errorf("ProviderLabel() routing to lane %q = %q, want %q", c.backend, got, c.want)
 		}
 	}
 }
 
-// TestProviderLabelOwnKeyLane: an own-key lane (backend "ownkey:openai")
-// names its vendor plain — the footer's separate "byok" segment already
-// says whose key it was, so ProviderLabel must not repeat it as "your
-// openai key".
+// TestProviderLabelOwnKeyLane: an own-key lane ("ownkey:openai") names its
+// vendor plain — the footer's separate "byok" segment already says whose key
+// it was, so ProviderLabel must not repeat it as "your openai key".
 func TestProviderLabelOwnKeyLane(t *testing.T) {
-	s := labelSession(t, &captureProvider{}, "gpt-5")
-	s.recordServed(func(v *servedState) { v.backend = "ownkey:openai" })
+	s := labelSession(t, &plannedProvider{backend: "ownkey:openai"}, "gpt-5")
 	if got := s.ProviderLabel(); got != "openai" {
-		t.Errorf("ProviderLabel() on own-key lane = %q, want %q", got, "openai")
+		t.Errorf("ProviderLabel() routing to own-key lane = %q, want %q", got, "openai")
+	}
+}
+
+// TestProviderLabelIgnoresLastServedStamp: the label is what WILL serve, not
+// what did. After a /model switch off the claude lane onto a gateway-served
+// model, the stale "claude-sub" stamp from the last turn must not linger.
+func TestProviderLabelIgnoresLastServedStamp(t *testing.T) {
+	s := labelSession(t, &plannedProvider{backend: ""}, "gpt-6-sol")
+	s.recordServed(func(v *servedState) { v.backend = "claude-sub" })
+	if got := s.ProviderLabel(); got != "openai" {
+		t.Errorf("ProviderLabel() after switching off the claude lane = %q, want %q", got, "openai")
 	}
 }
