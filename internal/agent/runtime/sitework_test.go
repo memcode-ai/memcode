@@ -169,7 +169,7 @@ func TestDevelopIsVisibleSeesAndBuilds(t *testing.T) {
 	}
 
 	// The model learns what changed and that it builds.
-	for _, want := range []string{"Production check: passes", "src/Hero.jsx", "Screenshots"} {
+	for _, want := range []string{"Production check: passes", "src/Hero.jsx", "Screenshots", "Already committed"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("result missing %q:\n%s", want, text)
 		}
