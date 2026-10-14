@@ -1,8 +1,8 @@
 ---
 name: websites
-description: "Use when the user wants to make a new website with memcode, or create, change, preview, publish, or manage a memcode website ({slug}.memcode.app, the Websites feature). Not for other websites: a site in this repo or hosted elsewhere is ordinary file work. Covers the local-first lifecycle (create → develop → push → publish), the hosted path, what is internal-preview gated, assets, draft vs. live."
+description: "Use when the user wants a memcode website ({slug}.memcode.app, the Websites feature): to create, change, preview, publish, or manage one. A plain \"make me a website\" is usually ordinary development in the user's project, not this; ask when it's unclear. Covers telling the two apart, the local-first lifecycle (create → develop → push → publish), the hosted path, what is internal-preview gated, assets, draft vs. live."
 metadata:
-  version: "3"
+  version: "4"
   triggers: memcode.app
 ---
 
@@ -26,9 +26,31 @@ Local copies live in `~/.memcode/websites/<name>/source`, from any
 directory. A site is named by its local name until it is pushed, then by its
 slug; both work.
 
+## First: is this a memcode website at all?
+
+"Website" is ambiguous. Most people who say "make me a website" are doing
+ordinary development: they want files in the project they're in, built with
+their own framework, deployed their own way. A memcode website is a separate
+product that lives outside their project. Understand which one the user
+means before you act, and never assume the memcode one just because you are
+memcode.
+
+- **It's a memcode website** when the user names it ("a memcode website",
+  "crumb.memcode.app"), is working on one they already have (`list` shows
+  it), or chose it when asked.
+- **It's ordinary development** when they're in a project that already has a
+  site or app, name their own stack or host ("a Next.js landing page", "on
+  Vercel"), or talk about files and folders in the repo. Use the file tools
+  and don't call this tool.
+- **Otherwise, ask.** `create` asks the user itself in an interactive
+  session ("In this project" or "As a memcode website"), so don't pre-ask
+  the same question; if they choose the project, build it there with the
+  file tools. In a one-shot run nobody can answer, so only create a memcode
+  website when the request clearly asks for one.
+
 ## The default: local
 
-- **"Make me a website for my bakery."** `create` with a name and the
+- **"Make me a memcode website for my bakery."** `create` with a name and the
   prompt. The site is made on this machine, the change is made, and a local
   preview starts (the user is asked whether to open it). Nothing exists on
   memcode.ai yet; say so, and that pushing puts it online.

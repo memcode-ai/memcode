@@ -100,6 +100,7 @@ func localFirstSession(t *testing.T) (*Session, *localFirstServer) {
 	s := websitesSession(t, f)
 	f.url = os.Getenv("MEMCODE_WEB_APP_URL")
 	s.conversational = true
+	s.lastUserText = "make me a memcode website" // names the product, so create doesn't ask where it lives
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	s.bgCtx = ctx
@@ -139,6 +140,70 @@ func TestCreateIsLocalInTheCLI(t *testing.T) {
 	// Hosted-only actions say plainly that it isn't on memcode.ai yet.
 	if r := websitesCall(s, tools.WebsitesInput{Action: "preview", Slug: "Crumb"}); !r.isError || !strings.Contains(r.text(), "only on this machine") {
 		t.Fatalf("preview of a local-only site = %s", r.text())
+	}
+}
+
+// "Make me a website" is usually ordinary development: unless the request
+// names memcode websites, create asks where the site should live, once per
+// request, and choosing the project makes nothing.
+func TestCreateAsksWhereAnAmbiguousWebsiteLives(t *testing.T) {
+	s, f := localFirstSession(t)
+	s.lastUserText = "make me a website for my bakery"
+	var asked []AskRequest
+	answer := siteHomeHere
+	s.ask = func(_ context.Context, req AskRequest) AskResponse {
+		if req.Question != "Where should this website live?" {
+			return AskResponse{} // the local preview's "open it?" card
+		}
+		asked = append(asked, req)
+		return AskResponse{Answer: answer}
+	}
+	r := websitesCall(s, tools.WebsitesInput{Action: "create", Name: "Crumb"})
+	if len(asked) != 1 || len(asked[0].Options) != 2 {
+		t.Fatalf("asked = %+v", asked)
+	}
+	if r.isError || !strings.Contains(r.text(), "file tools") {
+		t.Fatalf("choosing the project = %s", r.text())
+	}
+	if _, ok := websites.FindLocal("Crumb"); ok || f.created != 0 {
+		t.Fatal("choosing the project still made a memcode website")
+	}
+
+	// A typed answer goes back to the model; its next create for the same
+	// request doesn't ask again.
+	s.lastUserText = "make me a site"
+	answer = "hmm, what's the difference?"
+	if r := websitesCall(s, tools.WebsitesInput{Action: "create", Name: "Crumb"}); !strings.Contains(r.text(), answer) {
+		t.Fatalf("typed answer = %s", r.text())
+	}
+	if r := websitesCall(s, tools.WebsitesInput{Action: "create", Name: "Crumb"}); r.isError {
+		t.Fatal(r.text())
+	}
+	if len(asked) != 2 {
+		t.Fatalf("asked %d times, want 2", len(asked))
+	}
+	if _, ok := websites.FindLocal("Crumb"); !ok {
+		t.Fatal("the second create for the same request made nothing")
+	}
+
+	// Choosing a memcode website goes ahead.
+	s.lastUserText = "build me a portfolio site"
+	answer = siteHomeMemcode
+	if r := websitesCall(s, tools.WebsitesInput{Action: "create", Name: "Folio"}); r.isError {
+		t.Fatal(r.text())
+	}
+	if _, ok := websites.FindLocal("Folio"); !ok || len(asked) != 3 {
+		t.Fatalf("memcode choice: asked=%d", len(asked))
+	}
+
+	// Naming the product settles it.
+	for _, text := range []string{"make me a memcode website", "change crumb.memcode.app"} {
+		if !namesMemcodeWebsites(text) {
+			t.Errorf("%q should name memcode websites", text)
+		}
+	}
+	if namesMemcodeWebsites("make me a website with memcode") {
+		t.Error(`"with memcode" is every request in memcode; it doesn't name the product`)
 	}
 }
 

@@ -168,6 +168,7 @@ type Session struct {
 	enabledCaps       map[string]bool      // deferred capability tools turned on this session (monotonic) — see capabilities.go
 	siteBuilds        siteBuildWatches     // website builds this session queued and is watching — see sitebuilds.go
 	devServers        map[string]devServer // local website dev servers this session started, by source dir — see websites_local.go
+	siteHomeAskedFor  string               // the request whose websites create already asked "where should this website live?" — see confirmMemcodeWebsite
 	scripts           []scripts.Script     // saved reusable command sequences (.memcode/scripts) — see script.go, scripts_prompt.go
 	nudgedScripts     map[string]bool      // script slugs already nudged this session (nudge once, don't nag) — see scriptNudge
 	userMd            string               // user's MEMCODE.md instructions, loaded once per session, injected every turn

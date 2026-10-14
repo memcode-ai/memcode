@@ -47,7 +47,7 @@ const CapabilityTool = "capability"
 // no identifier has no triggers and is reached through the index.
 var Capabilities = []Capability{
 	{Tool: Websites,
-		Summary:  "make a new website with memcode (built and previewed locally, pushed to memcode.ai when the user wants), or change, publish or manage memcode websites (*.memcode.app). For a website in this repo use the file tools; for public sites elsewhere use fetch/web_search",
+		Summary:  "memcode websites, a separate product: sites made in ~/.memcode/websites and hosted at {slug}.memcode.app (create, change, push, publish, manage). \"Make me a website\" usually is NOT this: it is ordinary development in the user's project with the file tools. Use this only when the user names memcode websites or memcode.app, is working on one they already have, or says so when asked; if the conversation doesn't settle which they mean, ask before assuming. For public sites elsewhere use fetch/web_search",
 		Triggers: []string{"memcode.app"}},
 	{Tool: Task,
 		Summary: "work memcode should do LATER or REPEATEDLY on its own, without the user (\"every morning…\", \"each Monday…\", \"nightly…\"): scheduled automations to create, list, pause, delete. A request to do it once, now, is not this",

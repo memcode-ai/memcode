@@ -47,6 +47,13 @@ func (s *Session) websitesTool(ctx context.Context, input json.RawMessage) toolR
 	if err != nil {
 		return errResult(err.Error())
 	}
+	// Before the account check: a user who wants the site in their project
+	// needs no memcode.ai login.
+	if in.Action == "create" {
+		if r := s.confirmMemcodeWebsite(ctx); r != nil {
+			return *r
+		}
+	}
 	if strings.TrimSpace(os.Getenv(provider.EnvAPIToken)) == "" {
 		return errResult("websites need a memcode.ai account — run `memcode login` first")
 	}
@@ -452,6 +459,62 @@ func describeSite(site websites.Site) string {
 	}
 	fmt.Fprintf(&b, "  preview: %v", site.HasPreview)
 	return b.String()
+}
+
+// "Make me a website" is usually ordinary developer work: files in the
+// user's project, built with their own stack. A memcode website is a separate
+// product (made in ~/.memcode/websites, hosted at {slug}.memcode.app), so
+// create asks which one the user means unless their request names it. A
+// one-shot run has no one to ask and keeps the model's call.
+const (
+	siteHomeHere    = "In this project"
+	siteHomeMemcode = "As a memcode website"
+)
+
+func (s *Session) confirmMemcodeWebsite(ctx context.Context) *toolResult {
+	if !s.conversational || s.ask == nil || namesMemcodeWebsites(s.lastUserText) {
+		return nil
+	}
+	// One card per request: a typed answer comes back to the model, and its
+	// next create for the same request must not ask again.
+	if s.siteHomeAskedFor != "" && s.siteHomeAskedFor == s.lastUserText {
+		return nil
+	}
+	s.siteHomeAskedFor = s.lastUserText
+	const q = "Where should this website live?"
+	resp := s.ask(ctx, AskRequest{
+		Question: q,
+		Options: []AskOption{
+			{Label: siteHomeHere, Description: "Ordinary files in " + s.root + ", built like any other code"},
+			{Label: siteHomeMemcode, Description: "Made in ~/.memcode/websites with a live preview; can go online at {slug}.memcode.app"},
+		},
+	})
+	ans := strings.TrimSpace(resp.Answer)
+	s.printf("\n")
+	if ans == "" {
+		s.toolLine(true, "AskUser", q, "skipped", false)
+		r := textResult("Nothing was created: the user didn't say where the website should live. Ask them in chat whether they want it in their project or as a memcode website.")
+		return &r
+	}
+	s.toolLine(true, "AskUser", q, "", false)
+	s.printf("%s\n", metaStyle.Render("  ⎿ "+clip(ans, 2000)))
+	var r toolResult
+	switch ans {
+	case siteHomeMemcode:
+		return nil
+	case siteHomeHere:
+		r = textResult("Nothing was created. The user wants this website as ordinary files in their project (" + s.root + "), not a memcode website. Don't use the websites tool for it: look at the project first (existing framework, package manager, where pages live) and build it there with the file tools.")
+	default:
+		r = textResult("Nothing was created yet. Asked where the website should live, the user answered: " + ans + "\nAct on that. Call websites create again only if they want a memcode website.")
+	}
+	return &r
+}
+
+// namesMemcodeWebsites reports whether the request names the product itself
+// ("a memcode website", "crumb.memcode.app"), which settles what it means.
+func namesMemcodeWebsites(text string) bool {
+	lower := strings.ToLower(text)
+	return strings.Contains(lower, "memcode website") || strings.Contains(lower, "memcode site") || strings.Contains(lower, "memcode.app")
 }
 
 // gateWebsites runs the approval gate for one mutating websites action.
