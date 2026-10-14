@@ -136,6 +136,17 @@ func (s *schedState) foldQueued(expectActive string, ids []string) []string {
 	return folded
 }
 
+// sendNow folds every queued transaction into the active one as steers, in queue order:
+// the user's "send now", which doesn't wait for the classifier's verdict. Returns their
+// texts (nil when idle or nothing is queued).
+func (s *schedState) sendNow() []string {
+	ids := make([]string, len(s.queue))
+	for i, tx := range s.queue {
+		ids[i] = tx.ID
+	}
+	return s.foldQueued("", ids)
+}
+
 // stripMarker removes a single leading routing marker (`+`/`>`/`!`) so the stored
 // transaction/steer text is the user's actual instruction, not the prefix.
 func stripMarker(line string) string {

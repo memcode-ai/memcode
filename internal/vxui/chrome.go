@@ -61,6 +61,31 @@ func (s *appState) statusRow() ui.Widget {
 	return ui.RichText{Spans: spans}
 }
 
+// queuedRows lists the messages waiting behind the running turn, just above the composer,
+// with the "send now" hint under the last one. Each is one clipped line; the full text is
+// what runs.
+func (s *appState) queuedRows() []ui.Widget {
+	if !s.busy() || len(s.queued) == 0 {
+		return nil
+	}
+	max := s.width - 6
+	if max < 20 {
+		max = 20
+	}
+	var rows []ui.Widget
+	for _, q := range s.queued {
+		line := []rune(strings.Join(strings.Fields(q), " "))
+		if len(line) > max {
+			line = append(line[:max-1], '…')
+		}
+		rows = append(rows, ui.RichText{Spans: []ui.TextSpan{
+			{Text: "  ↳ ", Style: s.sty.muted},
+			{Text: string(line), Style: s.sty.dim},
+		}})
+	}
+	return append(rows, s.hintRow("    ctrl+enter to send now"), ui.SizedBox{Height: 1})
+}
+
 // composerRow draws the input line with a self-rendered block cursor (no hardware cursor).
 func (s *appState) composerRow() ui.Widget {
 	spans := []ui.TextSpan{{Text: composerPrompt, Style: s.sty.brand}}

@@ -587,6 +587,20 @@ func (s *appState) route(d runtime.Decision) {
 	}
 }
 
+// sendQueuedNow folds every queued message into the running turn (see Scheduler.SendNow).
+// Anything the turn doesn't pick up before it ends runs next, so nothing is lost.
+func (s *appState) sendQueuedNow() {
+	n := len(s.sched.SendNow())
+	if n == 0 {
+		return
+	}
+	msg := "  ↳ sending the queued message into the current task"
+	if n > 1 {
+		msg = fmt.Sprintf("  ↳ sending %d queued messages into the current task", n)
+	}
+	s.ectx.AppendTextLn([]ui.TextSpan{{Text: msg, Style: s.sty.muted}})
+}
+
 func (s *appState) startTurn() {
 	tx, turnCtx, ok := s.sched.TakeActive()
 	if !ok {
@@ -1458,6 +1472,16 @@ func (s *appState) HandleEvent(ctx ui.EventContext, ev ui.Event) ui.EventResult 
 	case "Enter":
 		s.submit(s.composer)
 		return ui.EventHandled
+	case "Ctrl+Enter":
+		// Send now: submit what's typed, then fold everything queued into the running
+		// turn at its next safe boundary instead of waiting for it to finish. Idle, it's
+		// just Enter. Needs the kitty keyboard protocol; elsewhere the terminal sends a
+		// plain Enter, which queues as usual.
+		s.submit(s.composer)
+		if s.busy() {
+			s.sendQueuedNow()
+		}
+		return ui.EventHandled
 	case "Tab":
 		s.tabCompletePath() // complete a bare path token against the repo file list; swallowed otherwise
 		return ui.EventHandled
@@ -1627,6 +1651,7 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		}
 	}
 
+	rows = append(rows, s.queuedRows()...)
 	rows = append(rows, s.composerRow(), ui.SizedBox{Height: 1}, s.footerRow())
 
 	// MainAxisSizeMin shrink-wraps the live region to its content (otherwise it fills the whole

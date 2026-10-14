@@ -45,6 +45,7 @@ const (
 	cmdSnapshot
 	cmdPending
 	cmdFold
+	cmdSendNow
 	cmdNoteSeparate
 	cmdDrainSeparate
 )
@@ -154,6 +155,9 @@ func (s *Scheduler) run(parent context.Context) {
 				folded := st.foldQueued(c.line, c.ids) // c.line carries the expected active id
 				c.reply <- schedReply{folded: folded}
 				notify()
+			case cmdSendNow:
+				c.reply <- schedReply{folded: st.sendNow()}
+				notify()
 			case cmdNoteSeparate:
 				st.noteSeparate(c.sep, c.activeTitle)
 				c.reply <- schedReply{}
@@ -234,6 +238,10 @@ func (s *Scheduler) PendingClassification() (activeID, active string, items []*T
 func (s *Scheduler) FoldQueued(expectActive string, ids []string) []string {
 	return s.send(schedCmd{kind: cmdFold, line: expectActive, ids: ids}).folded
 }
+
+// SendNow folds everything queued into the running turn (it lands at the next safe
+// boundary) instead of waiting for the turn to finish. Returns the folded texts.
+func (s *Scheduler) SendNow() []string { return s.send(schedCmd{kind: cmdSendNow}).folded }
 
 // NoteSeparate records items the background follow-up classifier judged SEPARATE from the
 // active task (the "not related" verdict) — they stay queued to run as their own turn

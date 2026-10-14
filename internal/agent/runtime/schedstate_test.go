@@ -100,6 +100,27 @@ func TestPendingClassificationAndFold(t *testing.T) {
 	}
 }
 
+// Spec: "send now" folds EVERYTHING queued into the running turn, in order, without a
+// classifier verdict; idle it does nothing.
+func TestSendNowFoldsTheWholeQueue(t *testing.T) {
+	var s schedState
+	if got := s.sendNow(); got != nil {
+		t.Fatalf("idle sendNow = %#v, want nothing", got)
+	}
+	s.accept("active work", GateInput{}, at(0))
+	s.accept("first follow-up", GateInput{}, at(1000))
+	s.accept("second follow-up", GateInput{}, at(2000))
+	if got := s.sendNow(); len(got) != 2 || got[0] != "first follow-up" || got[1] != "second follow-up" {
+		t.Fatalf("sendNow = %#v", got)
+	}
+	if len(s.queue) != 0 {
+		t.Fatalf("queue should be empty, got %+v", s.snapshot())
+	}
+	if steers := s.drainSteers(); len(steers) != 2 {
+		t.Fatalf("both should drain as steers, got %#v", steers)
+	}
+}
+
 // Spec: a fold whose classified-against active tx has since changed (the turn finished
 // and the next was promoted while classify was in flight) is DROPPED — it must not steer
 // the now-active, unrelated turn.
