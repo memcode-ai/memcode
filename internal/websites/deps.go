@@ -222,6 +222,8 @@ func (v Verdict) Summary() string {
 		return id + " is not allowed: " + v.Reason
 	case v.Kit:
 		return id + " (from the memcode kit)"
+	case v.Downloads == 0: // a typeface package: no download floor applies
+		return fmt.Sprintf("%s (%s, published %s)", id, v.License, v.Published.Format("2006-01-02"))
 	default:
 		return fmt.Sprintf("%s (%s, %s weekly downloads, published %s)", id, v.License, humanCount(v.Downloads), v.Published.Format("2006-01-02"))
 	}
