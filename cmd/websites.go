@@ -40,6 +40,8 @@ var websitesCmd = &cobra.Command{
   memcode websites share <slug>    Make a short link anyone can use to view the preview
   memcode websites dev [slug|dir]  Run its real Vite dev server locally
   memcode websites zip [dir|name]  Save a shareable .zip of the project
+  memcode websites check [dir]     Check it will build on memcode.ai (production build + packages)
+  memcode websites deps ...        Check or add npm packages (the kit, or any that pass the policy)
   memcode websites assets ...      Manage its uploaded, rebuild-proof assets
 
 After pull, run ` + "`memcode`" + ` inside the directory to iterate on the site with

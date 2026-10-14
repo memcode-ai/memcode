@@ -96,13 +96,13 @@ func (s *Session) websitesTool(ctx context.Context, input json.RawMessage) toolR
 	switch in.Action {
 	case "create":
 		if !in.Remote && s.conversational {
-			return s.createLocal(ctx, client, in.Name, in.Prompt)
+			return s.createLocal(ctx, client, in.Name, in.Prompt, in.References)
 		}
 	case "develop":
 		if !s.conversational {
 			return errResult("websites develop runs a local preview and needs an interactive session; use build to change the site on memcode.ai")
 		}
-		return s.developSite(ctx, client, in.Slug, in.Prompt)
+		return s.developSite(ctx, client, in.Slug, in.Prompt, in.References)
 	case "push":
 		return s.pushSite(ctx, client, in.Slug)
 	case "zip":

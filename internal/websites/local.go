@@ -404,3 +404,41 @@ func (c *Client) MergeHosted(ctx context.Context, l LocalSite) error {
 	}
 	return nil
 }
+
+// Head is the working copy's current commit ("" when it has none).
+func Head(dir string) string {
+	h, _ := gitHead(dir)
+	return h
+}
+
+// Checkpoint records a round of changes in a managed working copy as one
+// commit, so each change has a diff the user can see and undo, and returns
+// what changed since the commit `since` ("3 files changed, 120 insertions(+),
+// 8 deletions(-)"), "" when nothing did. A checkout the user pulled
+// themselves is left to their own git; its uncommitted changes are reported.
+func (c *Client) Checkpoint(dir, since, message string) (string, error) {
+	if isManaged(dir) {
+		if err := c.commitManaged(dir, message); err != nil {
+			return "", err
+		}
+		if since == "" {
+			return "", nil
+		}
+		out, _ := exec.Command("git", "-C", dir, "diff", "--shortstat", since, "HEAD").Output()
+		return strings.TrimSpace(string(out)), nil
+	}
+	out, _ := exec.Command("git", "-C", dir, "diff", "--shortstat", "HEAD").Output()
+	return strings.TrimSpace(string(out)), nil
+}
+
+// ChangedFiles lists the files that differ between commit since and HEAD.
+func ChangedFiles(dir, since string) []string {
+	if since == "" {
+		return nil
+	}
+	out, err := exec.Command("git", "-C", dir, "diff", "--name-only", since, "HEAD").Output()
+	if err != nil {
+		return nil
+	}
+	return strings.Fields(string(out))
+}

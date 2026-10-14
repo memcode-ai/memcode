@@ -2,7 +2,7 @@
 name: websites
 description: "Use when the user wants a memcode website ({slug}.memcode.app, the Websites feature): to create, change, preview, publish, or manage one. A plain \"make me a website\" is usually ordinary development in the user's project, not this; ask when it's unclear. Covers telling the two apart, the local-first lifecycle (create → develop → push → publish), the hosted path, what is internal-preview gated, assets, draft vs. live."
 metadata:
-  version: "4"
+  version: "5"
   triggers: memcode.app
 ---
 
@@ -68,6 +68,42 @@ memcode.
 
 Node.js runs the local preview. If it's missing, the user is offered an
 install; if they decline, offer the hosted path instead.
+
+## How a change is made
+
+`create` and `develop` hand the change to a site worker that runs on this
+machine, and the user watches it work in the conversation. It sees: it opens
+references and its own pages in a headless browser, measures their design,
+compares, and iterates. Then memcode runs the production build memcode.ai
+will run, sends the worker back once if it fails, and records the change as
+one commit in the site's folder.
+
+The worker sees only what you pass, so:
+
+- **`prompt` is the user's whole brief**, in their words: every fact, name,
+  client, constraint and correction they gave. Never summarize it into
+  something generic, and never add facts they didn't give.
+- **`references`** lists every site the user named as a model ("like
+  ode.com"). Don't research the reference yourself with fetch or the shell;
+  the worker looks at it rendered.
+- Don't edit a site's files or install packages in its folder yourself.
+  Route every change through `develop`; that is what keeps the site
+  buildable on memcode.ai.
+
+When it finishes, tell the user what changed and that the preview has it.
+If the result says the production check still fails, say so plainly.
+
+## Packages
+
+Sites can use the memcode kit, preinstalled on memcode.ai: React, Tailwind,
+the shadcn-style components, GSAP (every plugin) and motion for animation,
+Lenis smooth scrolling, three.js with react-three-fiber, and about 28
+self-hosted typefaces. The worker can add any other npm package that passes
+the policy: at least 14 days old, widely used, permissively licensed, no
+install scripts, not deprecated. Packages always install with scripts off.
+`push` checks the same policy before uploading, and memcode.ai checks it
+again before building. `memcode websites deps check|add` and `memcode
+websites check` do the same from the terminal.
 
 ## The hosted path: only when asked
 

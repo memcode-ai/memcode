@@ -430,6 +430,20 @@ func (s *Session) Resize(ctx context.Context, width, height int) error {
 	return s.run(ctx, chromedp.EmulateViewport(int64(width), int64(height)))
 }
 
+// Emulate sets the viewport like Resize, and with mobile also emulates a
+// phone (mobile meta-viewport handling and touch), so a site's responsive
+// layout renders the way a phone shows it.
+func (s *Session) Emulate(ctx context.Context, width, height int, mobile bool) error {
+	if width < 64 || width > 4096 || height < 64 || height > 4096 {
+		return fmt.Errorf("emulate: dimensions must be between 64 and 4096 (got %dx%d)", width, height)
+	}
+	opts := []chromedp.EmulateViewportOption{chromedp.EmulateScale(1)}
+	if mobile {
+		opts = append(opts, chromedp.EmulateMobile, chromedp.EmulateTouch)
+	}
+	return s.run(ctx, chromedp.EmulateViewport(int64(width), int64(height), opts...))
+}
+
 // Hover moves the mouse over an element matching a CSS selector, triggering
 // hover states, dropdown menus, tooltips, etc.
 func (s *Session) Hover(ctx context.Context, selector string) error {

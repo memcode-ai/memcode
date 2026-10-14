@@ -23,7 +23,9 @@ import (
 // availableCaps returns the deferred capabilities this session could use:
 // the same mode and account gating (allowTool) as any other tool.
 func (s *Session) availableCaps() []tools.Capability {
-	if s.adminMode {
+	// A website worker builds one site; publishing, scheduling and the rest
+	// stay with the session that started it.
+	if s.adminMode || s.site != nil {
 		return nil
 	}
 	var out []tools.Capability

@@ -279,6 +279,9 @@ type (
 		AssetName string             `json:"asset_name,omitempty"` // assets_upload (optional override name) / assets_delete (required)
 		Reveal    bool               `json:"reveal,omitempty"`     // preview: return the link itself (only when the user asks for it)
 		Remote    bool               `json:"remote,omitempty"`     // create: on memcode.ai with a hosted build, not on this machine
+		// create/develop: sites the user wants it to look like; the site
+		// worker opens, measures and screenshots each before designing.
+		References []string `json:"references,omitempty"`
 	}
 	MemcodeInput struct {
 		Command string `json:"command"`
@@ -608,12 +611,13 @@ func Defs() []wire.ToolDef {
 		},
 		{
 			Name:        Websites,
-			Description: "Memcode websites, a separate product: sites in ~/.memcode/websites hosted at {slug}.memcode.app. \"Make me a website\" usually means ordinary work in the user's project (file tools); unless they named memcode websites or one they have, create asks which. Works like git. Interactive default is local: create makes it here with a live preview; develop(slug, prompt) changes it; memcode.ai changes only on push (creates/updates) or publish (goes live, pushing first). create(remote:true)/build/edit are the hosted path, only when asked. Actions: list, get, create(name/prompt[,remote]), develop, push, zip, share (short preview link), build(prompt), edit(edits), builds, preview, publish, unpublish, update(name/model), delete, assets_list, assets_upload(asset_path[,asset_name]), assets_delete(asset_name). A gated build error is an account restriction: tell the user, don't retry.",
+			Description: "Memcode websites, a separate product: sites in ~/.memcode/websites hosted at {slug}.memcode.app. \"Make me a website\" usually means ordinary work in the user's project (file tools); unless they named memcode websites or one they have, create asks which. Works like git. Interactive default is local: create makes it here with a live preview; develop(slug, prompt) changes it; memcode.ai changes only on push (creates/updates) or publish (goes live, pushing first). create(remote:true)/build/edit are the hosted path, only when asked. share makes a short preview link. A gated build error is an account restriction: tell the user, don't retry.",
 			InputSchema: obj(map[string]any{
 				"action":     enum("websites operation", []string{"list", "get", "create", "develop", "push", "zip", "share", "build", "edit", "builds", "preview", "publish", "unpublish", "delete", "update", "assets_list", "assets_upload", "assets_delete"}),
 				"slug":       str("the site's name or address; required except list/create"),
 				"name":       str("create/update: site name"),
-				"prompt":     str("create/develop/build: what to make or change"),
+				"prompt":     str("create/develop/build: what to make or change; for create/develop, the user's whole brief in their words"),
+				"references": arr("create/develop: URLs of sites to look like", str("URL")),
 				"remote":     map[string]any{"type": "boolean", "description": "create: make it on memcode.ai and build it there, instead of on this machine. Only when the user asks for that"},
 				"model":      str("create(remote)/build/update: chat model id"),
 				"edits":      arr("edit: find/replace pairs", obj(map[string]any{"find": str("text to find"), "replace": str("replacement")}, "find", "replace")),

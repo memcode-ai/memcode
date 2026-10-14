@@ -432,6 +432,8 @@ func (s *Session) dispatch(ctx context.Context, u wire.Block) toolResult {
 		return s.artifactTool(ctx, u.Input)
 	case tools.Websites:
 		return s.websitesTool(ctx, u.Input)
+	case tools.Site:
+		return s.siteTool(ctx, u.Input)
 	default:
 		if s.mcp.Has(u.Name) { // a namespaced MCP tool name (compat alias for mcp{action:"call"})
 			return s.invokeMCP(ctx, mcpOriginDirect, u.Name, u.Input, nil)
@@ -864,6 +866,10 @@ func (s *Session) toolDefs() []wire.ToolDef {
 			ids[i] = c.Tool
 		}
 		out = append(out, tools.CapabilityDef(ids))
+	}
+	// A website worker sees and verifies its site through the site tool.
+	if s.site != nil && !s.readOnly {
+		out = append(out, tools.SiteDef())
 	}
 	// Browser tools — only advertised when --chrome is set, and never to read-only
 	// explorer sub-agents (the browser is an executive-session capability).

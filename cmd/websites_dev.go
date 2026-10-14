@@ -156,16 +156,18 @@ func resolveDevWorkspace(ctx context.Context, c *websites.Client, args []string)
 	return ws, meta, err
 }
 
-// ensureNodeModules installs dependencies on first use — the repo bundle
-// never carries node_modules/ (gitignored, like any real checkout).
+// ensureNodeModules installs dependencies on first use, and again whenever
+// the lockfile has moved past what's installed (a pull, a merge, a package
+// added by hand). Scripts stay off, exactly as on memcode.ai, so the preview
+// runs on the same tree the hosted build will.
 func ensureNodeModules(sourceDir string) error {
-	if info, err := os.Stat(filepath.Join(sourceDir, "node_modules")); err == nil && info.IsDir() {
+	if !nodeModulesStale(sourceDir) {
 		return nil
 	}
-	fmt.Println("Installing dependencies (first run)…")
-	args := []string{"install"}
+	fmt.Println("Installing dependencies…")
+	args := []string{"install", "--ignore-scripts", "--no-audit", "--no-fund"}
 	if _, err := os.Stat(filepath.Join(sourceDir, "package-lock.json")); err == nil {
-		args = []string{"ci"}
+		args[0] = "ci"
 	}
 	npm := exec.Command("npm", args...)
 	npm.Dir = sourceDir
@@ -173,6 +175,21 @@ func ensureNodeModules(sourceDir string) error {
 	npm.Stderr = os.Stderr
 	npm.Stdin = os.Stdin
 	return npm.Run()
+}
+
+// nodeModulesStale: no node_modules, or a lockfile newer than npm's record
+// of what it installed (node_modules/.package-lock.json).
+func nodeModulesStale(sourceDir string) bool {
+	info, err := os.Stat(filepath.Join(sourceDir, "node_modules"))
+	if err != nil || !info.IsDir() {
+		return true
+	}
+	lock, err := os.Stat(filepath.Join(sourceDir, "package-lock.json"))
+	if err != nil {
+		return false
+	}
+	installed, err := os.Stat(filepath.Join(sourceDir, "node_modules", ".package-lock.json"))
+	return err != nil || lock.ModTime().After(installed.ModTime())
 }
 
 // syncDevAssets fully refreshes the local asset cache (the set is capped at

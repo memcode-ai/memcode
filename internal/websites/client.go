@@ -357,6 +357,13 @@ func (c *Client) Push(ctx context.Context, dir string) (Site, error) {
 	if err := c.commitManaged(dir, "Changes made locally with memcode"); err != nil {
 		return Site{}, err
 	}
+	// The builder applies the same policy before installing anything; refuse
+	// here, where the user can still fix it, rather than fail the build there.
+	if verdicts, err := Check(ctx, dir, SiteKit(ctx, c, dir), NewRegistry()); err != nil {
+		return Site{}, err
+	} else if bad := Problems(verdicts); len(bad) > 0 {
+		return Site{}, &ErrDependencies{Problems: bad}
+	}
 	if meta.SiteID != "" {
 		if err := c.checkNotBehind(ctx, dir, meta.SiteID); err != nil {
 			return Site{}, err

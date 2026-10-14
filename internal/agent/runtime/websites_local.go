@@ -13,7 +13,9 @@ import (
 
 	"github.com/memcode-ai/memcode/internal/agent/jobs"
 	"github.com/memcode-ai/memcode/internal/agent/permissions"
+	"github.com/memcode-ai/memcode/internal/config"
 	"github.com/memcode-ai/memcode/internal/llm"
+	"github.com/memcode-ai/memcode/internal/store"
 	"github.com/memcode-ai/memcode/internal/websites"
 )
 
@@ -29,29 +31,6 @@ import (
 //
 // Site work runs in a worker rooted at the site's folder: its file tools are
 // confined there, so the session's own write boundary is never widened.
-
-// siteWorkerGuide is what a site worker is told about the project. It keeps
-// local work publishable: the hosted builder and the live site enforce the
-// same rules.
-const siteWorkerGuide = `You are changing a static website project in this folder.
-
-The stack: Vite + React in plain JSX (never TypeScript), pre-rendered to
-static HTML per route by vite-react-ssg; Tailwind CSS v4 (src/index.css);
-shadcn-style components in src/components/ui; lucide-react icons;
-react-router-dom.
-
-- Pages live in src/pages/. Register each in the routes array in src/App.jsx
-  with a clean path ('pricing', not 'pricing.html'). Link with clean absolute
-  paths (<Link to="/pricing">, href="/pricing").
-- The published site cannot load anything from other domains: no CDN fonts,
-  images, scripts, analytics, or API calls. Ship everything inside the
-  project; images go in public/, and uploaded assets are served at
-  /assets/<name>.
-- Don't edit package.json, the lockfile, vite.config.js or jsconfig.json, and
-  don't install packages or run builds. A dev server is already running and
-  shows your changes live.
-
-When you're done, describe what changed in two to four plain sentences.`
 
 // devServer is a site's local dev server, run as a background shell.
 type devServer struct {
@@ -200,7 +179,7 @@ func (s *Session) offerLocalPreview(ctx context.Context, name, url string) strin
 
 // createLocal makes a site on this machine only, then develops it from the
 // prompt. Nothing is created on memcode.ai.
-func (s *Session) createLocal(ctx context.Context, client *websites.Client, name, prompt string) toolResult {
+func (s *Session) createLocal(ctx context.Context, client *websites.Client, name, prompt string, refs []string) toolResult {
 	if strings.TrimSpace(name) == "" {
 		name = siteNameFromPrompt(prompt)
 	}
@@ -209,20 +188,20 @@ func (s *Session) createLocal(ctx context.Context, client *websites.Client, name
 		return errResult("websites create failed: " + err.Error())
 	}
 	s.toolLine(true, "Websites", "create", l.Meta.Name+" (local)", false)
-	return s.develop(ctx, client, l, prompt, true)
+	return s.develop(ctx, client, l, prompt, refs, true)
 }
 
 // developSite changes an existing site locally (pulling it first if it only
 // exists on memcode.ai).
-func (s *Session) developSite(ctx context.Context, client *websites.Client, key, prompt string) toolResult {
+func (s *Session) developSite(ctx context.Context, client *websites.Client, key, prompt string, refs []string) toolResult {
 	l, err := s.localSite(ctx, client, key)
 	if err != nil {
 		return errResult(err.Error())
 	}
-	return s.develop(ctx, client, l, prompt, false)
+	return s.develop(ctx, client, l, prompt, refs, false)
 }
 
-func (s *Session) develop(ctx context.Context, client *websites.Client, l websites.LocalSite, prompt string, created bool) toolResult {
+func (s *Session) develop(ctx context.Context, client *websites.Client, l websites.LocalSite, prompt string, refs []string, created bool) toolResult {
 	ok, why := nodeReady(s, ctx)
 	if !ok {
 		return errResult(why)
@@ -240,16 +219,7 @@ func (s *Session) develop(ctx context.Context, client *websites.Client, l websit
 		b.WriteString("Brought the local copy up to date with memcode.ai first.\n")
 	}
 	if strings.TrimSpace(prompt) != "" {
-		s.toolLine(true, "Websites", "develop", l.Label(), false)
-		res, err := s.spawnAgent(ctx, AgentSpec{
-			Task:    siteWorkerGuide + "\n\nThe change to make:\n" + prompt,
-			Root:    l.Source,
-			Purpose: llm.Agent,
-		})
-		if err != nil {
-			return errResult("the site change failed: " + err.Error())
-		}
-		fmt.Fprintf(&b, "Changed locally: %s\n", strings.TrimSpace(res.Text))
+		b.WriteString(s.runSiteWorker(ctx, client, l, url, prompt, refs))
 	}
 	fmt.Fprintf(&b, "Local preview (live, updates as files change): %s\n", url)
 	if started {
@@ -261,6 +231,114 @@ func (s *Session) develop(ctx context.Context, client *websites.Client, l websit
 		b.WriteString("\nWhen the user wants it online: websites{action:\"push\"} creates it on memcode.ai; publish makes it live.")
 	}
 	return textResult(b.String())
+}
+
+// siteRepairRounds bounds how many times a worker is sent back to fix a site
+// that fails the production check.
+const siteRepairRounds = 1
+
+// runSiteWorker has a website worker make the change on this machine, with
+// its activity shown as it works, then checks the result builds the way
+// memcode.ai will build it (sending the worker back once to fix it if not),
+// and records the change as one commit. It returns the report for the model.
+func (s *Session) runSiteWorker(ctx context.Context, client *websites.Client, l websites.LocalSite, preview, prompt string, refs []string) string {
+	s.toolLine(true, "Websites", "develop", l.Label()+" · on this machine", false)
+	since := websites.Head(l.Source)
+	start := time.Now()
+
+	// The worker is oriented by the site's own memory, not this session's
+	// project. Without a store it falls back to the parent's.
+	var st store.Store
+	if opened, err := store.Open(ctx, filepath.Join(l.Source, config.DirName, "state.db")); err == nil {
+		st = opened
+		defer opened.Close()
+	}
+	work := newSiteWork(l.Source, preview, client)
+	spec := AgentSpec{
+		Task:    siteTask(prompt, refs, preview),
+		Root:    l.Source,
+		Purpose: llm.Agent,
+		Show:    true,
+		Store:   st,
+		Site:    work,
+	}
+	res, err := s.spawnAgent(ctx, spec)
+	if err != nil {
+		return "The site change failed: " + err.Error() + "\n"
+	}
+	tools := res.ToolCalls
+	text := strings.TrimSpace(res.Text)
+
+	report, passed := work.verify(ctx)
+	for round := 0; !passed && round < siteRepairRounds && ctx.Err() == nil; round++ {
+		s.toolLine(true, "Websites", "develop", l.Label()+" · fixing what the production check found", false)
+		spec.Task = websites.WorkerGuide + "\n\n## The request\n\nThe site was just changed for this request:\n\n" + prompt +
+			"\n\nIt doesn't pass the production check yet (the build memcode.ai runs):\n\n" + report +
+			"\n\nFix these problems without undoing the design work, run `site check` until it passes, and look at the affected pages." +
+			"\n\nThe site's local preview is " + preview + "."
+		if fix, err := s.spawnAgent(ctx, spec); err == nil {
+			tools += fix.ToolCalls
+			if t := strings.TrimSpace(fix.Text); t != "" {
+				text += "\n\nThen: " + t
+			}
+		}
+		report, passed = work.verify(ctx)
+	}
+
+	msg := "Change made with memcode: " + clip(oneLine(prompt), 120)
+	stat, cerr := client.Checkpoint(l.Source, since, msg)
+	files := websites.ChangedFiles(l.Source, since)
+
+	var b strings.Builder
+	status := fmt.Sprintf("%d tools · %s", tools, time.Since(start).Round(time.Second))
+	if stat != "" {
+		status = stat + " · " + status
+	}
+	if work.looks > 0 {
+		status += fmt.Sprintf(" · %d screens seen", work.looks)
+	}
+	if passed {
+		status += " · builds"
+	} else {
+		status += " · production build failing"
+	}
+	s.toolLine(true, "Websites", "develop "+l.Label(), status, !passed)
+	fmt.Fprintf(&b, "Changed on this machine (%s): %s\n", orEmpty(stat, "no file changes"), text)
+	if len(files) > 0 {
+		fmt.Fprintf(&b, "Files: %s\n", strings.Join(files, ", "))
+	}
+	if cerr != nil {
+		fmt.Fprintf(&b, "(Couldn't record the change as a commit: %v)\n", cerr)
+	}
+	if passed {
+		b.WriteString("Production check: passes (it will build on memcode.ai).\n")
+	} else {
+		fmt.Fprintf(&b, "Production check: still failing, so a push would not build. Tell the user:\n%s\n", report)
+	}
+	if work.looks > 0 {
+		fmt.Fprintf(&b, "Screenshots the worker took are in %s.\n", work.lookDir)
+	}
+	return b.String()
+}
+
+// siteTask is the worker's whole brief: the guide, the user's request and
+// references verbatim, and where the running site is.
+func siteTask(prompt string, refs []string, preview string) string {
+	var b strings.Builder
+	b.WriteString(websites.WorkerGuide)
+	b.WriteString("\n\n## The request\n\n")
+	b.WriteString(strings.TrimSpace(prompt))
+	b.WriteString("\n")
+	if len(refs) > 0 {
+		b.WriteString("\nReferences the user pointed at (study each with `site inspect` and `site look` before designing):\n")
+		for _, r := range refs {
+			if r = strings.TrimSpace(r); r != "" {
+				b.WriteString("- " + r + "\n")
+			}
+		}
+	}
+	fmt.Fprintf(&b, "\nThe site's local preview is running at %s; look at its pages with `site look` and a path.\n", preview)
+	return b.String()
 }
 
 // pushSite uploads a local copy, creating the site on memcode.ai the first

@@ -3,9 +3,17 @@ package runtime
 import (
 	"context"
 	"io"
+	"strings"
+	"sync"
 
+	"github.com/charmbracelet/x/ansi"
+	"github.com/memcode-ai/memcode/internal/agent/input"
+	"github.com/memcode-ai/memcode/internal/agent/mood"
+	"github.com/memcode-ai/memcode/internal/agent/room"
 	"github.com/memcode-ai/memcode/internal/llm"
 	"github.com/memcode-ai/memcode/internal/policy"
+	"github.com/memcode-ai/memcode/internal/store"
+	"github.com/memcode-ai/memcode/internal/todos"
 	"github.com/memcode-ai/memcode/internal/wire"
 )
 
@@ -34,6 +42,16 @@ type AgentSpec struct {
 	// file tools are confined there, exactly as the parent's are to its own
 	// root: a website worker edits the site's managed copy and nothing else.
 	Root string
+	// Show streams the worker's activity (its tool lines, edits and notes)
+	// into the conversation, indented under the caller's marker, instead of
+	// discarding it: for long, user-visible work like building a website.
+	Show bool
+	// Store is the worker's own state store (nil = the parent's). A worker
+	// rooted at another project must not be oriented by this one's memory.
+	Store store.Store
+	// Site makes the worker a website worker: the site tool, a headless
+	// browser of its own, and package managers reachable only through it.
+	Site *siteWork
 }
 
 // AgentResult is a sub-agent's report-back: its final text plus the telemetry callers surface
@@ -74,8 +92,32 @@ func (s *Session) spawnAgent(ctx context.Context, spec AgentSpec) (AgentResult, 
 	if spec.Root != "" {
 		root = spec.Root
 	}
-	sub := New(s.store, runner, root, model, s.effectiveMode(), io.Discard)
+	st := s.store
+	if spec.Store != nil {
+		st = spec.Store
+	}
+	var out io.Writer = io.Discard
+	if spec.Show {
+		out = &nestedOutput{parent: s}
+	}
+	sub := New(st, runner, root, model, s.effectiveMode(), out)
+	if spec.Show {
+		if s.width > 8 {
+			sub.width = s.width - nestedIndent // its diffs fit beside the rail
+		}
+		if s.observer != nil {
+			sub.observer = toolEvents{s.observer} // protocol clients see the worker's tools too
+		}
+	}
 	sub.policy, sub.pin = s.policy, s.pin // a worker's own workers resolve the same way
+	// The run's capability ceiling binds its workers too.
+	sub.denyCommands = append([]string(nil), s.denyCommands...)
+	if spec.Site != nil {
+		sub.site = spec.Site
+		sub.browserHeadless = true // its own invisible Chrome, never the user's window
+		sub.denyCommands = append(sub.denyCommands, siteWorkerDeny...)
+		defer sub.CloseBrowser()
+	}
 	if spec.Purpose != "" {
 		sub.purpose = spec.Purpose
 	} else {
@@ -109,3 +151,63 @@ func (s *Session) spawnAgent(ctx context.Context, spec AgentSpec) (AgentResult, 
 	}
 	return AgentResult{Text: sub.lastText, ToolCalls: sub.metrics.toolCalls, ServedBy: sub.ServedBy()}, nil
 }
+
+// nestedOutput shows a worker's rendered output inside the parent's, each
+// line indented under a dim rail so it reads as the worker's, not the
+// conversation's. Partial writes are held until their line completes; runs
+// of blank lines collapse to one, and the routing line is the parent's to
+// show, not repeated per worker.
+// nestedIndent is the rail's width ("  │ ").
+const nestedIndent = 4
+
+type nestedOutput struct {
+	parent *Session
+	mu     sync.Mutex
+	buf    strings.Builder
+	blank  bool // the last line written was blank
+	wrote  bool // anything written yet
+}
+
+func (w *nestedOutput) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.buf.Write(p)
+	text := w.buf.String()
+	i := strings.LastIndexByte(text, '\n')
+	if i < 0 {
+		return len(p), nil
+	}
+	w.buf.Reset()
+	w.buf.WriteString(text[i+1:])
+	for _, line := range strings.Split(text[:i], "\n") {
+		if strings.HasPrefix(strings.TrimSpace(ansi.Strip(line)), "⇄") {
+			continue
+		}
+		if strings.TrimSpace(line) == "" {
+			if w.blank || !w.wrote {
+				continue
+			}
+			w.blank = true
+			w.parent.printf("%s\n", metaStyle.Render("  │"))
+			continue
+		}
+		w.blank, w.wrote = false, true
+		w.parent.printf("%s %s\n", metaStyle.Render("  │"), line)
+	}
+	return len(p), nil
+}
+
+// toolEvents forwards only a worker's tool events to the parent's observer:
+// its prose is not the assistant's reply, and its turn state isn't the
+// session's.
+type toolEvents struct{ UIObserver }
+
+func (t toolEvents) Routed(input.Route, string) {}
+func (t toolEvents) QueueChanged([]string)      {}
+func (t toolEvents) Busy(bool)                  {}
+func (t toolEvents) Mood(mood.Reading)          {}
+func (t toolEvents) Room(room.State)            {}
+func (t toolEvents) Todos(todos.List)           {}
+func (t toolEvents) Tokens(int)                 {}
+func (t toolEvents) Raw(string)                 {}
+func (t toolEvents) AssistantText(string)       {}

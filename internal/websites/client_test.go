@@ -156,6 +156,10 @@ func TestPushBundlesAndPosts(t *testing.T) {
 			http.NotFound(w, r) // never built: nothing hosted to fall behind
 			return
 		}
+		if r.Method == http.MethodGet && r.URL.Path == "/api/website/template" {
+			http.NotFound(w, r) // the kit falls back to the site's own first commit
+			return
+		}
 		if r.URL.Path != "/api/website/s9/bundle" || r.Method != http.MethodPost {
 			t.Fatalf("unexpected %s %s", r.Method, r.URL.Path)
 		}
