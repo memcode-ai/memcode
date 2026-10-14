@@ -5,7 +5,10 @@ package gitlog
 
 import (
 	"context"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -25,9 +28,114 @@ type Commit struct {
 const format = "%h\x1f%an\x1f%ae\x1f%ad\x1f%s\x1f%b"
 
 // Recent returns up to n most-recent commits touching path ("" or "." = whole
-// repo), newest first.
+// repo), newest first. For the whole-repo case, root may be the parent of
+// several independent repositories (e.g. two sibling projects under one
+// non-git workspace dir) rather than a repo itself — Roots discovers every
+// repo underneath and the results are merged by date.
 func Recent(ctx context.Context, root, path string, n int) []Commit {
-	return logRecords(ctx, root, append([]string{"-n", strconv.Itoa(n)}, pathspec(path)...)...)
+	if path != "" && path != "." {
+		return logRecords(ctx, root, append([]string{"-n", strconv.Itoa(n)}, pathspec(path)...)...)
+	}
+	roots := Roots(ctx, root)
+	if len(roots) <= 1 {
+		// Common case, byte-for-byte unchanged: root is itself a single repo
+		// (or no repo at all), so query it directly exactly as before.
+		return logRecords(ctx, root, "-n", strconv.Itoa(n))
+	}
+	var all []Commit
+	for _, r := range roots {
+		all = append(all, logRecords(ctx, r, "-n", strconv.Itoa(n))...)
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].Date > all[j].Date })
+	if len(all) > n {
+		all = all[:n]
+	}
+	return all
+}
+
+// rootsMaxDepth and rootsMaxVisited bound the recursive repo discovery below
+// so a pathological tree (deep, no matching excludes) degrades gracefully
+// instead of walking indefinitely.
+const (
+	rootsMaxDepth   = 6
+	rootsMaxVisited = 5000
+)
+
+// rootsSkipDir names directories that are never worth descending into while
+// looking for nested git repositories: dependency/build output that can
+// legitimately contain its own vendored ".git"-less trees, or (for vendored
+// submodules/subtrees) wouldn't be a root worth treating as independent
+// history anyway.
+var rootsSkipDir = map[string]bool{
+	"node_modules": true, "vendor": true, "dist": true, "build": true,
+	".next": true, "target": true, "__pycache__": true, ".turbo": true,
+	"out": true, "venv": true, "site-packages": true,
+}
+
+// Roots discovers every independent git work-tree root at or under dir. If
+// dir itself is inside a work tree, that single root is returned — the
+// common single-repo case, unchanged in cost and result. Otherwise dir is
+// walked (bounded by depth and total directories visited) looking for nested
+// ".git" entries; each one found is recorded as a root and its subtree is
+// NOT descended into further, since it owns everything below it. Hidden
+// directories and common dependency/build directories are skipped. Order is
+// deterministic (sorted).
+func Roots(ctx context.Context, dir string) []string {
+	if top, ok := workTreeRoot(ctx, dir); ok {
+		return []string{top}
+	}
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return nil
+	}
+	var roots []string
+	visited := 0
+	var walk func(path string, depth int)
+	walk = func(path string, depth int) {
+		if ctx.Err() != nil || visited >= rootsMaxVisited || depth > rootsMaxDepth {
+			return
+		}
+		visited++
+		if info, err := os.Stat(filepath.Join(path, ".git")); err == nil {
+			_ = info
+			roots = append(roots, path)
+			return // this subtree owns its own history; don't descend further
+		}
+		entries, err := os.ReadDir(path)
+		if err != nil {
+			return
+		}
+		for _, e := range entries {
+			if !e.IsDir() {
+				continue
+			}
+			name := e.Name()
+			if strings.HasPrefix(name, ".") || rootsSkipDir[name] {
+				continue
+			}
+			walk(filepath.Join(path, name), depth+1)
+		}
+	}
+	walk(abs, 0)
+	sort.Strings(roots)
+	return roots
+}
+
+// workTreeRoot reports the top-level directory of the git work tree
+// containing dir, if any.
+func workTreeRoot(ctx context.Context, dir string) (string, bool) {
+	if _, err := exec.LookPath("git"); err != nil {
+		return "", false
+	}
+	out, err := exec.CommandContext(ctx, "git", "-C", dir, "rev-parse", "--show-toplevel").Output()
+	if err != nil {
+		return "", false
+	}
+	top := strings.TrimSpace(string(out))
+	if top == "" {
+		return "", false
+	}
+	return top, true
 }
 
 // First returns the commit that introduced path, if any.

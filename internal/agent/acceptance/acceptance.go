@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/memcode-ai/memcode/internal/agent/edit"
 	"github.com/memcode-ai/memcode/internal/agent/gitporcelain"
@@ -54,27 +55,15 @@ type fileState struct {
 func classify(files []fileState) (outcome, confidence, evidence string) {
 	var accepted, corrected, rejected, unknown int
 	for _, f := range files {
-		switch {
-		case f.curHash == "":
-			rejected++ // the agent's file is gone
-		case f.dirty:
-			if f.curHash == f.postHash {
-				unknown++ // still pending — unchanged since the agent
-			} else {
-				corrected++ // human edited further, not yet committed
-			}
-		case f.committedSince:
-			if f.curHash == f.postHash {
-				accepted++ // committed intact
-			} else {
-				corrected++ // committed after a human refinement
-			}
-		default: // clean, not committed, content differs ⇒ discarded
-			if f.curHash != f.postHash {
-				rejected++
-			} else {
-				unknown++
-			}
+		switch classifyFile(f) {
+		case Accepted:
+			accepted++
+		case Corrected:
+			corrected++
+		case Rejected:
+			rejected++
+		default:
+			unknown++
 		}
 	}
 	total := accepted + corrected + rejected + unknown
@@ -89,6 +78,48 @@ func classify(files []fileState) (outcome, confidence, evidence string) {
 		return Accepted, "high", evidenceStr("committed intact", accepted, total)
 	default:
 		return Unknown, "", ""
+	}
+}
+
+// classifyFile turns ONE file's evidence into its outcome — accepted
+// (committed intact), corrected (changed again after the baseline, by a
+// human or another tool), rejected (reverted/discarded/absent), or unknown
+// (still pending, no verdict yet). The single source of truth both
+// classify's multi-file session aggregation and CorroborateClaim's
+// single-claim check build on — one deterministic rule, not two.
+func classifyFile(f fileState) string {
+	switch {
+	case f.curHash == "":
+		return Rejected // the claimed file is gone
+	case f.dirty:
+		if f.curHash == f.postHash {
+			return Unknown // still pending — unchanged since the claim
+		}
+		return Corrected // edited further (by anyone), not yet committed
+	case f.committedSince:
+		if f.curHash == f.postHash {
+			return Accepted // committed intact
+		}
+		return Corrected // committed after a further refinement
+	default: // clean, not committed, content differs ⇒ discarded
+		if f.curHash != f.postHash {
+			return Rejected
+		}
+		return Unknown
+	}
+}
+
+// outcomeConfidence maps a single-file outcome to the SAME confidence tier
+// classify's multi-file aggregation uses for its dominant outcome — one
+// evidence-to-confidence rule, used by both call paths.
+func outcomeConfidence(outcome string) string {
+	switch outcome {
+	case Accepted, Rejected:
+		return "high"
+	case Corrected:
+		return "medium"
+	default:
+		return ""
 	}
 }
 
@@ -179,6 +210,56 @@ func Reconcile(ctx context.Context, st store.Store, root string) ([]Result, erro
 	return results, nil
 }
 
+// CorroborateClaim checks ANY claimed file edit — not just one of memcode's
+// own agent sessions — against CURRENT git/filesystem state: committed
+// intact, changed since, reverted/absent, or still-dirty (matching or
+// differing). It is the same deterministic evidence Reconcile already uses
+// for memcode's own session outcomes (classifyFile), made callable for a
+// claim from ANY source — an external tool's transcript, a focus.FileClaim.
+// This is a NEW, separate call path: Reconcile's own event-log-driven loop,
+// and what it records, are completely untouched.
+//
+// The claim and this corroboration are two different kinds of evidence
+// about two different questions (what a tool SAYS it did vs. what survived
+// to disk) — never collapse them into one number; show both.
+func CorroborateClaim(ctx context.Context, root, path, claimedHash string, since time.Time) (verdict, confidence, evidence string) {
+	if !isGitRepo(ctx, root) {
+		return Unknown, "", "not a git repository"
+	}
+	cur, _ := edit.Hash(root, path)
+	f := fileState{
+		path:           path,
+		postHash:       claimedHash,
+		curHash:        cur,
+		dirty:          dirtySet(ctx, root)[path],
+		committedSince: committedSinceTime(ctx, root, path, since),
+	}
+	outcome := classifyFile(f)
+	return outcome, outcomeConfidence(outcome), claimEvidence(outcome, f)
+}
+
+// claimEvidence renders CorroborateClaim's outcome as a short, specific
+// prose fact — the single-claim counterpart to evidenceStr's multi-file
+// session phrasing.
+func claimEvidence(outcome string, f fileState) string {
+	switch outcome {
+	case Accepted:
+		return "committed intact"
+	case Corrected:
+		if f.dirty {
+			return "changed since the claim, not yet committed"
+		}
+		return "committed after a further change"
+	case Rejected:
+		if f.curHash == "" {
+			return "file no longer exists"
+		}
+		return "reverted/discarded — current content differs, no commit since"
+	default:
+		return "still pending — no commit or further change since the claim yet"
+	}
+}
+
 // --- git helpers ---
 
 func isGitRepo(ctx context.Context, root string) bool {
@@ -212,6 +293,22 @@ func committedSince(ctx context.Context, root, baseline, path string) bool {
 	}
 	out, err := exec.CommandContext(ctx, "git", "-C", root,
 		"log", "--oneline", baseline+"..HEAD", "--", path).Output()
+	if err != nil {
+		return false
+	}
+	return len(strings.TrimSpace(string(out))) > 0
+}
+
+// committedSinceTime reports whether any commit at or after since touches
+// path — the time-based counterpart to committedSince's SHA-based baseline,
+// for a claim that carries a timestamp (e.g. focus.FileClaim.ClaimedAt)
+// rather than one of memcode's own sessions' head_sha.
+func committedSinceTime(ctx context.Context, root, path string, since time.Time) bool {
+	if since.IsZero() {
+		return false
+	}
+	out, err := exec.CommandContext(ctx, "git", "-C", root,
+		"log", "--oneline", "--since", since.UTC().Format(time.RFC3339), "--", path).Output()
 	if err != nil {
 		return false
 	}

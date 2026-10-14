@@ -3,6 +3,7 @@ package structure
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -156,5 +157,68 @@ func TestScanSinglePackageRepo(t *testing.T) {
 	// Single-package repo: the root IS the one subsystem.
 	if len(res.Subsystems) != 1 || res.Subsystems[0].Key != "." || res.Subsystems[0].Ecosystem != EcoGo {
 		t.Fatalf("subsystems = %+v, want one go subsystem at '.'", res.Subsystems)
+	}
+}
+
+// initGitRepo creates a real git repo with one commit at dir, so Scan's
+// per-subsystem git stats have real history to find.
+func initGitRepo(t *testing.T, dir string, files map[string]string) {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	writeFiles(t, dir, files)
+	run := func(args ...string) {
+		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=Test", "GIT_AUTHOR_EMAIL=test@example.com",
+			"GIT_COMMITTER_NAME=Test", "GIT_COMMITTER_EMAIL=test@example.com",
+		)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	run("init", "-q")
+	run("add", ".")
+	run("commit", "-q", "-m", "initial commit in "+filepath.Base(dir))
+}
+
+// TestScanAcrossSiblingReposUnderNonGitParent reproduces the demonstrated bug:
+// two independent repos living under one non-git parent directory. Scanning
+// the parent must attribute real commit history to each subsystem instead of
+// silently returning zeros because the parent itself isn't a work tree.
+func TestScanAcrossSiblingReposUnderNonGitParent(t *testing.T) {
+	ctx := context.Background()
+	parent := t.TempDir()
+
+	initGitRepo(t, filepath.Join(parent, "service-a"), map[string]string{
+		"go.mod":  "module github.com/acme/service-a\n\ngo 1.26\n",
+		"main.go": "package main\nfunc main() {}\n",
+	})
+	initGitRepo(t, filepath.Join(parent, "service-b"), map[string]string{
+		"go.mod":  "module github.com/acme/service-b\n\ngo 1.26\n",
+		"main.go": "package main\nfunc main() {}\n",
+	})
+
+	s, err := store.Open(ctx, filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	res, err := Scan(ctx, s, parent)
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	if len(res.Subsystems) != 2 {
+		t.Fatalf("subsystems = %+v, want 2", res.Subsystems)
+	}
+	for _, sub := range res.Subsystems {
+		if sub.Commits == 0 {
+			t.Errorf("subsystem %q has 0 commits, want its own repo's history attributed", sub.Key)
+		}
+		if len(sub.Owners) == 0 {
+			t.Errorf("subsystem %q has no owners, want the commit author attributed", sub.Key)
+		}
 	}
 }

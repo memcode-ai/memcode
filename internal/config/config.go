@@ -146,6 +146,16 @@ type Config struct {
 	// time). Absent = ask. Delete the entry to be asked again.
 	LaneFallback map[string]string `json:"lane_fallback,omitempty"`
 
+	// IngestExternalTools opts IN to reading Claude Code's/Codex's own local
+	// session transcripts (~/.claude/projects, ~/.codex/sessions) so a thread
+	// one of them touched surfaces in memcode's OWN orientation/history too.
+	// Off by default — these are another tool's private transcripts, read
+	// defensively from an unversioned format. Ingestion is deterministic (no
+	// LLM call) and writes only capped, normalized observations under
+	// .memcode/observe/<source>/ — never the raw transcript. See package
+	// observe and internal/importers/{claudecode,codex}.
+	IngestExternalTools bool `json:"ingest_external_tools,omitempty"`
+
 	// Endpoints is the named custom-endpoint list (one-wire Phase C): arbitrary
 	// OpenAI-compatible backends (Ollama, LM Studio, vLLM, a provider cloud)
 	// the CLI can run against without a memcode account. Selection: a memcode

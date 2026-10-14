@@ -14,6 +14,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -26,6 +27,7 @@ import (
 	"github.com/memcode-ai/memcode/internal/gitlog"
 	"github.com/memcode-ai/memcode/internal/llm"
 	"github.com/memcode-ai/memcode/internal/objectives"
+	"github.com/memcode-ai/memcode/internal/observe"
 	"github.com/memcode-ai/memcode/internal/overview"
 	"github.com/memcode-ai/memcode/internal/predict"
 	"github.com/memcode-ai/memcode/internal/provenance"
@@ -431,17 +433,20 @@ func (e *Engine) introspectSources(ctx context.Context) (string, bool) {
 	return b.String(), false
 }
 
-// workHistory answers "what did we work on?" — GIT-ANCHORED. The commits are the
-// truth: the durable, deduplicated, ordered record of what changed, by EVERY actor
-// (memcode, Claude Code, Cursor, manual git, CI), not just memcode's own loop. The
-// session log is layered UNDER it as supporting color — the why and the uncommitted
-// sidequests memcode itself saw, explicitly flagged as partial. Never the reverse:
-// memcode's session log is one solipsistic lens; git is the shared record.
+// workHistory answers "what did we work on?" using TWO different kinds of
+// evidence about TWO different questions — never one ranked above the
+// other. Git commits answer "what changed, durably, by every actor"
+// (memcode, Claude Code, Cursor, manual git, CI) — the complete, shared
+// record of what was committed. memcode's own session notes answer a
+// different question entirely: why, and what was still in flight
+// (uncommitted sidequests, abandoned plans) that git alone can't show —
+// explicitly flagged PARTIAL (only what ran through memcode) because that's
+// a real limit on ITS evidence, not a demotion relative to git's.
 func (e *Engine) workHistory(ctx context.Context, limit int) string {
 	var b strings.Builder
 	commits := gitlog.Recent(ctx, e.d.Root, ".", orLimit(limit, 15))
 	if len(commits) > 0 {
-		b.WriteString("Recent work — git commits (the actual record, every author/tool):\n")
+		b.WriteString("Recent work — git commits (what changed, durably, by every author/tool):\n")
 		for _, c := range commits {
 			fmt.Fprintf(&b, "- %s  %s\n", shortSHA(c.Hash), strings.TrimSpace(c.Subject))
 		}
@@ -449,9 +454,10 @@ func (e *Engine) workHistory(ctx context.Context, limit int) string {
 		b.WriteString("(no git commits found — not a git repo, or no history)\n")
 	}
 
-	// Supporting layer: memcode's OWN session notes — the why + sidequests. Partial by
-	// construction (only what ran through memcode), so it's labelled as such and never
-	// allowed to override the commits above.
+	// A different question, not a weaker answer to the same one: memcode's OWN
+	// session notes carry the why + what was still uncommitted/in-flight — real
+	// evidence git alone can't show, partial only in WHICH sessions it covers
+	// (only what ran through memcode).
 	recs, _ := sessionlog.Recent(e.d.Root, e.d.SessionID, 0)
 	threads := sessionlog.Recap(recs)
 	if !sessionlog.HasActions(threads) {
@@ -460,7 +466,7 @@ func (e *Engine) workHistory(ctx context.Context, limit int) string {
 		}
 	}
 	if sessionlog.HasActions(threads) {
-		b.WriteString("\nmemcode's own session notes (the why + sidequests — PARTIAL: only what ran through memcode; blind to Claude Code / Cursor / manual git):\n")
+		b.WriteString("\nmemcode's own session notes (why + what was in flight — PARTIAL: only sessions that ran through memcode, blind to Claude Code / Cursor / manual git):\n")
 		b.WriteString(sessionlog.RenderRecap(threads))
 	}
 
@@ -469,11 +475,23 @@ func (e *Engine) workHistory(ctx context.Context, limit int) string {
 	// doctrine routes status questions to actually carries the open work. Before
 	// this, an abandoned plan was invisible here: the digest was the only place
 	// that knew, and doctrine told the model not to answer from the digest.
+	// When any external source has ever been ingested (observe.HasAny — a cheap
+	// presence check, zero cost in the common case where none has), the merged
+	// cross-source stream feeds the SAME reducer instead, so a thread Claude Code
+	// or Codex touched surfaces here too, tagged with its provenance. Either way
+	// the OUTPUT stays bounded by ReduceTurns' own per-bucket/per-strand caps —
+	// never a raw transcript dump.
 	var objs []objectives.Objective
 	if cur, err := objectives.New(e.d.Store).Current(ctx); err == nil {
 		objs = cur
 	}
-	if fs := focus.FromLog(e.d.Root, e.d.SessionID, objs); len(fs.Unfinished()) > 0 {
+	fs := focus.FromLog(e.d.Root, e.d.SessionID, objs)
+	var externalTurns []focus.Turn
+	if observe.HasAny(e.d.Root) {
+		externalTurns = observe.Load(ctx, e.d.Root, e.d.SessionID)
+		fs = focus.ReduceTurns(externalTurns, objs)
+	}
+	if len(fs.Unfinished()) > 0 {
 		b.WriteString("\nOPEN THREADS — unfinished work from recent sessions, newest first (the VERBATIM ask — act on the whole request, not the first line). A status answer must account for EACH (resume / done / dropped). The [from sess_…] handles are INTERNAL — session-tool targets only, never shown to the user; describe threads by their quoted ask:\n")
 		for i, t := range fs.Unfinished() {
 			fmt.Fprintf(&b, "%d. %s\n", i+1, t.AskLine())
@@ -481,6 +499,45 @@ func (e *Engine) workHistory(ctx context.Context, limit int) string {
 		if fs.Elided > 0 {
 			fmt.Fprintf(&b, "…and %d older thread(s) beyond the window — memcode{command:\"session\", target:\"recent\"} lists every session.\n", fs.Elided)
 		}
+	}
+	b.WriteString(e.renderFileClaims(ctx, externalTurns))
+	return b.String()
+}
+
+// maxRenderedClaims caps how many file-edit claims this renders, newest
+// first — the same bounded-digest discipline as every other section here;
+// an external source with a large backlog never turns this into a dump.
+const maxRenderedClaims = 6
+
+// renderFileClaims surfaces, for every turn carrying a FileClaim (an
+// external tool's unverified claim that it edited a file), BOTH the claim
+// AND its independent corroboration against current git/filesystem state
+// (acceptance.CorroborateClaim) — shown as two separate facts, never
+// collapsed into one number, per doctrine: a tool's transcript is strong
+// evidence of intent/attempt, weaker evidence of what survived to disk.
+func (e *Engine) renderFileClaims(ctx context.Context, turns []focus.Turn) string {
+	var claims []focus.Turn
+	for _, t := range turns {
+		if t.FileClaim != nil {
+			claims = append(claims, t)
+		}
+	}
+	if len(claims) == 0 {
+		return ""
+	}
+	sort.Slice(claims, func(i, j int) bool { return claims[i].TS.After(claims[j].TS) })
+	if len(claims) > maxRenderedClaims {
+		claims = claims[:maxRenderedClaims]
+	}
+	var b strings.Builder
+	b.WriteString("\nExternal file-edit claims (from a tool's own transcript — a CLAIM, not a verified fact; corroborated below against CURRENT git/filesystem state, a separate check):\n")
+	for _, t := range claims {
+		verdict, conf, ev := acceptance.CorroborateClaim(ctx, e.d.Root, t.FileClaim.Path, t.FileClaim.ClaimedHash, t.FileClaim.ClaimedAt)
+		tag := verdict
+		if conf != "" {
+			tag = fmt.Sprintf("%s, %s confidence", verdict, conf)
+		}
+		fmt.Fprintf(&b, "- %s claims it edited `%s` — %s: %s\n", t.Source, t.FileClaim.Path, tag, ev)
 	}
 	return b.String()
 }

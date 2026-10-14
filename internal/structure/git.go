@@ -5,10 +5,13 @@ import (
 	"bytes"
 	"context"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/memcode-ai/memcode/internal/gitlog"
 )
 
 // gitRepo gathers ownership and change-frequency signals by shelling out to git.
@@ -30,6 +33,47 @@ func newGit(root string) *gitRepo {
 		g.available = true
 	}
 	return g
+}
+
+// gitReposFor discovers every independent git repo at or under root
+// (bounded-recursively, via gitlog.Roots — the same primitive Recent uses)
+// and returns a ready gitRepo per discovered root, keyed by that root's
+// absolute path. The common single-repo case returns exactly one entry.
+func gitReposFor(ctx context.Context, root string) map[string]*gitRepo {
+	repos := map[string]*gitRepo{}
+	for _, r := range gitlog.Roots(ctx, root) {
+		repos[r] = newGit(r)
+	}
+	return repos
+}
+
+// owningRepo picks, among repos, the one whose root is the longest matching
+// prefix of dir — i.e. the repo that actually owns dir's history — and
+// returns it along with dir's path relative to that repo (not to the overall
+// scan root, which may be a different, unrelated repo or no repo at all).
+// When no discovered repo owns dir, it returns a nil (nil-safe) gitRepo and
+// falls back to defaultRel.
+func owningRepo(dir, defaultRel string, repos map[string]*gitRepo) (*gitRepo, string) {
+	var owner string
+	for r := range repos {
+		if dir != r && !strings.HasPrefix(dir, r+string(filepath.Separator)) {
+			continue
+		}
+		if len(r) > len(owner) {
+			owner = r
+		}
+	}
+	if owner == "" {
+		return nil, defaultRel
+	}
+	rel, err := filepath.Rel(owner, dir)
+	if err != nil {
+		return repos[owner], defaultRel
+	}
+	if rel == "" {
+		rel = "."
+	}
+	return repos[owner], rel
 }
 
 // recentWindowDays bounds "recent" activity. All-time totals are dominated by a

@@ -60,6 +60,12 @@ func Scan(ctx context.Context, s store.Store, root string) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
+	// Resolve symlinks so root matches exactly what git reports as a work
+	// tree's toplevel (git normalizes paths this way internally) — needed for
+	// gitReposFor's prefix matching below to line up.
+	if resolved, err := filepath.EvalSymlinks(root); err == nil {
+		root = resolved
+	}
 
 	manifests, err := discoverManifests(ctx, root)
 	if err != nil {
@@ -72,7 +78,11 @@ func Scan(ctx context.Context, s store.Store, root string) (Result, error) {
 		Docs:        repoDocs(root),
 	}
 
-	git := newGit(root) // nil-safe: degrades gracefully when not a git repo
+	// root may be the parent of several independent repos (e.g. two sibling
+	// projects under one non-git workspace dir) rather than a repo itself;
+	// gitReposFor discovers every repo underneath (bounded-recursively) and
+	// owningRepo picks, per subsystem, the one that actually owns its history.
+	repos := gitReposFor(ctx, root)
 
 	// Decide which manifests are real subsystems vs. workspace aggregators.
 	for _, m := range selectSubsystems(manifests) {
@@ -84,8 +94,9 @@ func Scan(ctx context.Context, s store.Store, root string) (Result, error) {
 			Manifest:  m.file,
 			Docs:      subsystemDocs(m.dir),
 		}
-		sub.Commits, sub.Recent, sub.Owners = git.stats(ctx, m.rel)
-		sub.RecentChurn, sub.RecentDays = git.recentActivity(ctx, m.rel)
+		git, rel := owningRepo(m.dir, m.rel, repos)
+		sub.Commits, sub.Recent, sub.Owners = git.stats(ctx, rel)
+		sub.RecentChurn, sub.RecentDays = git.recentActivity(ctx, rel)
 		res.Subsystems = append(res.Subsystems, sub)
 	}
 	assignHotness(res.Subsystems)

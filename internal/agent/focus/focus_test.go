@@ -233,8 +233,29 @@ func TestPausedNewestFirstAndCapped(t *testing.T) {
 	}
 }
 
+// A bare greeting must be transparent glue, never a strand — it opens a turn
+// but carries no commitment. Before this fix "hi" piled up as its own numbered
+// "open thread" across sessions, outliving the greeting itself.
+func TestGreetingIsNotAStrand(t *testing.T) {
+	mk := func(txt string) sessionlog.Record {
+		return sessionlog.Record{Kind: sessionlog.KindUserMessage, Text: txt}
+	}
+	recs := []sessionlog.Record{
+		mk("hi"),
+		mk("fix the parser bug"),
+	}
+	st := Reduce(recs, nil)
+	if st.Current != "fix the parser bug" {
+		t.Fatalf("current = %q, want the real ask", st.Current)
+	}
+	if len(st.Open) != 0 || len(st.Paused) != 0 {
+		t.Fatalf("greeting leaked into a strand: open=%v paused=%v", st.Open, st.Paused)
+	}
+}
+
 func TestAckAndMetaHelpers(t *testing.T) {
-	for _, a := range []string{"yes", "Thanks.", "ok", "go ahead", "done?", "rebuilt cli?"} {
+	for _, a := range []string{"yes", "Thanks.", "ok", "go ahead", "done?", "rebuilt cli?",
+		"hi", "Hi!", "hello", "hey", "good morning"} {
 		if !ackOnly(strings.ToLower(a)) {
 			t.Errorf("ackOnly(%q) should be true", a)
 		}
@@ -288,5 +309,49 @@ func TestStrandCarriesFullAskAndSession(t *testing.T) {
 	}
 	if !strings.Contains(found.AskLine(), "[from sess_orig]") {
 		t.Fatalf("AskLine must name the session: %s", found.AskLine())
+	}
+}
+
+// ReduceTurns is the general, multi-source form Reduce wraps: a strand
+// legitimately touched by both memcode and an external tool's transcript
+// must carry BOTH provenances, and the display must surface them — without
+// changing anything about a native-only strand's rendering (proven by every
+// other test in this file, all still exercising Reduce/sessionlog.Record
+// unchanged).
+func TestReduceTurnsMixedSourceStrand(t *testing.T) {
+	turns := []Turn{
+		{Kind: sessionlog.KindUserMessage, Text: "migrate the billing webhook", Source: "claude-code", SourceSessionID: "cc_1"},
+		{Kind: sessionlog.KindToolCall, Tool: "bash", Input: `git commit -m "x"`, Source: "memcode", SourceSessionID: "sess_1"},
+		{Kind: sessionlog.KindUserMessage, Text: "write the changelog entry", Source: "memcode", SourceSessionID: "sess_2"},
+	}
+	st := ReduceTurns(turns, nil)
+
+	if st.Current != "write the changelog entry" {
+		t.Fatalf("current = %q", st.Current)
+	}
+	var found *Strand
+	for i := range st.Completed {
+		if strings.Contains(st.Completed[i].Title, "billing webhook") {
+			found = &st.Completed[i]
+		}
+	}
+	if found == nil {
+		t.Fatalf("billing webhook strand missing from completed: %+v", st.Completed)
+	}
+	want := []string{"claude-code", "memcode"} // sorted
+	if strings.Join(found.Sources, ",") != strings.Join(want, ",") {
+		t.Fatalf("Sources = %v, want %v", found.Sources, want)
+	}
+	if !strings.Contains(found.AskLine(), "[claude-code, memcode]") {
+		t.Fatalf("AskLine must surface the mixed provenance: %s", found.AskLine())
+	}
+
+	// A native-only strand (the common case) must render with NO sources
+	// suffix at all — byte-for-byte what Reduce already produced.
+	native := ReduceTurns(fromRecords([]sessionlog.Record{
+		{Kind: sessionlog.KindUserMessage, Text: "fix the parser bug"},
+	}), nil)
+	if strings.Contains(Render(native), "[memcode]") {
+		t.Fatalf("a native-only strand must not show a sources suffix: %s", Render(native))
 	}
 }

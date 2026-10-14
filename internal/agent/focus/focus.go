@@ -20,6 +20,7 @@ package focus
 import (
 	"fmt"
 	"log"
+	"sort"
 	"strings"
 	"time"
 
@@ -49,6 +50,12 @@ type Strand struct {
 	Full    string // the complete user message (untruncated) — act on THIS, not Title
 	Note    string
 	Session string // source session id, so the thread names where to recover full context
+
+	// Sources names the distinct provenance(s) (e.g. "memcode", "claude-code")
+	// whose turns built this strand — a thread can legitimately be touched by
+	// more than one tool. Always ["memcode"] for a strand reduced from
+	// memcode's own session log alone.
+	Sources []string
 }
 
 // State is the reduced attention snapshot. Buckets hold strands, most recent FIRST.
@@ -136,17 +143,111 @@ func wordWithAny(words ...string) func(string) bool {
 	}
 }
 
-// Reduce projects episodic records (chronological) plus objectives into a FocusState.
+// SourceMemcode is the provenance tag for turns derived from memcode's own
+// session log — the only Source that exists today, and the one every
+// existing caller gets for free via Reduce/FromLog.
+const SourceMemcode = "memcode"
+
+// Turn is one unit of a cross-source turn stream — the shared representation
+// that any source (memcode's own session log, or an external tool's
+// transcript) converts into before reduction. ReduceTurns treats every Turn
+// identically regardless of Source: a human saying "thanks" is glue whether
+// they said it to memcode or to another tool. Provenance (Source,
+// SourceSessionID) rides along as a plain field — never conflated with
+// memcode's own session identity, never used to rank one source over
+// another.
+type Turn struct {
+	TS       time.Time
+	Kind     string // one of the sessionlog.Kind* values — the shared vocabulary
+	Text     string
+	Tool     string
+	Input    string
+	Decision string
+	HeadSHA  string
+	Slug     string
+	Entities []string
+
+	Source          string // "memcode", "claude-code", "codex", … — provenance, never dropped
+	SourceSessionID string // the session id WITHIN that source
+
+	// FileClaim is set when this turn claims a file was written/edited with
+	// specific resulting content. It is an UNVERIFIED claim — strong evidence
+	// of intent/attempt, weaker evidence of what actually survived to disk —
+	// until something checks it against git/filesystem state.
+	FileClaim *FileClaim
+}
+
+// FileClaim is an unverified claim, from a transcript, that a file was
+// written/edited to a specific resulting content.
+type FileClaim struct {
+	Path        string
+	ClaimedHash string
+	ClaimedAt   time.Time
+}
+
+// fromRecords converts memcode's own session log records into Turns, Source
+// stamped "memcode" — a pure, lossless field-for-field mapping.
+func fromRecords(recs []sessionlog.Record) []Turn {
+	turns := make([]Turn, len(recs))
+	for i, r := range recs {
+		turns[i] = Turn{
+			TS:              r.TS,
+			Kind:            r.Kind,
+			Text:            r.Text,
+			Tool:            r.Tool,
+			Input:           r.Input,
+			Decision:        r.Decision,
+			HeadSHA:         r.HeadSHA,
+			Slug:            r.Slug,
+			Entities:        r.Entities,
+			Source:          SourceMemcode,
+			SourceSessionID: r.SessionID,
+		}
+	}
+	return turns
+}
+
+// TurnsFromRecords is fromRecords, exported for package observe's Layer-B
+// merge: it needs memcode's own native turns in the SAME shared
+// representation an external source's turns convert into, before handing
+// the merged, chronological stream to ReduceTurns. No behavior beyond
+// fromRecords — same mapping, same Source tag.
+func TurnsFromRecords(recs []sessionlog.Record) []Turn { return fromRecords(recs) }
+
+// Reduce projects episodic records (chronological) plus objectives into a
+// FocusState. It is a thin, 100%-backward-compatible wrapper over
+// ReduceTurns for memcode's own session log — existing callers are
+// unaffected by the more general multi-source reducer underneath.
 func Reduce(recs []sessionlog.Record, objs []objectives.Objective) State {
+	return ReduceTurns(fromRecords(recs), objs)
+}
+
+// ReduceTurns is Reduce's general form: it reduces a chronological stream of
+// Turns from ANY mix of sources into a FocusState. This is the actual
+// cross-source "consolidated memory" — one reduction over a
+// provenance-tagged turn stream, reusing the one piece of strand-detection
+// logic that's genuinely source-agnostic.
+func ReduceTurns(turns []Turn, objs []objectives.Objective) State {
 	type strand struct {
 		title   string
 		full    string // the complete user message, untruncated
 		note    string
 		session string // source session id
 		status  Status
+		sources map[string]bool // distinct Turn.Source values that touched this strand
 	}
 	var strands []strand
 	cur := -1 // index of the active strand, or -1
+
+	touch := func(i int, src string) {
+		if i < 0 || src == "" {
+			return
+		}
+		if strands[i].sources == nil {
+			strands[i].sources = map[string]bool{}
+		}
+		strands[i].sources[src] = true
+	}
 
 	setCur := func(st Status) {
 		if cur >= 0 {
@@ -155,7 +256,7 @@ func Reduce(recs []sessionlog.Record, objs []objectives.Objective) State {
 		}
 	}
 
-	for _, r := range recs {
+	for _, r := range turns {
 		switch r.Kind {
 		case sessionlog.KindUserMessage:
 			title := firstLine(r.Text)
@@ -185,12 +286,15 @@ func Reduce(recs []sessionlog.Record, objs []objectives.Objective) State {
 			if terse(low) && !actionWords(low) && !strings.Contains(low, "?") {
 				switch {
 				case matchAny(low, dropWords):
+					touch(cur, r.Source)
 					setCur(Dropped)
 					continue
 				case matchAny(low, doneWords):
+					touch(cur, r.Source)
 					setCur(Completed)
 					continue
 				case matchAny(low, parkWords):
+					touch(cur, r.Source)
 					setCur(Parked)
 					continue
 				}
@@ -200,11 +304,13 @@ func Reduce(recs []sessionlog.Record, objs []objectives.Objective) State {
 			if cur >= 0 && strands[cur].status == Active {
 				strands[cur].status = Paused
 			}
-			strands = append(strands, strand{title: title, full: fullAsk(r.Text), session: r.SessionID, status: Active})
+			strands = append(strands, strand{title: title, full: fullAsk(r.Text), session: r.SourceSessionID, status: Active})
 			cur = len(strands) - 1
+			touch(cur, r.Source)
 		case sessionlog.KindToolCall:
 			// A commit/push is a milestone — the active strand reached "done."
 			if cur >= 0 && isCommit(r.Input) {
+				touch(cur, r.Source)
 				setCur(Completed)
 			}
 		case sessionlog.KindPlanCancelled:
@@ -213,6 +319,7 @@ func Reduce(recs []sessionlog.Record, objs []objectives.Objective) State {
 			// was never executed") instead of a bare title lost in the pile.
 			if cur >= 0 {
 				strands[cur].note = notePlanAborted
+				touch(cur, r.Source)
 			}
 			setCur(Paused)
 		}
@@ -221,7 +328,8 @@ func Reduce(recs []sessionlog.Record, objs []objectives.Objective) State {
 	var st State
 	if cur >= 0 {
 		st.Current = strands[cur].title
-		st.current = Strand{Title: strands[cur].title, Full: strands[cur].full, Note: strands[cur].note, Session: strands[cur].session}
+		st.current = Strand{Title: strands[cur].title, Full: strands[cur].full, Note: strands[cur].note,
+			Session: strands[cur].session, Sources: sortedSources(strands[cur].sources)}
 	}
 	// Walk NEWEST first so each bucket reads most-recent-first (recency is the
 	// signal for "still on my mind") and dedup keeps the latest mention.
@@ -232,7 +340,7 @@ func Reduce(recs []sessionlog.Record, objs []objectives.Objective) State {
 			continue
 		}
 		seen[s.title] = true
-		out := Strand{Title: s.title, Full: s.full, Note: s.note, Session: s.session}
+		out := Strand{Title: s.title, Full: s.full, Note: s.note, Session: s.session, Sources: sortedSources(s.sources)}
 		switch s.status {
 		case Active:
 			st.Open = append(st.Open, out)
@@ -257,6 +365,21 @@ func Reduce(recs []sessionlog.Record, objs []objectives.Objective) State {
 		st.Decisions = append(st.Decisions, o.Title)
 	}
 	return st
+}
+
+// sortedSources returns the distinct sources that touched a strand, sorted
+// for deterministic output. Nil when none were recorded (shouldn't happen in
+// practice, but never panics the caller).
+func sortedSources(m map[string]bool) []string {
+	if len(m) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // Empty reports whether there's nothing worth surfacing.
@@ -410,7 +533,10 @@ func quoteAsk(th Strand) string {
 }
 
 // threadSuffix appends the provenance note and source session to a rendered
-// thread, so the model can name where to recover fuller context.
+// thread, so the model can name where to recover fuller context. The
+// distinct Sources that built the strand are shown ONLY when that says
+// something beyond "this came from memcode" — a native-only strand renders
+// exactly as before.
 func threadSuffix(th Strand) string {
 	var s string
 	if th.Note != "" {
@@ -419,14 +545,32 @@ func threadSuffix(th Strand) string {
 	if th.Session != "" {
 		s += " [from " + th.Session + "]"
 	}
+	if srcs := foreignSources(th.Sources); len(srcs) > 0 {
+		s += " [" + strings.Join(srcs, ", ") + "]"
+	}
 	return s
 }
 
-// ackWords are bare affirmations/closers that carry no new work.
+// foreignSources filters a strand's Sources down to what's worth displaying:
+// nothing, when the strand is (as always today) purely native memcode turns.
+func foreignSources(sources []string) []string {
+	if len(sources) == 0 || (len(sources) == 1 && sources[0] == SourceMemcode) {
+		return nil
+	}
+	return sources
+}
+
+// ackWords are bare affirmations/closers that carry no new work. Bare GREETINGS
+// ("hi", "good morning") belong here too — they open a turn rather than close
+// one, but are equally not a commitment, and must not pile up as their own
+// "open thread" session over session (the "hi" bug: a plain hello became a
+// numbered unfinished strand that outlived the session it was said in).
 var ackWords = []string{
 	"yes", "yep", "yeah", "yup", "ok", "okay", "k", "sure", "no", "nope",
 	"thanks", "thank you", "ty", "cool", "nice", "great", "awesome", "perfect",
 	"do it", "go", "go ahead", "proceed", "sounds good", "makes sense",
+	"hi", "hello", "hey", "hiya", "yo", "howdy", "sup",
+	"good morning", "good afternoon", "good evening", "morning",
 }
 
 // metaPhrases are orientation/status QUERIES — questions about the work, not

@@ -139,9 +139,16 @@ files for specifics. Question → command:
 Per law #1, status questions ("what are we working on / where are we / what's latest / what's next") lead
 with git — memcode{session} is git-anchored — and never come from the auto-injected prior-session
 orientation or context residue alone; reconcile against git this turn and say so if they disagree.
+A bare greeting ("hi") is not a status question — answer it plainly, no thread dump.
 memcode{session} ends with an OPEN THREADS list (unfinished work, newest first): a status answer must LEAD
 with the newest unfinished thread and account for EVERY listed thread — resume it, call it done (naming the
 commit that closed it), or note it was dropped. Silently omitting an open thread is a wrong answer.
+
+Confidence is per-CLAIM, not per-source: git is strong evidence a change exists, weaker evidence of who/why/
+whether it closes a thread; a tool's transcript (memcode's own session log, or — when ingested — Claude
+Code's/Codex's) is strong evidence of intent/attempt, weaker evidence of what survived to disk. Independent
+sources agreeing raises confidence in THAT claim; disagreement must be surfaced, never silently resolved by
+ranking one source above another.
 
 Before you WORK a thread (not just report it): each OPEN THREAD is the VERBATIM ask — act on the WHOLE
 request, never a paraphrase of its first line. If a thread names a source session ("[from sess_x]") and

@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/memcode-ai/memcode/internal/agent/edit"
 	"github.com/memcode-ai/memcode/internal/events"
@@ -133,4 +134,88 @@ func mustEmit(ctx context.Context, t *testing.T, st store.Store, k events.Kind, 
 	if _, err := events.Append(ctx, st, k, "test", p); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// CorroborateClaim must reach the same verdicts as classify/Reconcile, but
+// driven by a plain claimed hash + timestamp — the shape an external tool's
+// transcript claim actually carries (no session, no head_sha baseline).
+func TestCorroborateClaim(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	ctx := context.Background()
+	dir := t.TempDir()
+	git(t, dir, "init", "-q")
+	write(t, dir, "a.go", "v1\n")
+	git(t, dir, "add", ".")
+	git(t, dir, "commit", "-q", "-m", "base")
+	claimTime := time.Now()
+
+	t.Run("committed intact", func(t *testing.T) {
+		write(t, dir, "a.go", "v2\n")
+		claimedHash, _ := edit.Hash(dir, "a.go")
+		git(t, dir, "add", "a.go")
+		git(t, dir, "commit", "-q", "-m", "keep a")
+
+		verdict, conf, ev := CorroborateClaim(ctx, dir, "a.go", claimedHash, claimTime)
+		if verdict != Accepted || conf != "high" {
+			t.Fatalf("verdict=%q conf=%q ev=%q, want accepted/high", verdict, conf, ev)
+		}
+	})
+
+	t.Run("reverted — current content differs, no commit since", func(t *testing.T) {
+		write(t, dir, "b.go", "v1\n")
+		git(t, dir, "add", ".")
+		git(t, dir, "commit", "-q", "-m", "add b")
+		// git commit timestamps are second-granularity; sleep past the
+		// boundary so claimTime2 is unambiguously after "add b" (a
+		// same-second race is a test-timing artifact, not a logic bug).
+		time.Sleep(1100 * time.Millisecond)
+		claimTime2 := time.Now()
+		write(t, dir, "b.go", "v2\n") // the claimed edit...
+		claimedHash, _ := edit.Hash(dir, "b.go")
+		git(t, dir, "checkout", "--", "b.go") // ...discarded, clean tree
+
+		verdict, conf, _ := CorroborateClaim(ctx, dir, "b.go", claimedHash, claimTime2)
+		if verdict != Rejected || conf != "high" {
+			t.Fatalf("verdict=%q conf=%q, want rejected/high", verdict, conf)
+		}
+	})
+
+	t.Run("still dirty, matching claim — unknown (pending)", func(t *testing.T) {
+		write(t, dir, "c.go", "v1\n")
+		claimedHash, _ := edit.Hash(dir, "c.go")
+		git(t, dir, "add", "c.go") // staged but uncommitted — "dirty" per git status --porcelain
+
+		verdict, conf, _ := CorroborateClaim(ctx, dir, "c.go", claimedHash, claimTime)
+		if verdict != Unknown || conf != "" {
+			t.Fatalf("verdict=%q conf=%q, want unknown/\"\"", verdict, conf)
+		}
+	})
+
+	t.Run("still dirty, differing — corrected", func(t *testing.T) {
+		write(t, dir, "d.go", "v1\n")
+		claimedHash, _ := edit.Hash(dir, "d.go")
+		write(t, dir, "d.go", "v2\n") // further changed after the claim
+		git(t, dir, "add", "d.go")    // dirty: staged, uncommitted
+
+		verdict, conf, _ := CorroborateClaim(ctx, dir, "d.go", claimedHash, claimTime)
+		if verdict != Corrected || conf != "medium" {
+			t.Fatalf("verdict=%q conf=%q, want corrected/medium", verdict, conf)
+		}
+	})
+
+	t.Run("file gone — rejected", func(t *testing.T) {
+		verdict, conf, _ := CorroborateClaim(ctx, dir, "never-existed.go", "deadbeef", claimTime)
+		if verdict != Rejected || conf != "high" {
+			t.Fatalf("verdict=%q conf=%q, want rejected/high", verdict, conf)
+		}
+	})
+
+	t.Run("outside a git repo — unknown", func(t *testing.T) {
+		verdict, _, ev := CorroborateClaim(ctx, t.TempDir(), "a.go", "x", claimTime)
+		if verdict != Unknown || ev == "" {
+			t.Fatalf("verdict=%q ev=%q, want unknown with an explanation", verdict, ev)
+		}
+	})
 }

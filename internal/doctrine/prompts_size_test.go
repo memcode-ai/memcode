@@ -20,6 +20,22 @@ import "testing"
 // chat/exec/apply): never expose credentials in output, redact what surfaces,
 // manage keys by reference. Ceilings for the three coreLaws modes raised
 // consciously in this same commit.
+//
+// 2026-10-14: sessionRecallDoctrine grew a one-line exception (~85B, chat/exec
+// only) — a bare greeting ("hi") is not a status question and must not dump
+// OPEN THREADS or trigger a git/session dig; without it a plain "hi" got the
+// full thread-accounting treatment meant for "where are we?". chat's ceiling
+// nudged 18_000 -> 18_100 to fit it; exec still clears 16_000 unchanged.
+//
+// 2026-10-14: sessionRecallDoctrine grew a second paragraph (~430B, chat/exec
+// only) — confidence is per-CLAIM, not per-source: git proves a change exists
+// but is weaker evidence of who/why/whether it closes a thread; a tool's
+// transcript proves intent/attempt but is weaker evidence of what survived to
+// disk; sources agreeing raises confidence in THAT claim, disagreeing must be
+// surfaced, never silently resolved by ranking one source above another (the
+// rule the new cross-source memory — package observe, Claude Code/Codex
+// adapters — depends on). chat's ceiling raised 18_100 -> 18_600, exec's
+// 16_000 -> 16_400, both consciously, in this same commit.
 func TestDoctrineBudgets(t *testing.T) {
 	facts := map[string]string{
 		"root": "/x", "platform": "darwin/arm64", "shell": "zsh",
@@ -42,7 +58,7 @@ func TestDoctrineBudgets(t *testing.T) {
 		// after review, a model that PASTES the block. Its labels and run ids
 		// are internal plumbing; shown to a user they are unreadable noise, and
 		// nothing but this rule stops "mention it" being read as "print it".
-		"chat": 18_000, "exec": 16_000, "plan": 11_100, "apply": 13_100,
+		"chat": 18_600, "exec": 16_400, "plan": 11_100, "apply": 13_100,
 		"review": 2_400, "compact": 1_700, "distill": 1_600,
 		// task_shape is the largest judge on purpose: it makes THREE independent
 		// judgements (is this automatable, is there a causal reason it will
