@@ -136,8 +136,13 @@ func TestDevelopIsVisibleSeesAndBuilds(t *testing.T) {
 
 	// The worker was told the brief verbatim, the references, the preview,
 	// and the guide; it could see (site tool) but not publish or schedule.
-	if prov.workers != 2 {
-		t.Fatalf("worker runs = %d, want 2 (the change, then one repair after the failed check)", prov.workers)
+	// The change, one review pass (which changed nothing, so reviews stop),
+	// then one repair after the failed production check.
+	if prov.workers != 3 {
+		t.Fatalf("worker runs = %d, want 3 (change, review, repair)", prov.workers)
+	}
+	if review := prov.first[1].Messages[0].Blocks[0].Text; !strings.Contains(review, "Review pass 1") || !strings.Contains(review, "https://ode.com") {
+		t.Errorf("the review pass wasn't set up to compare against the reference:\n%s", review)
 	}
 	task := prov.first[0].Messages[0].Blocks[0].Text
 	for _, want := range []string{"Past clients: Samsung, Apple", "https://ode.com", "http://localhost:5173/", "You can SEE", "Never invent facts"} {
@@ -145,7 +150,7 @@ func TestDevelopIsVisibleSeesAndBuilds(t *testing.T) {
 			t.Errorf("worker task is missing %q", want)
 		}
 	}
-	if repair := prov.first[1].Messages[0].Blocks[0].Text; !strings.Contains(repair, "window is not defined") {
+	if repair := prov.first[2].Messages[0].Blocks[0].Text; !strings.Contains(repair, "window is not defined") {
 		t.Errorf("the repair round wasn't told what failed:\n%s", repair)
 	}
 	if !prov.tools[tools.Site] || prov.tools[tools.Websites] || prov.tools[tools.CapabilityTool] {
@@ -184,6 +189,19 @@ func TestDevelopIsVisibleSeesAndBuilds(t *testing.T) {
 	}
 	if status, _ := exec.Command("git", "-C", l.Source, "status", "--porcelain").Output(); len(bytes.TrimSpace(status)) > 0 {
 		t.Errorf("screenshots or state leaked into the site's repo:\n%s", status)
+	}
+
+	// "Pick up where we left off" with no references still knows the site
+	// should look like ode.com, and what was asked before.
+	before := prov.workers
+	if r := websitesCall(s, tools.WebsitesInput{Action: "develop", Slug: "Elventech", Prompt: "make sure it matches the reference"}); r.isError {
+		t.Fatal(r.text())
+	}
+	task = prov.first[before].Messages[0].Blocks[0].Text
+	for _, want := range []string{"https://ode.com", "Past clients: Samsung, Apple"} {
+		if !strings.Contains(task, want) {
+			t.Errorf("a later develop forgot %q:\n%s", want, task)
+		}
 	}
 }
 

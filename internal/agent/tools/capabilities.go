@@ -29,6 +29,9 @@ type Capability struct {
 	// request turns the tool on before the model is called, saving a turn.
 	// Natural language is never a trigger; see the catalog note below.
 	Triggers []string
+	// Guide is told to the model the moment the capability turns on: how to
+	// use it well, at no cost to the requests that never need it.
+	Guide string
 }
 
 // Capability tool name: the tiny always-on tool that enables a deferred one.
@@ -47,8 +50,12 @@ const CapabilityTool = "capability"
 // no identifier has no triggers and is reached through the index.
 var Capabilities = []Capability{
 	{Tool: Websites,
-		Summary:  "memcode websites, a separate product: sites made in ~/.memcode/websites and hosted at {slug}.memcode.app (create, change, push, publish, manage). \"Make me a website\" usually is NOT this: it is ordinary development in the user's project with the file tools. Use this only when the user names memcode websites or memcode.app, is working on one they already have, or says so when asked; if the conversation doesn't settle which they mean, ask before assuming. For public sites elsewhere use fetch/web_search",
-		Triggers: []string{"memcode.app"}},
+		Summary:  "memcode websites, a separate product: sites made in ~/.memcode/websites and hosted at {slug}.memcode.app (create, change, push, publish, manage). \"Make me a website\" usually is NOT this: it is ordinary development in the user's project with the file tools. Use this only when the user names memcode websites or memcode.app, is working on one they already have, or says so when asked; if the conversation doesn't settle which they mean, ask before assuming. Changing a memcode website or judging how it looks is always websites develop (its worker sees pages in a browser; you can't). For public sites elsewhere use fetch/web_search",
+		Triggers: []string{"memcode.app"},
+		Guide: "Every change to a memcode website, and every question about how one looks (\"make it like ode.com\", \"does it match?\", \"pick up where we left off\"), goes through websites develop. " +
+			"Its worker opens the site and any reference in a real browser, measures and compares them, edits, and checks the production build. " +
+			"You can't see pages, so never judge a site's look yourself, and never read, edit, serve or install packages in a site's folder with your own tools. " +
+			"Pass the user's whole brief as prompt and any reference sites as references."},
 	{Tool: Task,
 		Summary: "work memcode should do LATER or REPEATEDLY on its own, without the user (\"every morning…\", \"each Monday…\", \"nightly…\"): scheduled automations to create, list, pause, delete. A request to do it once, now, is not this",
 	},

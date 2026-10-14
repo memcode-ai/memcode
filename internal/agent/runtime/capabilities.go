@@ -127,8 +127,18 @@ func (s *Session) capabilityTool(input json.RawMessage) toolResult {
 		return errResult("no capability named " + id + " is available in this session")
 	}
 	if !s.enableCapability(id) {
-		return textResult("`" + id + "` is already on — call it directly.")
+		return textResult("`" + id + "` is already on — call it directly." + capabilityGuide(id))
 	}
 	s.toolLine(true, "Capability", id, "", false)
-	return textResult("`" + id + "` is on. Call it directly from your next step.")
+	return textResult("`" + id + "` is on. Call it directly from your next step." + capabilityGuide(id))
+}
+
+// capabilityGuide is the capability's usage guidance, told when it turns on.
+func capabilityGuide(id string) string {
+	for _, c := range tools.Capabilities {
+		if c.Tool == id && c.Guide != "" {
+			return "\n\n" + c.Guide
+		}
+	}
+	return ""
 }

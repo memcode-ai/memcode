@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"os"
@@ -17,6 +18,7 @@ import (
 	"github.com/memcode-ai/memcode/internal/llm"
 	"github.com/memcode-ai/memcode/internal/store"
 	"github.com/memcode-ai/memcode/internal/websites"
+	"github.com/memcode-ai/memcode/internal/wire"
 )
 
 // Local-first websites in an interactive CLI session, the way git works:
@@ -237,14 +239,27 @@ func (s *Session) develop(ctx context.Context, client *websites.Client, l websit
 // that fails the production check.
 const siteRepairRounds = 1
 
-// runSiteWorker has a website worker make the change on this machine, with
-// its activity shown as it works, then checks the result builds the way
-// memcode.ai will build it (sending the worker back once to fix it if not),
-// and records the change as one commit. It returns the report for the model.
+// siteReviewRounds bounds the review passes after a change: each one puts
+// the site next to its references (or its brief) in the browser and fixes
+// the biggest differences. A pass that finds nothing significant ends them.
+var siteReviewRounds = 2
+
+// siteNoChanges is how a review pass says the site already holds up.
+const siteNoChanges = "NO_CHANGES"
+
+// runSiteWorker makes a change to a site on this machine, in the open: a
+// worker builds it, then review passes compare it against its references in
+// a browser and fix what's off, then the production build memcode.ai runs is
+// checked (with a repair pass if it fails), and the whole change is
+// recorded as one commit. Returns the report for the model.
 func (s *Session) runSiteWorker(ctx context.Context, client *websites.Client, l websites.LocalSite, preview, prompt string, refs []string) string {
 	s.toolLine(true, "Websites", "develop", l.Label()+" · on this machine", false)
 	since := websites.Head(l.Source)
 	start := time.Now()
+
+	// References and requests are remembered with the site, so "pick up where
+	// we left off" still knows what it should look like.
+	brief, _ := websites.Remember(l.Source, prompt, refs)
 
 	// The worker is oriented by the site's own memory, not this session's
 	// project. Without a store it falls back to the parent's.
@@ -255,32 +270,56 @@ func (s *Session) runSiteWorker(ctx context.Context, client *websites.Client, l 
 	}
 	work := newSiteWork(l.Source, preview, client)
 	spec := AgentSpec{
-		Task:    siteTask(prompt, refs, preview),
+		Task:    siteTask(l.Source, prompt, brief, preview),
 		Root:    l.Source,
 		Purpose: llm.Agent,
+		Effort:  wire.EffortHigh, // design is the hardest judgment this agent makes
 		Show:    true,
 		Store:   st,
 		Site:    work,
 	}
-	res, err := s.spawnAgent(ctx, spec)
-	if err != nil {
-		return "The site change failed: " + err.Error() + "\n"
+	var notes []string
+	tools := 0
+	run := func(label, task string) (string, bool) {
+		if label != "" {
+			s.toolLine(true, "Websites", "develop", l.Label()+" · "+label, false)
+		}
+		spec.Task = task
+		res, err := s.spawnAgent(ctx, spec)
+		if err != nil {
+			notes = append(notes, "A pass failed: "+err.Error())
+			return "", false
+		}
+		tools += res.ToolCalls
+		return strings.TrimSpace(res.Text), true
 	}
-	tools := res.ToolCalls
-	text := strings.TrimSpace(res.Text)
+	text, ok := run("", spec.Task)
+	if !ok {
+		return "The site change failed: " + strings.Join(notes, " ") + "\n"
+	}
+	for round := 1; round <= siteReviewRounds && ctx.Err() == nil; round++ {
+		before := websites.Head(l.Source) + dirtyStamp(l.Source)
+		review, ok := run(fmt.Sprintf("review %d of %d", round, siteReviewRounds), siteReviewTask(l.Source, prompt, brief, preview, round))
+		if !ok {
+			break
+		}
+		unchanged := websites.Head(l.Source)+dirtyStamp(l.Source) == before
+		if strings.Contains(review, siteNoChanges) || unchanged {
+			break
+		}
+		if r := strings.TrimSpace(strings.ReplaceAll(review, siteNoChanges, "")); r != "" {
+			text = r // the latest pass describes the site as it now is
+		}
+	}
 
 	report, passed := work.verify(ctx)
 	for round := 0; !passed && round < siteRepairRounds && ctx.Err() == nil; round++ {
-		s.toolLine(true, "Websites", "develop", l.Label()+" · fixing what the production check found", false)
-		spec.Task = websites.WorkerGuide + "\n\n## The request\n\nThe site was just changed for this request:\n\n" + prompt +
-			"\n\nIt doesn't pass the production check yet (the build memcode.ai runs):\n\n" + report +
-			"\n\nFix these problems without undoing the design work, run `site check` until it passes, and look at the affected pages." +
-			"\n\nThe site's local preview is " + preview + "."
-		if fix, err := s.spawnAgent(ctx, spec); err == nil {
-			tools += fix.ToolCalls
-			if t := strings.TrimSpace(fix.Text); t != "" {
-				text += "\n\nThen: " + t
-			}
+		fix, ok := run("fixing what the production check found", websites.WorkerGuide+"\n\n## The request\n\nThe site was just changed for this request:\n\n"+prompt+
+			"\n\nIt doesn't pass the production check yet (the build memcode.ai runs):\n\n"+report+
+			"\n\nFix these problems without undoing the design work, run `site check` until it passes, and look at the affected pages."+
+			"\n\nThe site's local preview is "+preview+".")
+		if ok && fix != "" {
+			text += "\n\nThen: " + fix
 		}
 		report, passed = work.verify(ctx)
 	}
@@ -307,6 +346,9 @@ func (s *Session) runSiteWorker(ctx context.Context, client *websites.Client, l 
 	if len(files) > 0 {
 		fmt.Fprintf(&b, "Files: %s\n", strings.Join(files, ", "))
 	}
+	for _, n := range notes {
+		b.WriteString(n + "\n")
+	}
 	if cerr != nil {
 		fmt.Fprintf(&b, "(Couldn't record the change as a commit: %v)\n", cerr)
 	}
@@ -318,26 +360,71 @@ func (s *Session) runSiteWorker(ctx context.Context, client *websites.Client, l 
 	if work.looks > 0 {
 		fmt.Fprintf(&b, "Screenshots the worker took are in %s.\n", work.lookDir)
 	}
+	b.WriteString("Report what the worker did and found; you haven't seen the site yourself, so don't add your own judgment of how it looks.\n")
 	return b.String()
 }
 
-// siteTask is the worker's whole brief: the guide, the user's request and
-// references verbatim, and where the running site is.
-func siteTask(prompt string, refs []string, preview string) string {
+// dirtyStamp summarizes uncommitted changes, so a pass that edited files
+// is told apart from one that changed nothing.
+func dirtyStamp(dir string) string {
+	out, _ := exec.Command("git", "-C", dir, "status", "--porcelain").Output()
+	if len(out) == 0 {
+		return ""
+	}
+	h, _ := exec.Command("git", "-C", dir, "diff", "HEAD").Output()
+	return fmt.Sprintf("%x", sha256.Sum256(append(out, h...)))
+}
+
+// siteContext is what every pass is told about the site: the request, the
+// brief that came before it, the references, the design plan, the preview.
+func siteContext(dir, prompt string, brief websites.Brief, preview string) string {
 	var b strings.Builder
-	b.WriteString(websites.WorkerGuide)
 	b.WriteString("\n\n## The request\n\n")
 	b.WriteString(strings.TrimSpace(prompt))
 	b.WriteString("\n")
-	if len(refs) > 0 {
-		b.WriteString("\nReferences the user pointed at (study each with `site inspect` and `site look` before designing):\n")
-		for _, r := range refs {
-			if r = strings.TrimSpace(r); r != "" {
-				b.WriteString("- " + r + "\n")
-			}
+	if len(brief.Requests) > 1 {
+		b.WriteString("\nEarlier requests for this site, oldest first (still in force unless the request above changes them):\n")
+		for _, r := range brief.Requests[:len(brief.Requests)-1] {
+			b.WriteString("- " + clip(oneLine(r.Text), 400) + "\n")
 		}
 	}
+	if len(brief.References) > 0 {
+		b.WriteString("\nReferences this site should look like (study each with `site inspect` and `site look`):\n")
+		for _, r := range brief.References {
+			b.WriteString("- " + r + "\n")
+		}
+	}
+	if plan := websites.DesignPlan(dir); plan != "" {
+		b.WriteString("\nThe design plan from earlier work (.memcode/design.md; keep it current):\n\n" + clip(plan, 6000) + "\n")
+	}
 	fmt.Fprintf(&b, "\nThe site's local preview is running at %s; look at its pages with `site look` and a path.\n", preview)
+	return b.String()
+}
+
+// siteTask is the build pass's whole brief: the guide plus the site context.
+func siteTask(dir, prompt string, brief websites.Brief, preview string) string {
+	return websites.WorkerGuide + siteContext(dir, prompt, brief, preview)
+}
+
+// siteReviewTask is a review pass: judge the site in the browser against its
+// references (or, without any, against the brief and the guide) and fix the
+// biggest differences.
+func siteReviewTask(dir, prompt string, brief websites.Brief, preview string, round int) string {
+	var b strings.Builder
+	b.WriteString(websites.WorkerGuide)
+	b.WriteString(siteContext(dir, prompt, brief, preview))
+	fmt.Fprintf(&b, "\n## Review pass %d\n\nThe change above has been built. Your job now is to judge it with fresh eyes and close the gap.\n\n", round)
+	if len(brief.References) > 0 {
+		b.WriteString("1. `inspect` the reference and this site's home page at desktop, and compare the numbers: type families, sizes, weights, tracking, colors, content width, gutters, section spacing.\n" +
+			"2. `look` at the reference and at this site at the same viewport, screen by screen, on desktop and then on mobile.\n" +
+			"3. List the biggest differences in how the two look and feel, most important first: the hero treatment, type scale, spacing and density, palette and how sparingly accents are used, imagery and artwork, motion, section composition. Also anything that looks unfinished or generic.\n")
+	} else {
+		b.WriteString("1. `look` at every page on desktop and mobile.\n" +
+			"2. List the biggest problems against the request, the design plan and the guide's list of generic defaults, most important first: anything unfinished, generic, cramped, inconsistent or broken.\n")
+	}
+	b.WriteString("4. Read every claim the copy makes about the business (clients, partners, investors, numbers, experience, awards) and check it against the request and earlier requests. Remove or turn into an obvious placeholder anything the user didn't state, including anything borrowed from a reference.\n" +
+		"5. Fix the top problems properly (not cosmetically), then `look` again to confirm, and run `site check`.\n\n" +
+		"If the site already holds up and nothing significant remains, change nothing and end your reply with " + siteNoChanges + ". Otherwise end with two or three sentences on what you changed.\n")
 	return b.String()
 }
 

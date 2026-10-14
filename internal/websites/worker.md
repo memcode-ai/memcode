@@ -70,7 +70,8 @@ components in src/components/ui, lucide-react icons, react-router-dom.
    typographic gesture). With a reference, the numbers come from `inspect`.
    Without one, choose a direction that belongs to this subject and audience,
    then check the plan against the defaults below and change anything that
-   reads like them.
+   reads like them. Save the plan to .memcode/design.md (create or
+   update it): later passes and later sessions build on it.
 
 4. **Build** in small, real components. Use real copy written for this
    business. Mobile-first, semantic HTML, visible focus states, WCAG AA
