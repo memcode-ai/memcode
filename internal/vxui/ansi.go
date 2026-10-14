@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/memcode-ai/memcode/internal/forks/vaxis/ui"
+	"github.com/memcode-ai/vaxis/ui"
 )
 
 // parseANSISpans converts an ANSI/SGR-styled string (e.g. RenderThemeSample output) into ui

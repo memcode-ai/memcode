@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"sync/atomic"
 
-	"github.com/memcode-ai/memcode/internal/forks/vaxis/ui"
+	"github.com/memcode-ai/vaxis/ui"
 )
 
 // HITL (human-in-the-loop) prompt queue.

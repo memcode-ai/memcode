@@ -16,8 +16,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/memcode-ai/memcode/internal/forks/vaxis"
-	"github.com/memcode-ai/memcode/internal/forks/vaxis/ui"
+	"github.com/memcode-ai/vaxis"
+	"github.com/memcode-ai/vaxis/ui"
 
 	"github.com/memcode-ai/memcode/internal/provider"
 )

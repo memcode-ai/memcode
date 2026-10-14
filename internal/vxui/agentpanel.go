@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/memcode-ai/memcode/internal/forks/vaxis/ui"
 	"github.com/memcode-ai/memcode/internal/jobs"
+	"github.com/memcode-ai/vaxis/ui"
 )
 
 // The background-agents live region: a launch tree printed into the transcript

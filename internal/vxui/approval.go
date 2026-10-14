@@ -6,7 +6,7 @@ import (
 
 	"github.com/memcode-ai/memcode/internal/agent/permissions"
 	"github.com/memcode-ai/memcode/internal/agent/runtime"
-	"github.com/memcode-ai/memcode/internal/forks/vaxis/ui"
+	"github.com/memcode-ai/vaxis/ui"
 )
 
 // approvalOption is one card row: its text plus what Enter on it means.

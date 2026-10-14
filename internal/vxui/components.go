@@ -3,7 +3,7 @@ package vxui
 import (
 	"strconv"
 
-	"github.com/memcode-ai/memcode/internal/forks/vaxis/ui"
+	"github.com/memcode-ai/vaxis/ui"
 )
 
 // choice is one selectable row in an option list: a label, plus an optional muted

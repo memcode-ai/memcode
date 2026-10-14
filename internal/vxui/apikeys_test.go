@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/memcode-ai/memcode/internal/forks/vaxis"
-	"github.com/memcode-ai/memcode/internal/forks/vaxis/ui"
+	"github.com/memcode-ai/vaxis"
+	"github.com/memcode-ai/vaxis/ui"
 )
 
 // fakeByokGateway serves the /v1/byok surface; records the PUT body key.

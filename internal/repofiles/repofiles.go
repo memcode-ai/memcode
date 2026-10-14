@@ -30,8 +30,8 @@ func List(ctx context.Context, root string) []string {
 }
 
 // vendoredSegment names a path segment that marks a checked-in third-party tree. These are
-// dependencies, not project source, so exploration/recall skips them (e.g. memcode's vendored
-// vaxis fork under internal/forks/).
+// dependencies, not project source, so exploration/recall skips them (e.g. a patched copy of a
+// dependency under internal/forks/).
 var vendoredSegment = map[string]bool{
 	"vendor": true, "third_party": true, "third-party": true, "forks": true,
 }

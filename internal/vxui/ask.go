@@ -3,7 +3,7 @@ package vxui
 import (
 	"strings"
 
-	"github.com/memcode-ai/memcode/internal/forks/vaxis/ui"
+	"github.com/memcode-ai/vaxis/ui"
 
 	"github.com/memcode-ai/memcode/internal/agent/runtime"
 )

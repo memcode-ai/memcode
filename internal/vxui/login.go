@@ -6,7 +6,7 @@ package vxui
 // lines, credential swap without a restart, and the post-login models refresh.
 
 import (
-	"github.com/memcode-ai/memcode/internal/forks/vaxis/ui"
+	"github.com/memcode-ai/vaxis/ui"
 
 	"context"
 	"fmt"

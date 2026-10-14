@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	vaxis "github.com/memcode-ai/memcode/internal/forks/vaxis"
-	"github.com/memcode-ai/memcode/internal/forks/vaxis/ui"
+	vaxis "github.com/memcode-ai/vaxis"
+	"github.com/memcode-ai/vaxis/ui"
 
 	"github.com/memcode-ai/memcode/internal/agent/permissions"
 	"github.com/memcode-ai/memcode/internal/agent/runtime"

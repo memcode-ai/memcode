@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/memcode-ai/memcode/internal/forks/vaxis/ui"
 	"github.com/memcode-ai/memcode/internal/theme"
+	"github.com/memcode-ai/vaxis/ui"
 )
 
 func TestMarkdownRendering(t *testing.T) {

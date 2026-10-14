@@ -8,7 +8,7 @@ package vxui
 import (
 	"testing"
 
-	"github.com/memcode-ai/memcode/internal/forks/vaxis/ui"
+	"github.com/memcode-ai/vaxis/ui"
 )
 
 func TestParseANSISpansPlainText(t *testing.T) {

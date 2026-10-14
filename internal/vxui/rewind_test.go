@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	vaxis "github.com/memcode-ai/memcode/internal/forks/vaxis"
-	"github.com/memcode-ai/memcode/internal/forks/vaxis/ui/uitest"
+	vaxis "github.com/memcode-ai/vaxis"
+	"github.com/memcode-ai/vaxis/ui/uitest"
 
 	"github.com/memcode-ai/memcode/internal/checkpoint"
 	"github.com/memcode-ai/memcode/internal/theme"
