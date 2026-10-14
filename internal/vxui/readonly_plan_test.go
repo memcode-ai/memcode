@@ -90,6 +90,10 @@ func TestPlanExecuteAsLeavesReadOnlyInChosenMode(t *testing.T) {
 			sess.EnterPlan(context.Background(), runtime.WithTask("do a thing"))
 			as.submit("draft the plan")
 			waitFor(t, be, runner, now, func() bool { return sess.PlanPresentable() })
+			// The selector only opens once the planning turn has fully returned
+			// (app.go raises it after RunTransaction). Approving before that
+			// races the turn's own tail, which no user can do.
+			waitFor(t, be, runner, now, func() bool { return !as.busy() })
 			sess.SetReadOnlyChat(true)
 
 			as.planExecuteAs(tc.mode)
