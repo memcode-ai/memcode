@@ -352,7 +352,7 @@ func (s *Session) runSiteWorker(ctx context.Context, client *websites.Client, l 
 	if cerr != nil {
 		fmt.Fprintf(&b, "(Couldn't record the change as a commit: %v)\n", cerr)
 	} else if head := websites.Head(l.Source); head != since && head != "" {
-		fmt.Fprintf(&b, "Already committed in the site's folder as %s; there is nothing left to commit. Pushing is what puts it on memcode.ai.\n", head[:min(7, len(head))])
+		fmt.Fprintf(&b, "Already committed in the site's folder as %s; there is nothing left to commit. To make it live, call publish: it pushes first and waits for the build.\n", head[:min(7, len(head))])
 	}
 	if passed {
 		b.WriteString("Production check: passes (it will build on memcode.ai).\n")

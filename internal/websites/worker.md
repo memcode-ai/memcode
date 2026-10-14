@@ -108,6 +108,9 @@ When the brief or reference doesn't call for them, avoid:
   orchestrated motion moment lands better than effects everywhere.
 - Inter or the system font chosen by default, one border radius on
   everything, and the stock "big number + small label" stats band.
+- Em dashes in the copy. They are the most common tell of machine-written
+  text: use a period, comma or colon, or rewrite the sentence. At most one
+  on a page, where nothing else works.
 
 All of these are fine when the brief or the reference actually uses them.
 The user's words and the reference always win over this list.
