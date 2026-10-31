@@ -373,9 +373,12 @@ func (o *OpenAI) userItems(blocks []wire.Block) []responses.ResponseInputItemUni
 		if content == "" {
 			content = "(no output)"
 		}
-		out = append(out, responses.ResponseInputItemParamOfFunctionCallOutput(
-			b.ToolUseID, content,
-		))
+		out = append(out, responses.ResponseInputItemUnionParam{
+			OfFunctionCallOutput: &responses.ResponseInputItemFunctionCallOutputParam{
+				CallID: oai.String(b.ToolUseID),
+				Output: responses.ResponseInputItemFunctionCallOutputOutputUnionParam{OfString: oai.String(content)},
+			},
+		})
 	}
 	// Then text + images + documents as a single input_message (grouped).
 	var text strings.Builder

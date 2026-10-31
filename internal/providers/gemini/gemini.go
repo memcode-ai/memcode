@@ -93,9 +93,8 @@ func (g *Gemini) BaseURL() string { return g.baseURL }
 func (g *Gemini) client(ctx context.Context) (*genai.Client, error) {
 	if len(g.serviceAccountJSON) > 0 {
 		// Vertex AI with a service account (paid quota).
-		creds, err := credentials.DetectDefault(&credentials.DetectOptions{
-			CredentialsJSON: g.serviceAccountJSON,
-			Scopes:          []string{"https://www.googleapis.com/auth/cloud-platform"},
+		creds, err := credentials.NewCredentialsFromJSON(credentials.ServiceAccount, g.serviceAccountJSON, &credentials.DetectOptions{
+			Scopes: []string{"https://www.googleapis.com/auth/cloud-platform"},
 		})
 		if err != nil {
 			return nil, fmt.Errorf("gemini vertex credentials: %w", err)
