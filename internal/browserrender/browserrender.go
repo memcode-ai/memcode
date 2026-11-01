@@ -106,11 +106,11 @@ func Render(ctx context.Context, url string) (string, error) {
 
 	// Poll until the body has real text (client render settled), capped so a slow or
 	// uncooperative SPA can't hang the turn.
-	settle := chromedp.ActionFunc(func(ctx context.Context) error {
+	settle := chromedp.Func(func(ctx context.Context, t *chromedp.Target) error {
 		deadline := time.Now().Add(10 * time.Second)
 		for {
-			var n int
-			if err := chromedp.Evaluate(`(document.body&&document.body.innerText)?document.body.innerText.trim().length:0`, &n).Do(ctx); err != nil {
+			n, err := chromedp.Evaluate[int](`(document.body&&document.body.innerText)?document.body.innerText.trim().length:0`)(ctx, t)
+			if err != nil {
 				return err
 			}
 			if n > 200 || time.Now().After(deadline) {
@@ -120,17 +120,14 @@ func Render(ctx context.Context, url string) (string, error) {
 		}
 	})
 
-	var html string
-	err := chromedp.Run(tctx,
+	if err := chromedp.Do(tctx,
 		chromedp.Navigate(url),
-		chromedp.WaitReady("body", chromedp.ByQuery),
+		chromedp.WaitReady(chromedp.CSS("body")),
 		settle,
-		chromedp.OuterHTML("html", &html, chromedp.ByQuery),
-	)
-	if err != nil {
+	); err != nil {
 		return "", err
 	}
-	return html, nil
+	return chromedp.Run(tctx, chromedp.OuterHTML(chromedp.CSS("html")))
 }
 
 type browserErr string

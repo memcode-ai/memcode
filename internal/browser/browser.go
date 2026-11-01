@@ -29,6 +29,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/chromedp/cdproto/cdp"
 	"github.com/chromedp/cdproto/page"
 	cdpruntime "github.com/chromedp/cdproto/runtime"
 	"github.com/chromedp/chromedp"
@@ -142,7 +143,7 @@ func New(opt Options) (*Session, error) {
 	// on a separate timer — the browser lives under browserCtx for the session.
 	primed := make(chan error, 1)
 	go func() {
-		primed <- chromedp.Run(browserCtx)
+		primed <- chromedp.Do(browserCtx)
 	}()
 	select {
 	case err := <-primed:
@@ -193,22 +194,28 @@ func (s *Session) currentTab() context.Context {
 // propagate INTO the in-flight CDP command (chromedp aborts it); the tab
 // context itself is the parent and survives for the next operation. No
 // goroutine wrapper that abandons a still-running CDP call.
-func (s *Session) run(ctx context.Context, actions ...chromedp.Action) error {
-	return s.runOn(ctx, s.currentTab(), opTimeout, actions...)
+func (s *Session) run(ctx context.Context, actions ...chromedp.Action[chromedp.Void]) error {
+	_, err := runOn(ctx, s.currentTab(), opTimeout, chromedp.Steps(actions...))
+	return err
 }
 
-func (s *Session) runOn(ctx context.Context, tabCtx context.Context, timeout time.Duration, actions ...chromedp.Action) error {
+// runValue is run for one action that returns a value.
+func runValue[T any](ctx context.Context, s *Session, action chromedp.Action[T]) (T, error) {
+	return runOn(ctx, s.currentTab(), opTimeout, action)
+}
+
+func runOn[T any](ctx context.Context, tabCtx context.Context, timeout time.Duration, action chromedp.Action[T]) (T, error) {
 	opCtx, cancel := context.WithTimeout(tabCtx, timeout)
 	defer cancel()
 	if ctx != nil {
 		stop := context.AfterFunc(ctx, cancel)
 		defer stop()
 	}
-	err := chromedp.Run(opCtx, actions...)
+	v, err := chromedp.Run(opCtx, action)
 	if err != nil && errors.Is(opCtx.Err(), context.DeadlineExceeded) {
-		return fmt.Errorf("browser operation timed out after %s (the page may still be loading — try browser_wait or a screenshot)", timeout)
+		return v, fmt.Errorf("browser operation timed out after %s (the page may still be loading — try browser_wait or a screenshot)", timeout)
 	}
-	return err
+	return v, err
 }
 
 // listenTab attaches CDP event listeners to a tab: console.log/error/warn and
@@ -228,9 +235,17 @@ func (s *Session) listenTab(tab *tabHandle) {
 	}
 	s.mu.Unlock()
 
-	chromedp.ListenTarget(tab.ctx, func(ev any) {
-		switch e := ev.(type) {
-		case *cdpruntime.EventConsoleAPICalled:
+	// Subscribe before returning so no event after this point is lost; each
+	// iterator ends when the tab's context does.
+	consoleEvents := chromedp.Events(tab.ctx, cdpruntime.ConsoleAPICalled)
+	exceptions := chromedp.Events(tab.ctx, cdpruntime.ExceptionThrown)
+	dialogs := chromedp.Events(tab.ctx, page.JavascriptDialogOpening)
+
+	go func() {
+		for e, err := range consoleEvents {
+			if err != nil {
+				return
+			}
 			// Join the args' descriptions into a single text line. RemoteObject
 			// values come as descriptions (strings, "3", "\"hello\"", "Object").
 			var parts []string
@@ -249,7 +264,14 @@ func (s *Session) listenTab(tab *tabHandle) {
 				Text:  strings.Join(parts, " "),
 				Time:  time.Now(),
 			})
-		case *cdpruntime.EventExceptionThrown:
+		}
+	}()
+
+	go func() {
+		for e, err := range exceptions {
+			if err != nil {
+				return
+			}
 			// Uncaught exception — the exception details carry the text.
 			text := "Uncaught"
 			if e.ExceptionDetails != nil {
@@ -260,7 +282,14 @@ func (s *Session) listenTab(tab *tabHandle) {
 				}
 			}
 			s.addConsole(consoleEntry{Tab: tabIdx, Level: "exception", Text: text, Time: time.Now()})
-		case *page.EventJavascriptDialogOpening:
+		}
+	}()
+
+	go func() {
+		for e, err := range dialogs {
+			if err != nil {
+				return
+			}
 			accept := e.Type == page.DialogTypeAlert || e.Type == page.DialogTypeBeforeunload
 			verb := "dismissed"
 			if accept {
@@ -272,13 +301,13 @@ func (s *Session) listenTab(tab *tabHandle) {
 				Text:  fmt.Sprintf("auto-%s %s: %s", verb, e.Type, e.Message),
 				Time:  time.Now(),
 			})
-			// Must respond from a goroutine — the listener runs on the CDP event
-			// loop and HandleJavaScriptDialog is itself a CDP command.
+			// Respond from its own goroutine so a slow answer never holds up the
+			// next dialog event.
 			go func() {
-				_ = chromedp.Run(tab.ctx, page.HandleJavaScriptDialog(accept))
+				_, _ = chromedp.Call(tab.ctx, page.HandleJavaScriptDialog, page.HandleJavaScriptDialogParams{Accept: accept})
 			}()
 		}
-	})
+	}()
 }
 
 // addConsole appends a console entry to the rolling buffer (thread-safe),
@@ -325,7 +354,7 @@ func (s *Session) ClearConsole() {
 func (s *Session) Navigate(ctx context.Context, url string) error {
 	return s.run(ctx,
 		chromedp.Navigate(url),
-		chromedp.WaitReady("body", chromedp.ByQuery),
+		chromedp.WaitReady(chromedp.CSS("body")),
 	)
 }
 
@@ -333,7 +362,7 @@ func (s *Session) Navigate(ctx context.Context, url string) error {
 func (s *Session) Back(ctx context.Context) error {
 	return s.run(ctx,
 		chromedp.NavigateBack(),
-		chromedp.WaitReady("body", chromedp.ByQuery),
+		chromedp.WaitReady(chromedp.CSS("body")),
 	)
 }
 
@@ -341,7 +370,7 @@ func (s *Session) Back(ctx context.Context) error {
 func (s *Session) Forward(ctx context.Context) error {
 	return s.run(ctx,
 		chromedp.NavigateForward(),
-		chromedp.WaitReady("body", chromedp.ByQuery),
+		chromedp.WaitReady(chromedp.CSS("body")),
 	)
 }
 
@@ -356,18 +385,18 @@ func (s *Session) WaitFor(ctx context.Context, selector, state string, timeout t
 	if timeout > 60*time.Second {
 		timeout = 60 * time.Second // hard cap
 	}
-	var action chromedp.Action
+	var action chromedp.Action[chromedp.Void]
 	switch state {
 	case "", "visible":
-		action = chromedp.WaitVisible(selector, chromedp.ByQuery)
+		action = chromedp.WaitVisible(chromedp.CSS(selector))
 	case "hidden":
-		action = chromedp.WaitNotVisible(selector, chromedp.ByQuery)
+		action = chromedp.WaitNotVisible(chromedp.CSS(selector))
 	case "ready":
-		action = chromedp.WaitReady(selector, chromedp.ByQuery)
+		action = chromedp.WaitReady(chromedp.CSS(selector))
 	default:
 		return fmt.Errorf("wait: unknown state %q — use visible, hidden, or ready", state)
 	}
-	err := s.runOn(ctx, s.currentTab(), timeout, action)
+	_, err := runOn(ctx, s.currentTab(), timeout, action)
 	if err != nil && strings.Contains(err.Error(), "timed out") {
 		return fmt.Errorf("wait: %q did not become %s within %s", selector, stateWord(state), timeout)
 	}
@@ -386,8 +415,8 @@ func stateWord(state string) string {
 // Click an element matching a CSS selector.
 func (s *Session) Click(ctx context.Context, selector string) error {
 	return s.run(ctx,
-		chromedp.WaitVisible(selector, chromedp.ByQuery),
-		chromedp.Click(selector, chromedp.ByQuery),
+		chromedp.WaitVisible(chromedp.CSS(selector)),
+		chromedp.Click(chromedp.CSS(selector)),
 	)
 }
 
@@ -395,9 +424,9 @@ func (s *Session) Click(ctx context.Context, selector string) error {
 // cleared first (what a user means by "type X into the box"); append=true
 // keeps the existing value and appends.
 func (s *Session) Type(ctx context.Context, selector, text string, appendTo bool) error {
-	actions := []chromedp.Action{
-		chromedp.WaitVisible(selector, chromedp.ByQuery),
-		chromedp.Click(selector, chromedp.ByQuery),
+	actions := []chromedp.Action[chromedp.Void]{
+		chromedp.WaitVisible(chromedp.CSS(selector)),
+		chromedp.Click(chromedp.CSS(selector)),
 	}
 	if !appendTo {
 		clear := fmt.Sprintf(`(function(){
@@ -405,10 +434,9 @@ func (s *Session) Type(ctx context.Context, selector, text string, appendTo bool
 			if (el && ('value' in el)) { el.value = ''; el.dispatchEvent(new Event('input', {bubbles:true})); }
 			return true;
 		})()`, selector)
-		var ok bool
-		actions = append(actions, chromedp.Evaluate(clear, &ok))
+		actions = append(actions, chromedp.Evaluate[chromedp.Void](clear))
 	}
-	actions = append(actions, chromedp.SendKeys(selector, text, chromedp.ByQuery))
+	actions = append(actions, chromedp.SendKeys(chromedp.CSS(selector), text))
 	return s.run(ctx, actions...)
 }
 
@@ -417,8 +445,8 @@ func (s *Session) Type(ctx context.Context, selector, text string, appendTo bool
 // layer only drives CDP.
 func (s *Session) Upload(ctx context.Context, selector string, files []string) error {
 	return s.run(ctx,
-		chromedp.WaitReady(selector, chromedp.ByQuery),
-		chromedp.SetUploadFiles(selector, files, chromedp.ByQuery),
+		chromedp.WaitReady(chromedp.CSS(selector)),
+		chromedp.SetUploadFiles(chromedp.CSS(selector), files),
 	)
 }
 
@@ -459,8 +487,8 @@ func (s *Session) Hover(ctx context.Context, selector string) error {
 		el.dispatchEvent(new MouseEvent('mouseenter', {bubbles:true}));
 		return "hovered";
 	})()`, selector, selector)
-	var result string
-	if err := s.run(ctx, chromedp.Evaluate(js, &result)); err != nil {
+	result, err := runValue(ctx, s, chromedp.Evaluate[string](js))
+	if err != nil {
 		return err
 	}
 	if result != "hovered" {
@@ -512,8 +540,8 @@ func (s *Session) Select(ctx context.Context, selector, value string) error {
 		el.dispatchEvent(new Event('change', {bubbles:true}));
 		return "selected";
 	})()`, selector, selector, value)
-	var result string
-	if err := s.run(ctx, chromedp.Evaluate(js, &result)); err != nil {
+	result, err := runValue(ctx, s, chromedp.Evaluate[string](js))
+	if err != nil {
 		return err
 	}
 	if result != "selected" {
@@ -530,14 +558,12 @@ func (s *Session) Scroll(ctx context.Context, dx, dy int) (string, error) {
 		window.scrollBy(%d, %d);
 		return "scrolled to " + window.scrollX + "," + window.scrollY + " (viewport " + window.innerHeight + "px, total " + document.body.scrollHeight + "px)";
 	})()`, dx, dy)
-	var result string
-	err := s.run(ctx, chromedp.Evaluate(js, &result))
-	return result, err
+	return runValue(ctx, s, chromedp.Evaluate[string](js))
 }
 
 // ScrollTo scrolls the element matching the selector into view (centered).
 func (s *Session) ScrollTo(ctx context.Context, selector string) error {
-	return s.run(ctx, chromedp.ScrollIntoView(selector, chromedp.ByQuery))
+	return s.run(ctx, chromedp.ScrollIntoView(chromedp.CSS(selector)))
 }
 
 // ─── Inspection ──────────────────────────────────────────────────────────────
@@ -553,7 +579,8 @@ func (s *Session) Screenshot(ctx context.Context, fullPage bool) ([]byte, string
 		// if even the lowest rung is over the cap, fail CLOSED — an oversized
 		// image must never reach the context.
 		for _, q := range []int{85, 50, 25} {
-			if err := s.run(ctx, chromedp.FullScreenshot(&buf, q)); err != nil {
+			var err error
+			if buf, err = runValue(ctx, s, chromedp.FullScreenshot(q)); err != nil {
 				return nil, "", err
 			}
 			if len(buf) <= maxImageBytes {
@@ -562,7 +589,8 @@ func (s *Session) Screenshot(ctx context.Context, fullPage bool) ([]byte, string
 		}
 		return nil, "", fmt.Errorf("full-page screenshot is %dKB even at lowest quality (cap %dKB) — the page is too tall; capture the viewport instead and scroll", len(buf)/1024, maxImageBytes/1024)
 	}
-	if err := s.run(ctx, chromedp.CaptureScreenshot(&buf)); err != nil {
+	buf, err := runValue(ctx, s, chromedp.CaptureScreenshot())
+	if err != nil {
 		return nil, "", err
 	}
 	if len(buf) <= maxImageBytes {
@@ -571,18 +599,13 @@ func (s *Session) Screenshot(ctx context.Context, fullPage bool) ([]byte, string
 	// PNG too big (dense page) — recapture the viewport as JPEG down the
 	// quality ladder; fail closed if it never fits.
 	for _, q := range []int64{70, 40} {
-		q := q
-		err := s.run(ctx, chromedp.ActionFunc(func(cctx context.Context) error {
-			b, err := page.CaptureScreenshot().
-				WithFormat(page.CaptureScreenshotFormatJpeg).
-				WithQuality(q).
-				Do(cctx)
-			if err != nil {
-				return err
-			}
-			buf = b
-			return nil
-		}))
+		buf, err = runValue(ctx, s, func(cctx context.Context, t *chromedp.Target) ([]byte, error) {
+			res, err := cdp.Call(cctx, t, page.CaptureScreenshot, page.CaptureScreenshotParams{
+				Format:  page.CaptureScreenshotFormatJpeg,
+				Quality: &q,
+			})
+			return res.Data, err
+		})
 		if err != nil {
 			return nil, "", err
 		}
@@ -608,8 +631,7 @@ func (s *Session) Eval(ctx context.Context, js string) (string, error) {
 }
 
 func (s *Session) evalWrapped(ctx context.Context, wrapped string) (string, error) {
-	var raw json.RawMessage
-	err := s.run(ctx, chromedp.Evaluate(wrapped, &raw))
+	raw, err := runValue(ctx, s, chromedp.Evaluate[json.RawMessage](wrapped))
 	if err != nil {
 		if errors.Is(err, chromedp.ErrJSUndefined) || errors.Is(err, chromedp.ErrJSNull) {
 			return "undefined", nil
@@ -630,8 +652,7 @@ func (s *Session) evalWrapped(ctx context.Context, wrapped string) (string, erro
 
 // Text returns the visible text content of the current page (body.innerText).
 func (s *Session) Text(ctx context.Context) (string, error) {
-	var text string
-	err := s.run(ctx, chromedp.Evaluate(`document.body ? document.body.innerText : ""`, &text))
+	text, err := runValue(ctx, s, chromedp.Evaluate[string](`document.body ? document.body.innerText : ""`))
 	return strings.TrimSpace(text), err
 }
 
@@ -648,9 +669,11 @@ type TabInfo struct {
 // NewTab opens a new tab (about:blank) and switches focus to it. Returns the
 // tab index (1-based, for the agent's reference).
 func (s *Session) NewTab(ctx context.Context) (int, error) {
-	tabCtx, tabCancel := chromedp.NewContext(s.browserCtx)
+	// A real tab in the browser's window, as the agent and user expect (the
+	// library default opens each new context in its own window).
+	tabCtx, tabCancel := chromedp.NewContext(s.browserCtx, chromedp.WithNewWindow(false))
 	// Eagerly create the tab by running a no-op.
-	if err := chromedp.Run(tabCtx); err != nil {
+	if err := chromedp.Do(tabCtx); err != nil {
 		tabCancel()
 		return 0, fmt.Errorf("failed to create tab: %w", err)
 	}
@@ -683,10 +706,14 @@ func (s *Session) SwitchTab(ctx context.Context, index int) (url, title string, 
 // tabMeta queries a tab's live location and title, bounded by a short timeout
 // so a wedged tab can't stall a listing.
 func (s *Session) tabMeta(ctx context.Context, tab *tabHandle) (url, title string) {
-	_ = s.runOn(ctx, tab.ctx, 3*time.Second,
-		chromedp.Location(&url),
-		chromedp.Title(&title),
-	)
+	_, _ = runOn(ctx, tab.ctx, 3*time.Second, func(cctx context.Context, t *chromedp.Target) (chromedp.Void, error) {
+		var err error
+		if url, err = chromedp.Location()(cctx, t); err != nil {
+			return chromedp.Void{}, err
+		}
+		title, err = chromedp.Title()(cctx, t)
+		return chromedp.Void{}, err
+	})
 	if url == "" {
 		url = "(no URL)"
 	}
@@ -731,9 +758,9 @@ func (s *Session) CloseTab(index int) (newActive int, err error) {
 	s.mu.Unlock()
 
 	// Close the real Chrome tab, then release the chromedp context.
-	_ = s.runOn(context.Background(), tab.ctx, 5*time.Second, chromedp.ActionFunc(func(cctx context.Context) error {
-		return page.Close().Do(cctx)
-	}))
+	_, _ = runOn(context.Background(), tab.ctx, 5*time.Second, func(cctx context.Context, t *chromedp.Target) (cdp.Empty, error) {
+		return cdp.Call(cctx, t, page.Close, cdp.Empty{})
+	})
 	if tab.cancel != nil {
 		tab.cancel()
 	}
