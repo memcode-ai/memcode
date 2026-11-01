@@ -143,7 +143,7 @@ func (s *Session) StartChat(ctx context.Context) *ChatState {
 		s.emit(ctx, events.KindContextInlined, map[string]any{
 			"session_id": s.sessionID, "lesson_ids": lessonIDs, "pref_ids": prefIDs,
 		})
-		s.slog.Append(sessionlog.Record{
+		s.slog.Load().Append(sessionlog.Record{
 			Kind: sessionlog.KindContextInlined, LessonIDs: lessonIDs, PrefIDs: prefIDs,
 		})
 	}

@@ -70,7 +70,7 @@ func (s *Session) preferenceSignalTool(ctx context.Context, input json.RawMessag
 	// Also write the CANONICAL copy to the append-only session log (events.jsonl). The
 	// SQLite events table the reducer queries is a derived index; the file is the source
 	// of truth, so a signal survives a state.db rebuild (backfilled by backfillPrefSignals).
-	s.slog.Append(sessionlog.Record{
+	s.slog.Load().Append(sessionlog.Record{
 		Kind: sessionlog.KindPreferenceSignal, Text: in.Text, Axis: axis, Scope: scope, Strength: strength,
 		HeadSHA: s.headSHA,
 	})

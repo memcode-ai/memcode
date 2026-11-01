@@ -128,7 +128,7 @@ func (s *Session) emitLessonSignalFor(ctx context.Context, trigger, strategy, se
 	if sessionID != s.sessionID {
 		rec.TargetSession = sessionID
 	}
-	s.slog.Append(rec)
+	s.slog.Load().Append(rec)
 }
 
 // applyLessonPromotions mirrors applyPreferencePromotions: silent, deterministic,

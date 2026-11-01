@@ -354,10 +354,10 @@ func newCompactedHistory(summary string, tail []wire.Message) []wire.Message {
 // logCompaction records the warm summary in the episodic log so /recap, recall, and
 // a later session can see it (COMPACTION.md hard rule #3).
 func (s *Session) logCompaction(summary string) {
-	if s.slog == nil {
+	if s.slog.Load() == nil {
 		return
 	}
-	s.slog.Append(sessionlog.Record{Kind: sessionlog.KindCompaction, Text: s.redactor.Redact(summary)})
+	s.slog.Load().Append(sessionlog.Record{Kind: sessionlog.KindCompaction, Text: s.redactor.Redact(summary)})
 }
 
 // kTokens renders an estimated token count compactly ("1.2k", "850").

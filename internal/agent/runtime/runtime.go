@@ -20,6 +20,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/memcode-ai/memcode/catalog"
@@ -118,30 +119,30 @@ type Session struct {
 	lastText          string                                        // most recent assistant text (for Answer)
 	lastErr           error                                         // terminal error of the most recent turn (for one-shot exit codes)
 	sessionID         string
-	pinnedID          string                      // caller-chosen session id (SetSessionID): StartChat uses it verbatim instead of minting, for gateway conversation continuity
-	headSHA           string                      // repo HEAD at session start — provenance stamp for signals emitted this session
-	resumeID          string                      // when set, the next StartChat re-enters this session with its saved transcript (see transcript.go)
-	allowPending      string                      // permission-provenance note awaiting its surface's header (see allowNote/flushAllowNote)
-	hookSet           *hooks.Set                  // user hooks (~/.memcode/hooks.json + project), lazily loaded; see hooks.go
-	ckpt              *checkpoint.Log             // per-session edit pre-images (rewind); recreated with the session id
-	curCkpt           *checkpoint.Checkpoint      // the open checkpoint for the RUNNING turn (nil between turns)
-	slog              *sessionlog.Writer          // append-only episodic log (.memcode/sessions/<id>/)
-	bgJobs            *jobs.Registry              // background jobs ($ … & / agent-started servers)
-	mcp               *mcp.Manager                // connected MCP servers + their tools (.mcp.json); nil when none configured
-	lspMgr            *lsp.Manager                // resident language servers (diagnostics + nav); lazily started, detect-and-connect
-	lspOnce           sync.Once                   // guards lazy lspMgr creation
-	mcpPending        []mcp.ScopedServer          // project-scoped servers awaiting approval (reviewed on the first interactive turn)
-	mcpConfigs        map[string]mcp.ServerConfig // connected servers' configs (invocation grants key to their hash)
-	extraMCPServers   map[string]mcp.ServerConfig // set programmatically (e.g. existing-Chrome), merged in at connect time — see SetExtraMCPServers
-	mcpInteractive    bool                        // this session can complete interactive flows (approval prompts, OAuth browser)
-	mcpErrsShown      int                         // count of MCP connect errors already surfaced (so Add doesn't re-print)
-	bgCtx             context.Context             // LONG-LIVED ctx for jobs (session-scoped, NOT a turn ctx)
-	bgCancel          context.CancelFunc          // ends the session scope: EndChat cancels so turn-boundary writes stop
-	outcomeCancel     context.CancelFunc          // stops the async post-session learning loop (see EndChat)
-	outcomeDone       chan struct{}               // closed when that loop has fully exited — EndChat joins on it
-	bgWork            sync.WaitGroup              // turn-boundary background work (task-shape classification) — EndChat joins on it
-	testEditIntent    bool                        // user explicitly asked to change tests/specs/behavior this turn
-	lastUserText      string                      // the user's most recent request (ground truth for the authorization judge)
+	pinnedID          string                            // caller-chosen session id (SetSessionID): StartChat uses it verbatim instead of minting, for gateway conversation continuity
+	headSHA           string                            // repo HEAD at session start — provenance stamp for signals emitted this session
+	resumeID          string                            // when set, the next StartChat re-enters this session with its saved transcript (see transcript.go)
+	allowPending      string                            // permission-provenance note awaiting its surface's header (see allowNote/flushAllowNote)
+	hookSet           *hooks.Set                        // user hooks (~/.memcode/hooks.json + project), lazily loaded; see hooks.go
+	ckpt              *checkpoint.Log                   // per-session edit pre-images (rewind); recreated with the session id
+	curCkpt           *checkpoint.Checkpoint            // the open checkpoint for the RUNNING turn (nil between turns)
+	slog              atomic.Pointer[sessionlog.Writer] // append-only episodic log (.memcode/sessions/<id>/); a turn can still be running when the session ends
+	bgJobs            *jobs.Registry                    // background jobs ($ … & / agent-started servers)
+	mcp               *mcp.Manager                      // connected MCP servers + their tools (.mcp.json); nil when none configured
+	lspMgr            *lsp.Manager                      // resident language servers (diagnostics + nav); lazily started, detect-and-connect
+	lspOnce           sync.Once                         // guards lazy lspMgr creation
+	mcpPending        []mcp.ScopedServer                // project-scoped servers awaiting approval (reviewed on the first interactive turn)
+	mcpConfigs        map[string]mcp.ServerConfig       // connected servers' configs (invocation grants key to their hash)
+	extraMCPServers   map[string]mcp.ServerConfig       // set programmatically (e.g. existing-Chrome), merged in at connect time — see SetExtraMCPServers
+	mcpInteractive    bool                              // this session can complete interactive flows (approval prompts, OAuth browser)
+	mcpErrsShown      int                               // count of MCP connect errors already surfaced (so Add doesn't re-print)
+	bgCtx             context.Context                   // LONG-LIVED ctx for jobs (session-scoped, NOT a turn ctx)
+	bgCancel          context.CancelFunc                // ends the session scope: EndChat cancels so turn-boundary writes stop
+	outcomeCancel     context.CancelFunc                // stops the async post-session learning loop (see EndChat)
+	outcomeDone       chan struct{}                     // closed when that loop has fully exited — EndChat joins on it
+	bgWork            sync.WaitGroup                    // turn-boundary background work (task-shape classification) — EndChat joins on it
+	testEditIntent    bool                              // user explicitly asked to change tests/specs/behavior this turn
+	lastUserText      string                            // the user's most recent request (ground truth for the authorization judge)
 	redactor          *secrets.Redactor
 	approvals         []permissions.Approval // remembered allow-rules
 	observer          UIObserver             // optional front-end tap (TUI); may be nil
@@ -974,29 +975,29 @@ func (s *Session) startSessionLog(headSHA string) {
 		s.printf("⚠ episodic session log unavailable (%v) — cross-compaction recall will be limited this session\n", err)
 		return
 	}
-	s.slog = w
-	s.slog.Append(sessionlog.Record{Kind: sessionlog.KindSessionStarted, Model: s.model, Mode: string(s.mode), HeadSHA: headSHA})
+	s.slog.Store(w)
+	w.Append(sessionlog.Record{Kind: sessionlog.KindSessionStarted, Model: s.model, Mode: string(s.mode), HeadSHA: headSHA})
 }
 
 // endSessionLog records the closing event and closes the log.
 func (s *Session) endSessionLog() {
-	if s.slog == nil {
+	w := s.slog.Swap(nil)
+	if w == nil {
 		return
 	}
-	s.slog.Append(sessionlog.Record{Kind: sessionlog.KindSessionFinished})
-	_ = s.slog.Close()
-	s.slog = nil
+	w.Append(sessionlog.Record{Kind: sessionlog.KindSessionFinished})
+	_ = w.Close()
 }
 
 // logUser records every user turn in the episodic log (redacted). Canonical text
 // takes precedence; the marker preserves a manually-constructed attachment-only
 // bundle without putting attachment bytes into durable history.
 func (s *Session) logUser(b input.Bundle) {
-	if s.slog == nil {
+	if s.slog.Load() == nil {
 		return
 	}
 	if text := userTurnLogText(b); text != "" {
-		s.slog.Append(sessionlog.Record{Kind: sessionlog.KindUserMessage, Text: s.redactor.Redact(text)})
+		s.slog.Load().Append(sessionlog.Record{Kind: sessionlog.KindUserMessage, Text: s.redactor.Redact(text)})
 	}
 }
 
@@ -1034,10 +1035,10 @@ func userTurnLogText(b input.Bundle) string {
 // the user's direct lane (vs the agent's "bash" tool); commit/test detection keys on
 // Input, so this still surfaces in Commits().
 func (s *Session) logShell(command, output string, exitCode int) {
-	if s.slog == nil || strings.TrimSpace(command) == "" {
+	if s.slog.Load() == nil || strings.TrimSpace(command) == "" {
 		return
 	}
-	s.slog.Append(sessionlog.Record{
+	s.slog.Load().Append(sessionlog.Record{
 		Kind:    sessionlog.KindToolCall,
 		Tool:    "shell",
 		Input:   s.redactor.Redact(command),
@@ -1055,17 +1056,17 @@ const shellLogMax = 4000
 // each tool/command ACTION (redacted) — the high-level trail you see in the chat,
 // not the verbose tool output. This is what the agent self-recalls from.
 func (s *Session) recordTurn(text string, uses []wire.Block) {
-	if s.slog == nil {
+	if s.slog.Load() == nil {
 		return
 	}
 	if strings.TrimSpace(text) != "" {
-		s.slog.Append(sessionlog.Record{Kind: sessionlog.KindAssistantMessage, Text: s.redactor.Redact(text)})
+		s.slog.Load().Append(sessionlog.Record{Kind: sessionlog.KindAssistantMessage, Text: s.redactor.Redact(text)})
 	}
 	for _, u := range uses {
 		if !loggableTool(u.Name) {
 			continue // internal reads/searches are noise, not "what happened"
 		}
-		s.slog.Append(sessionlog.Record{Kind: sessionlog.KindToolCall, Tool: u.Name, Input: s.redactor.Redact(string(u.Input))})
+		s.slog.Load().Append(sessionlog.Record{Kind: sessionlog.KindToolCall, Tool: u.Name, Input: s.redactor.Redact(string(u.Input))})
 	}
 }
 
@@ -1084,7 +1085,7 @@ func loggableTool(name string) bool {
 // logApproval records an approval decision — a crisp, high-level "what did the
 // user approve/deny" trail (no tool output, just the action + outcome).
 func (s *Session) logApproval(req ApprovalRequest, d ApprovalDecision) {
-	if s.slog == nil {
+	if s.slog.Load() == nil {
 		return
 	}
 	subject := req.Command
@@ -1100,7 +1101,7 @@ func (s *Session) logApproval(req ApprovalRequest, d ApprovalDecision) {
 	case d.Allow:
 		verb = "approved"
 	}
-	s.slog.Append(sessionlog.Record{Kind: sessionlog.KindApproval, Decision: verb, Text: s.redactor.Redact(subject)})
+	s.slog.Load().Append(sessionlog.Record{Kind: sessionlog.KindApproval, Decision: verb, Text: s.redactor.Redact(subject)})
 }
 
 // emit records an event tagged with this session's id. Telemetry must never take down a

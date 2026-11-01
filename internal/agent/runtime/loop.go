@@ -501,7 +501,7 @@ func (s *Session) runLoop(ctx context.Context, sys promptSpec, messages *[]wire.
 				// work. Without this, a mid-turn correction ("actually make it TLS 1.3 only")
 				// was absent from events.jsonl, so focus/orientation/recall lost the refinement.
 				for _, st := range steers {
-					s.slog.Append(sessionlog.Record{Kind: sessionlog.KindUserMessage, Text: st})
+					s.slog.Load().Append(sessionlog.Record{Kind: sessionlog.KindUserMessage, Text: st})
 				}
 			}
 		}

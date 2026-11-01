@@ -137,7 +137,7 @@ func (s *Session) savePlan(plan string) {
 	if err == nil {
 		s.planCtl.RecordSaveSlug(slug)
 	}
-	s.slog.Append(sessionlog.Record{Kind: sessionlog.KindPlanPresented, Text: s.redactor.Redact(plan), Slug: s.planCtl.Slug()})
+	s.slog.Load().Append(sessionlog.Record{Kind: sessionlog.KindPlanPresented, Text: s.redactor.Redact(plan), Slug: s.planCtl.Slug()})
 }
 
 // RunPlan produces a single, detailed plan for task in plan mode — research-only

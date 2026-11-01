@@ -47,7 +47,8 @@ func TestEmitLessonSignalDualWrites(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := &Session{root: root, store: st, out: io.Discard, turn: newTurnState(), sessionID: "sess-a", slog: slog}
+	s := &Session{root: root, store: st, out: io.Discard, turn: newTurnState(), sessionID: "sess-a"}
+	s.slog.Store(slog)
 	s.turn.editedPaths = map[string]bool{"a.go": true}
 
 	s.emitLessonSignalFor(ctx, "trigger text here", "strategy text here", s.sessionID, "abc1234def", []string{"a.go"})

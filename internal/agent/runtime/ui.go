@@ -471,7 +471,7 @@ func (s *Session) ExitPlan(ctx context.Context, approved bool) {
 	// record the focus reducer never learns the arc stopped mid-flight, and the
 	// next session's orientation forgets the biggest open thread.
 	if !approved && task != "" {
-		s.slog.Append(sessionlog.Record{Kind: sessionlog.KindPlanCancelled, Text: s.redactor.Redact(task)})
+		s.slog.Load().Append(sessionlog.Record{Kind: sessionlog.KindPlanCancelled, Text: s.redactor.Redact(task)})
 	}
 }
 

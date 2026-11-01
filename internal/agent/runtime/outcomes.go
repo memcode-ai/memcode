@@ -251,7 +251,7 @@ func (s *Session) judgeAdherence(ctx context.Context, t outcomeSession) {
 			"target_session": t.id, "rule_kind": kind, "rule_id": v.ID,
 			"verdict": v.Verdict, "outcome": t.outcome,
 		})
-		s.slog.Append(sessionlog.Record{
+		s.slog.Load().Append(sessionlog.Record{
 			Kind: sessionlog.KindAdherence, RuleKind: kind, RuleID: v.ID,
 			Verdict: v.Verdict, Outcome: t.outcome, TargetSession: t.id,
 		})
