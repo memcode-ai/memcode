@@ -55,22 +55,38 @@ func APITokenSource() string {
 	return ""
 }
 
+// Lookup returns key from the environment, else from the global file, without
+// touching the environment: for library code that needs one setting (the API
+// token) and must not change what the rest of the process sees.
+func Lookup(key string) string {
+	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
+		return v
+	}
+	if g := GlobalEnvPath(); g != "" {
+		return fileValue(g, key)
+	}
+	return ""
+}
+
 // fileHasKey reports whether path defines a non-empty value for key.
-func fileHasKey(path, key string) bool {
+func fileHasKey(path, key string) bool { return fileValue(path, key) != "" }
+
+// fileValue returns path's non-empty value for key, or "".
+func fileValue(path, key string) string {
 	f, err := os.Open(path)
 	if err != nil {
-		return false
+		return ""
 	}
 	defer f.Close()
 	sc := bufio.NewScanner(f)
 	for sc.Scan() {
 		line := strings.TrimPrefix(strings.TrimSpace(sc.Text()), "export ")
 		k, v, ok := strings.Cut(line, "=")
-		if ok && strings.TrimSpace(k) == key && strings.Trim(strings.TrimSpace(v), `"'`) != "" {
-			return true
+		if v = strings.Trim(strings.TrimSpace(v), `"'`); ok && strings.TrimSpace(k) == key && v != "" {
+			return v
 		}
 	}
-	return false
+	return ""
 }
 
 // loadEnvFile loads one KEY=VALUE file into the environment without overriding
