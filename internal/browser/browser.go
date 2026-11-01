@@ -108,6 +108,10 @@ func New(opt Options) (*Session, error) {
 		chromedp.DisableGPU,
 		chromedp.NoFirstRun,
 		chromedp.NoDefaultBrowserCheck,
+		// chromedp's own two, plus the back/forward cache: a page Chrome restores
+		// from it fires no load event and leaves chromedp's view of the document
+		// stale, so Back, Forward and any selector after them hang.
+		chromedp.Flag("disable-features", "Translate,BlinkGenPropertyTrees,BackForwardCache"),
 	)
 	if opt.Headless {
 		// The proven headless flag set from browserrender: new headless mode plus
@@ -369,9 +373,7 @@ func (s *Session) Forward(ctx context.Context) error {
 }
 
 // historyStep moves the tab delta entries through its history and waits until
-// the document at that entry is loaded. chromedp's NavigateBack/Forward wait
-// for a load event, which never comes when Chrome restores the page from its
-// back/forward cache, so they hang until the operation times out.
+// the document at that entry is loaded, without depending on a load event.
 func historyStep(delta int64) chromedp.Action[chromedp.Void] {
 	return chromedp.Func(func(ctx context.Context, t *chromedp.Target) error {
 		h, err := chromedp.NavigationEntries()(ctx, t)
@@ -389,12 +391,10 @@ func historyStep(delta int64) chromedp.Action[chromedp.Void] {
 		if _, err := cdp.Call(ctx, t, page.NavigateToHistoryEntry, page.NavigateToHistoryEntryParams{EntryID: target.ID}); err != nil {
 			return err
 		}
+		// Calls can fail while the page is being swapped ("not attached to an
+		// active page"); that is the navigation in progress, so poll on.
 		for {
-			now, err := chromedp.NavigationEntries()(ctx, t)
-			if err != nil {
-				return err
-			}
-			if now.CurrentIndex == i {
+			if now, err := chromedp.NavigationEntries()(ctx, t); err == nil && now.CurrentIndex == i {
 				state, err := chromedp.Evaluate[string](`document.readyState`)(ctx, t)
 				if err == nil && state != "loading" {
 					return nil

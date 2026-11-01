@@ -495,7 +495,9 @@ func TestBrowserBackForward(t *testing.T) {
 	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprintf(w, `<!DOCTYPE html><html><body><h1>page %s</h1></body></html>`, r.URL.Path)
+		fmt.Fprintf(w, `<!DOCTYPE html><html><body><h1>page %s</h1>
+<button id="btn" onclick="document.getElementById('out').textContent='clicked'">go</button>
+<p id="out"></p></body></html>`, r.URL.Path)
 	}))
 	defer srv.Close()
 
@@ -531,6 +533,13 @@ func TestBrowserBackForward(t *testing.T) {
 	}
 	step("Back", sess.Back, "page /b")
 	step("Back", sess.Back, "page /a")
+	// Selectors still resolve on a page restored from the back/forward cache.
+	if err := sess.Click(ctx, "#btn"); err != nil {
+		t.Fatalf("Click after Back failed: %v", err)
+	}
+	if got := text(); !strings.Contains(got, "clicked") {
+		t.Errorf("after Click: page text %q", got)
+	}
 	step("Forward", sess.Forward, "page /b")
 	step("Forward", sess.Forward, "page /c")
 
