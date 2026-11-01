@@ -74,6 +74,11 @@ func runWebsitesDev(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	if p, err := c.SyncLocalKit(ctx, ws.SourceDir); err != nil {
+		fmt.Printf("warning: could not update the site's kit packages: %v\n", err)
+	} else if len(p.Moves) > 0 || len(p.Migration) > 0 {
+		fmt.Println(p.Summary())
+	}
 	if err := ensureNodeModules(ws.SourceDir); err != nil {
 		return fmt.Errorf("installing dependencies: %w", err)
 	}

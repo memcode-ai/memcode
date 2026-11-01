@@ -92,6 +92,35 @@ var websitesDepsAddCmd = &cobra.Command{
 	},
 }
 
+var websitesDepsSyncCmd = &cobra.Command{
+	Use:   "sync [dir|name]",
+	Short: "Move a site's kit packages to the current memcode kit",
+	Long: `Packages a site got from the memcode kit follow the kit: when memcode updates
+the kit (a security fix, a patch release), they move to its new versions.
+Versions you chose yourself stay as they are. A kit update that could break a
+site's code is never applied automatically. The dev server runs this before
+it starts, and memcode.ai runs it before every build.`,
+	Args: cobra.MaximumNArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		dir := websitesDirArg(args)
+		kit, err := depsKit(cmd, dir)
+		if err != nil {
+			return err
+		}
+		p, err := websites.SyncKit(cmd.Context(), dir, kit)
+		if asJSON, _ := cmd.Flags().GetBool("json"); asJSON && err == nil {
+			enc := json.NewEncoder(os.Stdout)
+			enc.SetIndent("", "  ")
+			return enc.Encode(p)
+		}
+		if err != nil {
+			return err
+		}
+		fmt.Println(p.Summary())
+		return nil
+	},
+}
+
 var websitesCheckCmd = &cobra.Command{
 	Use:   "check [dir|name]",
 	Short: "Check that a site will build on memcode.ai (dependencies + production build)",
@@ -135,10 +164,11 @@ func depsKit(cmd *cobra.Command, dir string) (websites.Kit, error) {
 }
 
 func init() {
-	for _, c := range []*cobra.Command{websitesDepsCheckCmd, websitesDepsAddCmd, websitesCheckCmd} {
+	for _, c := range []*cobra.Command{websitesDepsCheckCmd, websitesDepsAddCmd, websitesDepsSyncCmd, websitesCheckCmd} {
 		c.Flags().String("kit", "", "package.json whose dependencies are the kit (default: the current memcode template)")
 	}
 	websitesDepsCheckCmd.Flags().Bool("json", false, "print the verdicts as JSON")
-	websitesDepsCmd.AddCommand(websitesDepsCheckCmd, websitesDepsAddCmd)
+	websitesDepsSyncCmd.Flags().Bool("json", false, "print what moved as JSON")
+	websitesDepsCmd.AddCommand(websitesDepsCheckCmd, websitesDepsAddCmd, websitesDepsSyncCmd)
 	websitesCmd.AddCommand(websitesDepsCmd, websitesCheckCmd)
 }

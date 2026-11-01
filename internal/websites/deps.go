@@ -63,6 +63,8 @@ var trustedFontScopes = []string{"@fontsource/", "@fontsource-variable/"}
 type Kit struct {
 	Dependencies    map[string]string `json:"dependencies"`
 	DevDependencies map[string]string `json:"devDependencies"`
+	// History is the kit's version history (KitHistoryFile), when known.
+	History KitHistory `json:"-"`
 }
 
 // Has reports whether name@version is a kit runtime dependency.
@@ -71,13 +73,25 @@ func (k Kit) Has(name, version string) bool {
 	return ok && v == version
 }
 
-// ReadKit reads a kit from a package.json file.
+// ReadKit reads a kit from a package.json file, with the kit history beside
+// it when there is one.
 func ReadKit(path string) (Kit, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return Kit{}, err
 	}
-	return parseKit(raw)
+	k, err := parseKit(raw)
+	if err != nil {
+		return Kit{}, err
+	}
+	if raw, err := os.ReadFile(filepath.Join(filepath.Dir(path), KitHistoryFile)); err == nil {
+		if k.History, err = parseKitHistory(raw); err != nil {
+			return Kit{}, err
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return Kit{}, err
+	}
+	return k, nil
 }
 
 func parseKit(raw []byte) (Kit, error) {
@@ -119,33 +133,50 @@ func (c *Client) Kit(ctx context.Context) (Kit, error) {
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		return Kit{}, fmt.Errorf("downloading the site template: %s", resp.Status)
 	}
-	pkg, err := packageJSONFromTarGz(resp.Body)
+	return kitFromTarGz(resp.Body)
+}
+
+// kitFromTarGz reads the kit out of a template tarball: the root
+// package.json, and the kit history when the template has one.
+func kitFromTarGz(r io.Reader) (Kit, error) {
+	gz, err := gzip.NewReader(r)
 	if err != nil {
 		return Kit{}, err
 	}
-	return parseKit(pkg)
-}
-
-// packageJSONFromTarGz pulls the root package.json out of a template tarball.
-func packageJSONFromTarGz(r io.Reader) ([]byte, error) {
-	gz, err := gzip.NewReader(r)
-	if err != nil {
-		return nil, err
-	}
 	defer gz.Close()
 	tr := tar.NewReader(gz)
+	var pkg, history []byte
 	for {
 		h, err := tr.Next()
 		if err == io.EOF {
-			return nil, errors.New("the site template has no package.json")
+			break
 		}
 		if err != nil {
-			return nil, err
+			return Kit{}, err
 		}
-		if filepath.Clean(h.Name) == "package.json" {
-			return io.ReadAll(io.LimitReader(tr, 1<<20))
+		switch filepath.Clean(h.Name) {
+		case "package.json":
+			pkg, err = io.ReadAll(io.LimitReader(tr, 1<<20))
+		case KitHistoryFile:
+			history, err = io.ReadAll(io.LimitReader(tr, 1<<20))
+		}
+		if err != nil {
+			return Kit{}, err
 		}
 	}
+	if pkg == nil {
+		return Kit{}, errors.New("the site template has no package.json")
+	}
+	k, err := parseKit(pkg)
+	if err != nil {
+		return Kit{}, err
+	}
+	if history != nil {
+		if k.History, err = parseKitHistory(history); err != nil {
+			return Kit{}, err
+		}
+	}
+	return k, nil
 }
 
 // BaselineKit is the dependency set the site itself started from: package.json

@@ -177,6 +177,9 @@ func (c *Client) InitLocal(ctx context.Context, name string) (LocalSite, error) 
 		os.RemoveAll(ws.Root)
 		return LocalSite{}, fmt.Errorf("unpacking the site template: %w", err)
 	}
+	if err := removeKitHistory(ws.SourceDir); err != nil {
+		return LocalSite{}, err
+	}
 	if err := ensureIgnored(ws.SourceDir, ".memcode/"); err != nil {
 		return LocalSite{}, err
 	}
@@ -212,6 +215,21 @@ func (c *Client) commitManaged(dir, message string) error {
 	}
 	return c.runGit(dir, "-c", "user.name=memcode", "-c", "user.email=websites@memcode.ai",
 		"commit", "-q", "-m", message)
+}
+
+// SyncLocalKit moves a local site's kit packages to the current kit (see
+// SyncKit) and, in a managed copy, commits the change on its own so it isn't
+// mixed into the user's work.
+func (c *Client) SyncLocalKit(ctx context.Context, dir string) (KitPlan, error) {
+	p, err := SyncKit(ctx, dir, SiteKit(ctx, c, dir))
+	if err != nil || len(p.Moves) == 0 || !isManaged(dir) {
+		return p, err
+	}
+	if err := c.runGit(dir, "add", "package.json", "package-lock.json"); err != nil {
+		return p, err
+	}
+	return p, c.runGit(dir, "-c", "user.name=memcode", "-c", "user.email=websites@memcode.ai",
+		"commit", "-q", "-m", "Update memcode kit packages", "--", "package.json", "package-lock.json")
 }
 
 func isManaged(dir string) bool {
