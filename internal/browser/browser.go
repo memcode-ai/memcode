@@ -360,18 +360,53 @@ func (s *Session) Navigate(ctx context.Context, url string) error {
 
 // Back navigates the current tab to the previous page in browser history.
 func (s *Session) Back(ctx context.Context) error {
-	return s.run(ctx,
-		chromedp.NavigateBack(),
-		chromedp.WaitReady(chromedp.CSS("body")),
-	)
+	return s.run(ctx, historyStep(-1), chromedp.WaitReady(chromedp.CSS("body")))
 }
 
 // Forward navigates the current tab to the next page in browser history.
 func (s *Session) Forward(ctx context.Context) error {
-	return s.run(ctx,
-		chromedp.NavigateForward(),
-		chromedp.WaitReady(chromedp.CSS("body")),
-	)
+	return s.run(ctx, historyStep(1), chromedp.WaitReady(chromedp.CSS("body")))
+}
+
+// historyStep moves the tab delta entries through its history and waits until
+// the document at that entry is loaded. chromedp's NavigateBack/Forward wait
+// for a load event, which never comes when Chrome restores the page from its
+// back/forward cache, so they hang until the operation times out.
+func historyStep(delta int64) chromedp.Action[chromedp.Void] {
+	return chromedp.Func(func(ctx context.Context, t *chromedp.Target) error {
+		h, err := chromedp.NavigationEntries()(ctx, t)
+		if err != nil {
+			return err
+		}
+		i := h.CurrentIndex + delta
+		if i < 0 || i >= int64(len(h.Entries)) {
+			if delta < 0 {
+				return errors.New("no previous page in this tab's history")
+			}
+			return errors.New("no next page in this tab's history")
+		}
+		target := h.Entries[i]
+		if _, err := cdp.Call(ctx, t, page.NavigateToHistoryEntry, page.NavigateToHistoryEntryParams{EntryID: target.ID}); err != nil {
+			return err
+		}
+		for {
+			now, err := chromedp.NavigationEntries()(ctx, t)
+			if err != nil {
+				return err
+			}
+			if now.CurrentIndex == i {
+				state, err := chromedp.Evaluate[string](`document.readyState`)(ctx, t)
+				if err == nil && state != "loading" {
+					return nil
+				}
+			}
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(50 * time.Millisecond):
+			}
+		}
+	})
 }
 
 // WaitFor waits until an element matching the selector reaches the given state

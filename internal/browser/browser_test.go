@@ -485,3 +485,56 @@ func min(a, b int) int {
 	}
 	return b
 }
+
+// TestBrowserBackForward covers history navigation, including pages Chrome
+// restores from its back/forward cache (no load event), which used to hang
+// until the operation timeout.
+func TestBrowserBackForward(t *testing.T) {
+	if os.Getenv("CHROME_TEST") != "1" {
+		t.Skip("skipping browser test (set CHROME_TEST=1 to run)")
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprintf(w, `<!DOCTYPE html><html><body><h1>page %s</h1></body></html>`, r.URL.Path)
+	}))
+	defer srv.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	sess := newTestSession(t)
+	defer sess.Close()
+
+	text := func() string {
+		s, err := sess.Text(ctx)
+		if err != nil {
+			t.Fatalf("Text failed: %v", err)
+		}
+		return s
+	}
+	step := func(name string, f func(context.Context) error, want string) {
+		start := time.Now()
+		if err := f(ctx); err != nil {
+			t.Fatalf("%s failed: %v", name, err)
+		}
+		if d := time.Since(start); d > 5*time.Second {
+			t.Errorf("%s took %s", name, d)
+		}
+		if got := text(); !strings.Contains(got, want) {
+			t.Errorf("after %s: page text %q, want %q", name, got, want)
+		}
+	}
+
+	for _, p := range []string{"/a", "/b", "/c"} {
+		if err := sess.Navigate(ctx, srv.URL+p); err != nil {
+			t.Fatalf("Navigate %s failed: %v", p, err)
+		}
+	}
+	step("Back", sess.Back, "page /b")
+	step("Back", sess.Back, "page /a")
+	step("Forward", sess.Forward, "page /b")
+	step("Forward", sess.Forward, "page /c")
+
+	if err := sess.Forward(ctx); err == nil || !strings.Contains(err.Error(), "no next page") {
+		t.Errorf("Forward at the end of history: err = %v, want no next page", err)
+	}
+}
