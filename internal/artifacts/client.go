@@ -50,6 +50,7 @@ type Client struct {
 // New builds a client from the environment. Errors when the user has no token —
 // the caller surfaces "run `memcode login`".
 func New() (*Client, error) {
+	provider.LoadDotEnv() // the token `memcode login` saved; never overrides the environment
 	token := strings.TrimSpace(os.Getenv(provider.EnvAPIToken))
 	if token == "" {
 		return nil, fmt.Errorf("not logged in — run `memcode login` to publish artifacts")
