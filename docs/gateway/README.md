@@ -99,9 +99,9 @@ agents:                                  # durable agents; identity + state in ~
     objective: "Find backend roles and keep a shortlist"  # what it works toward
     autonomous: true           # ...and may work on it unprompted (separate grant)
     browser: existing_chrome   # drive the user's own signed-in Chrome
-    model: claude-haiku-4-5    # omit model to let routing pick per task
+    model: claude-haiku-5-5    # omit model to let routing pick per task
   coder:
-    model: claude-sonnet-5
+    model: claude-sonnet-5-5
     reasoning: medium
 schedules:
   - name: standup

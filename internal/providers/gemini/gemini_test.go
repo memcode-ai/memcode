@@ -52,7 +52,7 @@ func TestGeminiMapEffort(t *testing.T) {
 		{wire.EffortOff, true, false}, // 0 = thinking disabled
 	}
 	for _, c := range cases {
-		tc := g.mapEffort(c.eff)
+		tc := g.mapEffort("gemini-3.5-flash-lite", c.eff)
 		if tc == nil {
 			t.Errorf("mapEffort(%v) = nil, want non-nil", c.eff)
 			continue
@@ -300,6 +300,23 @@ func TestGeminiReplayWithoutSignatureSendsNone(t *testing.T) {
 	for _, p := range contents[0].Parts {
 		if p.FunctionCall != nil && len(p.ThoughtSignature) != 0 {
 			t.Fatalf("invented a signature %q for a call that never had one", p.ThoughtSignature)
+		}
+	}
+}
+
+// TestGeminiThinkingLevels: Gemini 4 400s on any thinkingBudget and has no off,
+// so a thinking_levels model gets a level, with EffortOff on LOW.
+func TestGeminiThinkingLevels(t *testing.T) {
+	g := &Gemini{}
+	for eff, want := range map[wire.Effort]genai.ThinkingLevel{
+		wire.EffortHigh:   genai.ThinkingLevelHigh,
+		wire.EffortMedium: genai.ThinkingLevelMedium,
+		wire.EffortLow:    genai.ThinkingLevelLow,
+		wire.EffortOff:    genai.ThinkingLevelLow,
+	} {
+		tc := g.mapEffort("gemini-4-hydrogen", eff)
+		if tc == nil || tc.ThinkingLevel != want || tc.ThinkingBudget != nil {
+			t.Errorf("mapEffort(gemini-4-hydrogen, %v) = %+v, want level %s and no budget", eff, tc, want)
 		}
 	}
 }

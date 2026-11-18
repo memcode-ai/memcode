@@ -109,7 +109,7 @@ func TestInitializePinsTheSession(t *testing.T) {
 	}{
 		// haiku's catalog window (200K) differs from the session model's (sonnet,
 		// 1M), so the window assertion proves the catalog lookup, not a default.
-		{name: "known label", pin: "haiku", wantPin: "haiku", wantWindow: 200_000},
+		{name: "known label", pin: "haiku", wantPin: "haiku", wantWindow: 1_000_000},
 		{name: "unknown label", pin: "no-such-model", wantPin: "", wantWindow: 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

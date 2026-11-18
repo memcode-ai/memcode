@@ -191,8 +191,15 @@ type wireRequest struct {
 // interleaved (between-tool) thinking is automatic, no beta header. (Opus 4.7/4.8
 // are adaptive-ONLY — manual budget_tokens 400s — so we don't implement it.)
 type wireThinking struct {
-	Type string `json:"type"` // "adaptive"
+	Type string `json:"type"` // "adaptive" | "disabled"
+	// DropUnbound asks the API to drop, rather than 400 on, replayed thinking
+	// blocks whose conversation prefix changed (catalog drop_unbound_thinking).
+	// It rides as thinking.block_binding plus the binding-controls beta header.
+	DropUnbound bool `json:"-"`
 }
+
+// thinkingBindingBeta is the beta header block_binding requires.
+const thinkingBindingBeta = "thinking-binding-controls-2026-08-01"
 
 // wireOutputConfig carries the top-level `effort` hint (NOT nested under thinking).
 type wireOutputConfig struct {
@@ -206,17 +213,35 @@ func supportsAdaptiveThinking(model string) bool {
 	m := strings.ToLower(model)
 	return strings.Contains(m, "opus-5") || strings.Contains(m, "fable") ||
 		strings.Contains(m, "opus-4-7") || strings.Contains(m, "opus-4-6") ||
-		strings.Contains(m, "sonnet-5")
+		strings.Contains(m, "sonnet-5") || strings.Contains(m, "haiku-5")
+}
+
+// acceptsDisabledThinking reports a model that thinks by default but takes an
+// explicit {type:"disabled"}. Haiku 5.5 does (Opus 5.5, Sonnet 5.5 and Fable
+// 400 on it), and sending it keeps EffortOff plumbing calls unthinking, the way
+// Haiku 4.5 served them.
+func acceptsDisabledThinking(model string) bool {
+	return strings.Contains(strings.ToLower(model), "haiku-5")
 }
 
 // thinkingFor maps an abstract Effort onto the concrete wire controls for a model.
 // EffortOff or a non-adaptive model → nil/nil, so the request is byte-for-byte what
-// it was before thinking existed.
+// it was before thinking existed. Two exceptions: a drop_unbound_thinking model
+// always carries the adaptive object (its thinking is always on anyway) so the
+// block_binding rides on every request, and a model that accepts an explicit
+// disabled gets it at EffortOff.
 func thinkingFor(model string, e wire.Effort) (*wireThinking, *wireOutputConfig) {
+	drop := catalog.DropsUnboundThinking(model)
 	if e == wire.EffortOff || !supportsAdaptiveThinking(model) {
+		switch {
+		case drop:
+			return &wireThinking{Type: "adaptive", DropUnbound: true}, nil
+		case e == wire.EffortOff && acceptsDisabledThinking(model):
+			return &wireThinking{Type: "disabled"}, nil
+		}
 		return nil, nil
 	}
-	return &wireThinking{Type: "adaptive"}, &wireOutputConfig{Effort: string(e)}
+	return &wireThinking{Type: "adaptive", DropUnbound: drop}, &wireOutputConfig{Effort: string(e)}
 }
 
 // sysBlock is a system-prompt text block carrying an optional cache breakpoint.
@@ -448,8 +473,18 @@ func wireToParams(w wireRequest) anthropicsdk.MessageNewParams {
 
 	// Thinking
 	if w.Thinking != nil {
-		adaptive := anthropicsdk.ThinkingConfigAdaptiveParam{}
-		p.Thinking = anthropicsdk.ThinkingConfigParamUnion{OfAdaptive: &adaptive}
+		if w.Thinking.Type == "disabled" {
+			p.Thinking = anthropicsdk.ThinkingConfigParamUnion{OfDisabled: &anthropicsdk.ThinkingConfigDisabledParam{}}
+		} else {
+			adaptive := anthropicsdk.ThinkingConfigAdaptiveParam{}
+			if w.Thinking.DropUnbound {
+				// The pinned SDK predates block_binding, so it rides as an extra field.
+				adaptive.SetExtraFields(map[string]any{
+					"block_binding": map[string]any{"prefix_mismatch_behavior": "drop_block"},
+				})
+			}
+			p.Thinking = anthropicsdk.ThinkingConfigParamUnion{OfAdaptive: &adaptive}
+		}
 	}
 
 	// OutputConfig (effort)
@@ -841,7 +876,11 @@ func (a *Anthropic) streamOnce(ctx context.Context, key string, r wire.Request, 
 		ccIdentity = claudeCodeSystemPrefix
 	}
 	params := wireToParams(buildWire(r, maxTok, true, ccIdentity))
-	cl := a.clientWithKey(key)
+	var extra []option.RequestOption
+	if catalog.DropsUnboundThinking(r.Model) {
+		extra = append(extra, option.WithHeaderAdd("anthropic-beta", thinkingBindingBeta))
+	}
+	cl := a.clientWithKey(key, extra...)
 	stream := cl.Messages.NewStreaming(ctx, params)
 
 	builders := map[int]*blockAccum{}

@@ -39,64 +39,67 @@
       ]
     },
     {
-      "id": "gemini-3.1-pro-preview",
+      "id": "gemini-4-carbon",
       "label": "gemini-pro",
       "vendor": "gemini",
       "window": 1000000,
       "vision": true,
       "reasoning": true,
       "price_in": 2.0,
-      "price_out": 12.0,
-      "_note": "Gemini 3.1 Pro (Google, GA Feb 2026). Frontier tier \u2014 escalation target for the Gemini vendor. Native genai SDK. 1M context, 64K max output, vision, thinking budget. gemini-3-pro-preview is now just an alias to this id. PRICING re-verified ai.google.dev/gemini-api/docs/pricing 2026-09-27: $2/$12 (cache $0.20) up to 200K prompt tokens; above 200K $4/$18 (cache $0.40), the price_tiers entry.",
+      "price_out": 10.0,
+      "price_cache_read": 0.1,
+      "_note": "Gemini 4 Carbon (Google, gemini-4-carbon), Google's strongest reasoning model. Replaces Gemini 3.1 Pro as the Gemini frontier model; the 3.1 Pro and 3 Pro preview ids are aliased so pins migrate. VERIFIED LIVE on Vertex (location global) 2026-11-18: generateContent, function calling, Google Search grounding. Gemini 4 REJECTS thinkingBudget (400 'Use thinking level instead') and takes only thinkingLevel LOW, MEDIUM or HIGH (MINIMAL 400s and there is no off), which is the thinking_levels flag. LIMITS from the models page: 1M in, 64K out. PRICING verified aistudio.google.com/docs/pricing 2026-11-18: $2/$10, cache $0.10 (0.05x, hence price_cache_read), flat across the whole window. That rate is INTRODUCTORY through 2026-11-30; on 2026-12-01 it doubles to $4/$20 with cache $0.20, and this entry must change that day.",
       "pinnable": true,
       "group": "Gemini",
       "desc": "Deep reasoning",
-      "name": "Gemini 3.1 Pro",
+      "name": "Gemini 4 Carbon",
       "pdf": true,
       "www": {
         "chat": true,
         "order": 30,
-        "description": "Latest Gemini model with significantly improved reasoning and 1M context window."
+        "description": "Google's strongest Gemini 4 model for deep reasoning, with a 1M context window, vision, and PDF."
       },
       "max_output": 65536,
       "fallback": [
         "sonnet",
         "terra"
       ],
-      "price_tiers": [
-        {
-          "above_prompt_tokens": 200000,
-          "in": 2.0,
-          "out": 1.5,
-          "cache_read": 2.0,
-          "cache_write": 2.0
-        }
+      "thinking_levels": true,
+      "aliases": [
+        "gemini-3.1-pro-preview",
+        "gemini-3-pro-preview"
       ]
     },
     {
-      "id": "gemini-3.8-flash",
+      "id": "gemini-4-hydrogen",
       "label": "gemini-flash",
       "vendor": "gemini",
       "window": 1000000,
       "vision": true,
       "reasoning": true,
-      "price_in": 0.75,
-      "price_out": 3.75,
-      "_note": "Gemini 3.8 Flash (Google). The Gemini vendor's everyday model. Supersedes gemini-3.6-flash, skipping 3.7 \u2014 latest only, no back-catalog. VERIFIED LIVE on Vertex 2026-09-03: generateContent, vision, native PDF, and thinking (thoughtsTokenCount returned) all work; the capability profile is identical to 3.6, so this is a drop-in. LIMITS from the v1beta models listing: 1,048,576 in / 65,536 out. PRICING verified ai.google.dev 2026-09-03: $0.75/$3.75 promo through 2026-12-31, RAISING to $1.50/$7.50 on 2027-01-01; cache read $0.075 (0.1x). The label stays gemini-flash, so existing pins move to 3.8 with no user action.",
+      "price_in": 1.5,
+      "price_out": 7.5,
+      "price_cache_read": 0.075,
+      "_note": "Gemini 4 Hydrogen (Google, gemini-4-hydrogen), the fast Gemini 4 model for agentic work and everyday tasks, and the one Google recommends for new projects. Replaces Gemini 3.8 Flash as the Gemini vendor's everyday model; the label stays gemini-flash and the 3.8 and 3.6 Flash ids are aliased, so existing pins move with no user action. VERIFIED LIVE on Vertex (location global) 2026-11-18: generateContent, function calling, Google Search grounding (the websearch side channel), thinking. Takes thinkingLevel only, like Carbon (thinking_levels). LIMITS: 1M in, 64K out. PRICING verified aistudio.google.com/docs/pricing 2026-11-18: $1.50/$7.50, cache $0.075 (0.05x), flat across the window, no promo end date. That is 2x 3.8 Flash's introductory $0.75/$3.75 and equal to the $1.50/$7.50 3.8 Flash moves to on 2027-01-01.",
       "pinnable": true,
       "group": "Gemini",
       "desc": "Fast agentic coding",
-      "name": "Gemini 3.8 Flash",
+      "name": "Gemini 4 Hydrogen",
       "pdf": true,
       "www": {
         "chat": true,
         "order": 22,
-        "description": "Gemini 3.8 Flash, built for long-horizon software engineering and agentic work. Frontier speed with a 1M context window, vision, PDF, and thinking."
+        "description": "Google's fast Gemini 4 model for agentic work and everyday coding, with a 1M context window, vision, PDF, and thinking."
       },
       "max_output": 65536,
       "fallback": [
         "haiku",
         "luna"
+      ],
+      "thinking_levels": true,
+      "aliases": [
+        "gemini-3.8-flash",
+        "gemini-3.6-flash"
       ]
     },
     {
@@ -156,7 +159,7 @@
       "_note": "Claude Opus 5.5 (Anthropic, claude-opus-5-5). Supersedes Opus 5, which platform.claude.com now lists as legacy; the old id is aliased so pins migrate. 1M window, 128K out, always-on adaptive thinking (thinking cannot be disabled; default effort is medium, one below Opus 5, but memcode always sends effort explicitly). PRICING verified platform.claude.com/docs/en/about-claude/pricing 2026-09-27: $4/$20 per 1M. CACHE READ is 0.05x = $0.20, not the 0.1x default, hence the explicit price_cache_read (without it cache reads bill 2x cost). Forced tool_choice (any/tool) 400s on this model, verified live 2026-09-27: see no_forced_tool_choice."
     },
     {
-      "id": "claude-fable-5-1",
+      "id": "claude-fable-5-2",
       "label": "fable",
       "vendor": "anthropic",
       "window": 1000000,
@@ -165,12 +168,12 @@
       "reasoning": true,
       "pinnable": true,
       "group": "Claude",
-      "price_in": 10.0,
-      "price_out": 50.0,
-      "price_cache_read": 0.25,
-      "_note": "Claude Fable 5.1 (Anthropic, claude-fable-5-1). Anthropic's MOST capable widely-released model \u2014 state-of-the-art coding/knowledge/vision/computer-use, always-on adaptive thinking, 1M window, 128K out. Supersedes claude-fable-5, which platform.claude.com now lists as legacy. PRICING verified platform.claude.com/docs/en/about-claude/pricing 2026-09-02: $10/$50 per 1M. CACHE READ IS THE ODD ONE: 5.1 (and Mythos 5.1) read cache at 0.025x = $0.25, NOT the 0.1x every other model uses \u2014 hence the explicit price_cache_read, without which the 0.1x default bills cache reads at 4x cost. Cache write stays 1.25x ($12.50). Uses the adaptive-thinking path like Opus (rejects manual budget_tokens). Forced tool_choice (any/tool) 400s on 5.1, verified live 2026-09-27: see no_forced_tool_choice.",
+      "price_in": 8.0,
+      "price_out": 40.0,
+      "price_cache_read": 0.2,
+      "_note": "Claude Fable 5.2 (Anthropic, claude-fable-5-2), Anthropic's most capable widely released model. Supersedes Fable 5.1 (still served), whose id is aliased so pins migrate. 1M window, 128K out, always-on adaptive thinking. PRICING verified platform.claude.com/docs/en/about-claude/pricing 2026-11-18: $8/$40, cheaper than 5.1's $10/$50; cache read $0.20 (0.025x, hence price_cache_read), cache write 1.25x. Forced tool_choice (any/tool) 400s, verified live 2026-11-18: see no_forced_tool_choice. Fable 5.2 runs the preserved-thinking history check on EVERY account: a replayed thinking block whose system, tools or earlier messages changed is a 400, and memcode's volatile system block changes every turn. Verified live 2026-11-18: edited system = 400 'bound to a different conversation', the same request with block_binding drop_block = OK with the block dropped. drop_unbound_thinking makes the adapter send drop_block on this model only; Opus 5.5, Sonnet 5.5 and Haiku 5.5 accept the edited history on memcode's account, so dropping there would only lose reasoning.",
       "desc": "Most capable Claude",
-      "name": "Fable 5.1",
+      "name": "Fable 5.2",
       "pdf": true,
       "www": {
         "chat": true,
@@ -180,10 +183,14 @@
       "fallback": [
         "sol"
       ],
-      "no_forced_tool_choice": true
+      "no_forced_tool_choice": true,
+      "drop_unbound_thinking": true,
+      "aliases": [
+        "claude-fable-5-1"
+      ]
     },
     {
-      "id": "claude-sonnet-5",
+      "id": "claude-sonnet-5-5",
       "label": "sonnet",
       "vendor": "anthropic",
       "window": 1000000,
@@ -193,30 +200,37 @@
       "pinnable": true,
       "group": "Claude",
       "desc": "Efficient for routine tasks",
-      "name": "Sonnet 5",
+      "name": "Sonnet 5.5",
       "pdf": true,
       "www": {
         "chat": true,
         "order": 35,
         "description": "Latest Claude Sonnet with adaptive thinking, 1M context, and best speed-to-intelligence ratio."
       },
-      "_note": "PRICING $2/$10, verified platform.claude.com/docs/en/about-claude/pricing 2026-09-02. This was announced at launch as introductory through 2026-08-31 with a flip to $3/$15 on 2026-09-01; that increase was CANCELLED and $2/$10 is now the standard price. Do NOT raise it.",
+      "_note": "Claude Sonnet 5.5 (Anthropic, claude-sonnet-5-5). Supersedes Sonnet 5 (still served), whose id is aliased so pins and the default_model seed move to 5.5. 1M window, 128K out, adaptive thinking on by default. PRICING verified platform.claude.com/docs/en/about-claude/pricing 2026-11-18: $2/$10, the same as Sonnet 5, but cache reads are 0.05x = $0.10 where Sonnet 5 read at 0.1x, hence price_cache_read. Verified live 2026-11-18: forced tool_choice 400s (no_forced_tool_choice), thinking {type:disabled} 400s (the adapter never sends it), web_search_20250305 and web_fetch_20250910 both work for the side channels.",
       "fallback": [
         "terra"
+      ],
+      "price_in": 2.0,
+      "price_out": 10.0,
+      "price_cache_read": 0.1,
+      "no_forced_tool_choice": true,
+      "aliases": [
+        "claude-sonnet-5"
       ]
     },
     {
-      "id": "claude-haiku-4-5-20251001",
+      "id": "claude-haiku-5-5",
       "label": "haiku",
       "vendor": "anthropic",
-      "window": 200000,
-      "max_output": 64000,
+      "window": 1000000,
+      "max_output": 128000,
       "vision": true,
-      "reasoning": false,
+      "reasoning": true,
       "pinnable": true,
       "group": "Claude",
       "desc": "Fastest for quick answers",
-      "name": "Haiku 4.5",
+      "name": "Haiku 5.5",
       "pdf": true,
       "www": {
         "chat": true,
@@ -225,7 +239,24 @@
       },
       "fallback": [
         "luna"
-      ]
+      ],
+      "price_in": 0.1,
+      "price_out": 0.5,
+      "price_cache_read": 0.01,
+      "price_tiers": [
+        {
+          "above_prompt_tokens": 100000,
+          "in": 5.0,
+          "out": 5.0,
+          "cache_read": 5.0,
+          "cache_write": 5.0
+        }
+      ],
+      "aliases": [
+        "claude-haiku-4-5-20251001",
+        "claude-haiku-4-5"
+      ],
+      "_note": "Claude Haiku 5.5 (Anthropic, claude-haiku-5-5). Supersedes Haiku 4.5 (still served at $1/$5), whose ids are aliased so pins and the anthropic subscription utility model move to 5.5. 1M window, 128K out, adaptive thinking on by default: budget_tokens 400s, {type:disabled} is accepted and is what EffortOff sends, so plumbing calls stay unthinking like 4.5. Forced tool_choice WORKS, verified live 2026-11-18, so no no_forced_tool_choice flag. PRICING verified platform.claude.com/docs/en/about-claude/pricing 2026-11-18: $0.10/$0.50, cache read $0.01, for prompts up to 100K tokens; a prompt over 100K (cache reads and writes count toward it) bills every rate at 5x ($0.50/$2.50/$0.05), which is the price_tiers entry. The newer tokenizer counts the same text as about 30% more tokens than 4.5."
     },
     {
       "id": "gpt-6-astra",
@@ -264,8 +295,39 @@
       ]
     },
     {
-      "id": "gpt-6-sol",
-      "label": "gpt-6-sol",
+      "id": "gpt-6.2-astra",
+      "label": "gpt-6.2-astra",
+      "vendor": "openai",
+      "window": 1050000,
+      "vision": true,
+      "reasoning": true,
+      "price_in": 8.0,
+      "price_out": 40.0,
+      "price_cache_read": 0.4,
+      "price_tiers": [
+        {
+          "above_prompt_tokens": 272000,
+          "in": 2.0,
+          "out": 1.5,
+          "cache_read": 2.0,
+          "cache_write": 2.0
+        }
+      ],
+      "min_reasoning_effort": "low",
+      "_note": "GPT-6.2 Astra (OpenAI, 2026-11-17). Frontier tier, successor to GPT-6 Astra at a lower price. Responses API, 1.05M context, 128K max output. PRICING verified developers.openai.com/api/docs/pricing 2026-11-18: $8/$40, cached $0.40 (0.05x, hence price_cache_read); over 272K prompt tokens 2x input and cache, 1.5x output (price_tiers). Reasoning floor is low: 'none' 400s (verified 2026-11-18). DARK (not pinnable, no www block): as of 2026-11-18 the memcode OpenAI project gets 'does not have access to model' for it, and the org answers every model, GPT-5.6 included, with 'You have no credits remaining'. Activate once the project can call it.",
+      "name": "GPT-6.2 Astra",
+      "desc": "Strongest reasoning",
+      "group": "OpenAI",
+      "pdf": true,
+      "max_output": 128000,
+      "fallback": [
+        "opus",
+        "sol"
+      ]
+    },
+    {
+      "id": "gpt-6.2-sol",
+      "label": "gpt-6.2-sol",
       "vendor": "openai",
       "window": 1050000,
       "vision": true,
@@ -281,8 +343,8 @@
           "cache_write": 2.0
         }
       ],
-      "_note": "GPT-6 Sol (OpenAI). Balanced GPT-6 tier: 'complex coding and agentic workflows'. Responses API, 1.05M context, 128K max output, reasoning none..max. PRICING verified developers.openai.com/api/docs/pricing 2026-09-27: $2/$10, cached $0.20 (default 0.1x); over 272K prompt tokens 2x input/cache, 1.5x output (price_tiers). DARK (not pinnable, no www block): as of 2026-09-27 the memcode OpenAI project gets 'does not have access to model gpt-6-sol'. Activate once the project can call it.",
-      "name": "GPT-6 Sol",
+      "_note": "GPT-6.2 Sol (OpenAI, 2026-11-17). Balanced GPT-6 tier; supersedes GPT-6 Sol and GPT-6.1 Sol, both aliased. Responses API, 1.05M context, 128K max output. PRICING verified developers.openai.com/api/docs/pricing 2026-11-18: $2/$10, cached $0.10 (0.05x, hence price_cache_read); over 272K prompt tokens 2x input and cache, 1.5x output (price_tiers). Reasoning floor is low: 'none' 400s (verified 2026-11-18). DARK (not pinnable, no www block): as of 2026-11-18 the memcode OpenAI project gets 'does not have access to model' for it, and the org answers every model, GPT-5.6 included, with 'You have no credits remaining'. Activate once the project can call it.",
+      "name": "GPT-6.2 Sol",
       "desc": "Balanced everyday coding",
       "group": "OpenAI",
       "pdf": true,
@@ -290,6 +352,42 @@
       "fallback": [
         "sonnet",
         "sol"
+      ],
+      "price_cache_read": 0.1,
+      "min_reasoning_effort": "low",
+      "aliases": [
+        "gpt-6-sol",
+        "gpt-6.1-sol"
+      ]
+    },
+    {
+      "id": "gpt-6.1-terra",
+      "label": "gpt-6.1-terra",
+      "vendor": "openai",
+      "window": 1050000,
+      "vision": true,
+      "reasoning": true,
+      "price_in": 1.0,
+      "price_out": 5.0,
+      "price_cache_read": 0.05,
+      "price_tiers": [
+        {
+          "above_prompt_tokens": 272000,
+          "in": 2.0,
+          "out": 1.5,
+          "cache_read": 2.0,
+          "cache_write": 2.0
+        }
+      ],
+      "_note": "GPT-6.1 Terra (OpenAI). The GPT-6 successor to GPT-5.6 Terra, at half its input price. Responses API, 1.05M context, 128K max output. PRICING verified developers.openai.com/api/docs/pricing 2026-11-18: $1/$5, cached $0.05 (0.05x, hence price_cache_read); over 272K prompt tokens 2x input and cache, 1.5x output (price_tiers). Its effort validation accepts 'none'. DARK (not pinnable, no www block): as of 2026-11-18 the memcode OpenAI project gets 'does not have access to model' for it, and the org answers every model, GPT-5.6 included, with 'You have no credits remaining'. Activate once the project can call it.",
+      "name": "GPT-6.1 Terra",
+      "desc": "Balanced everyday coding",
+      "group": "OpenAI",
+      "pdf": true,
+      "max_output": 128000,
+      "fallback": [
+        "sonnet",
+        "luna"
       ]
     },
     {
@@ -310,7 +408,7 @@
           "cache_write": 2.0
         }
       ],
-      "_note": "GPT-6 Luna (OpenAI). Efficient GPT-6 tier for focused, high-volume work. Responses API, 1.05M context, 128K max output, reasoning none..max. PRICING verified developers.openai.com/api/docs/pricing 2026-09-27: $0.10/$0.50, cached $0.01 (default 0.1x); over 272K prompt tokens 2x input/cache, 1.5x output (price_tiers). DARK for the same reason as gpt-6-sol (no project access yet, 2026-09-27).",
+      "_note": "GPT-6 Luna (OpenAI). Efficient GPT-6 tier for focused, high-volume work. Responses API, 1.05M context, 128K max output, reasoning none..max. PRICING verified developers.openai.com/api/docs/pricing 2026-09-27: $0.10/$0.50, cached $0.01 (default 0.1x); over 272K prompt tokens 2x input/cache, 1.5x output (price_tiers). Re-verified on the pricing page 2026-11-18, unchanged. DARK (not pinnable, no www block): as of 2026-11-18 the memcode OpenAI project gets 'does not have access to model' for it, and the org answers every model, GPT-5.6 included, with 'You have no credits remaining'. Activate once the project can call it.",
       "name": "GPT-6 Luna",
       "desc": "Fast and cheap",
       "group": "OpenAI",
@@ -330,7 +428,7 @@
       "reasoning": true,
       "price_in": 4.0,
       "price_out": 20.0,
-      "_note": "GPT-5.6 Sol (OpenAI, GA 2026-07-09). Frontier tier. Responses API. 1.05M context, 128K max output, vision, reasoning. PRICING verified developers.openai.com/api/docs/pricing 2026-09-27: $4/$20 (cached $0.40 = default 0.1x), a PROMOTIONAL rate OpenAI says runs 'at least through November 21, 2026'; the previous $5/$30 overcharged every call. Re-check the vendor page after 2026-11-21 before touching it. Prompts over 272K bill 2x input/cache and 1.5x output for the whole request (price_tiers).",
+      "_note": "GPT-5.6 Sol (OpenAI, GA 2026-07-09). Frontier tier. Responses API. 1.05M context, 128K max output, vision, reasoning. PRICING verified developers.openai.com/api/docs/pricing 2026-09-27: $4/$20 (cached $0.40 = default 0.1x), a PROMOTIONAL rate OpenAI says runs 'at least through November 21, 2026'; the previous $5/$30 overcharged every call. Re-checked 2026-11-18: the pricing page now says the promotion runs until 2026-11-30, so re-check after that date before touching it. Prompts over 272K bill 2x input/cache and 1.5x output for the whole request (price_tiers).",
       "pinnable": true,
       "group": "OpenAI",
       "desc": "Strongest reasoning",
@@ -509,29 +607,33 @@
       ]
     },
     {
-      "id": "accounts/fireworks/models/kimi-k3",
-      "label": "kimi-k3",
+      "id": "accounts/fireworks/models/kimi-k3p1-pro",
+      "label": "kimi-k3p1-pro",
       "vendor": "fireworks",
-      "window": 1000000,
+      "window": 1048576,
       "vision": true,
       "reasoning": true,
       "pinnable": true,
       "group": "Kimi",
-      "price_in": 3.0,
-      "price_out": 15.0,
-      "price_cache_read": 0.3,
-      "_note": "Kimi K3 (Moonshot flagship, 1M window, native vision). ACTIVATED 2026-07-27: id accounts/fireworks/models/kimi-k3 verified live on Fireworks via a completion probe (reasoning model). Pin-only, no role (Kimi-as-planner was retired for weak plan synthesis). Window 1M per Moonshot spec; serverless /models does not list it, so not independently confirmable. PRICING verified docs.fireworks.ai/serverless/pricing 2026-07-27: K3 is individually listed at $3/$15 per 1M (NOT the ~$0.95/$4 kimi family rule \u2014 it is a 1T model with headline pricing), cache read 0.1x input. Explicit entry price overrides the family rule. DEFAULTS to thinking; reasoning_effort:'none' suppresses it (www xai adapter + gateway send none unless thinking on).",
+      "price_in": 2.0,
+      "price_out": 10.0,
+      "price_cache_read": 0.2,
+      "_note": "Kimi K3.1 Pro (Moonshot, Fireworks serverless 2026-11-02). Supersedes Kimi K3 as the pinnable Kimi; K3's label and id are aliased so pins migrate. VERIFIED LIVE 2026-11-18: completion with reasoning_effort none works, and the Fireworks models API reports 1,048,576 context, image input and tools. PRICING verified docs.fireworks.ai/serverless/pricing 2026-11-18: $2.00 in / $0.20 cached / $10.00 out, cheaper than K3's $3/$15. The explicit entry price overrides the kimi family rule. Like K3 it defaults to thinking unless reasoning_effort is none, which both serving paths already send when thinking is off.",
       "desc": "Moonshot flagship",
-      "name": "Kimi K3",
+      "name": "Kimi K3.1 Pro",
       "www": {
         "chat": true,
         "order": 18,
-        "description": "Moonshot flagship on the cheap Fireworks lane: 1M context and native vision."
+        "description": "Moonshot's Kimi K3.1 Pro on the Fireworks lane: 1M context and native vision."
       },
       "max_output": 32000,
       "fallback": [
         "terra",
         "glm-5p3"
+      ],
+      "aliases": [
+        "kimi-k3",
+        "accounts/fireworks/models/kimi-k3"
       ]
     },
     {
@@ -550,13 +652,13 @@
       ]
     },
     {
-      "id": "accounts/fireworks/models/deepseek-v4p1-flash",
+      "id": "accounts/fireworks/models/deepseek-v4p1-flash-1017",
       "label": "deepseek-v4-flash",
       "vendor": "fireworks",
       "window": 1048576,
       "vision": true,
       "reasoning": true,
-      "_note": "DeepSeek V4.1 Flash (Fireworks serverless, 2026-09-10). 1M context, function calling, vision. Official rate 2026-09-11: $0.22 in, $0.007 cached, $0.66 out. Fireworks decommissions V4 Flash 0731, V4 Pro 0813 and V4 Flash Vision Exp from serverless on 2026-09-25 and names this model as the replacement for all three, so their labels and ids are aliased here and existing pins migrate instead of 400ing. Fireworks states V4.1 Flash outperforms V4 Pro 0813 on official benchmarks and carries the same vision capability as V4 Flash Vision Exp.",
+      "_note": "DeepSeek V4.1 Flash, the 2026-10-17 build (Fireworks serverless). Repointed 2026-11-18 from accounts/fireworks/models/deepseek-v4p1-flash (the 2026-09-10 build, aliased) to the newer snapshot; VERIFIED LIVE that day, and the Fireworks models API reports 1,048,576 context, image input and tools for it. PRICING verified docs.fireworks.ai/serverless/pricing 2026-11-18: $0.30 in / $0.006 cached / $1.20 out for both builds. The catalog had $0.22/$0.007/$0.66, which undercharged every call. The older V4 Flash 0731, V4 Pro 0813 and V4 Flash Vision Exp ids, decommissioned 2026-09-25, stay aliased here.",
       "pinnable": true,
       "group": "DeepSeek",
       "desc": "Fast reasoning",
@@ -571,10 +673,11 @@
         "luna",
         "glm-5p3"
       ],
-      "price_in": 0.22,
-      "price_out": 0.66,
-      "price_cache_read": 0.007,
+      "price_in": 0.3,
+      "price_out": 1.2,
+      "price_cache_read": 0.006,
       "aliases": [
+        "accounts/fireworks/models/deepseek-v4p1-flash",
         "deepseek-v4-pro",
         "accounts/fireworks/models/deepseek-v4-pro-0813",
         "accounts/fireworks/models/deepseek-v4-flash-0731",
@@ -702,6 +805,24 @@
       "window": 1050000
     },
     {
+      "match": [
+        "gemini-4-carbon",
+        "gemini-4-argon"
+      ],
+      "price_in": 2.0,
+      "price_out": 10.0,
+      "price_cache_read": 0.1,
+      "_note": "Gemini 4 Carbon/Argon introductory $2/$10, cache $0.10, through 2026-11-30; $4/$20, cache $0.20, from 2026-12-01 (aistudio.google.com/docs/pricing, verified 2026-11-18)."
+    },
+    {
+      "match": [
+        "gemini-4-hydrogen"
+      ],
+      "price_in": 1.5,
+      "price_out": 7.5,
+      "price_cache_read": 0.075
+    },
+    {
       "match_all": [
         "gemini",
         "flash-lite"
@@ -789,6 +910,14 @@
     },
     {
       "match": [
+        "kimi-k3p1"
+      ],
+      "price_in": 2.0,
+      "price_out": 10.0,
+      "price_cache_read": 0.2
+    },
+    {
+      "match": [
         "kimi"
       ],
       "price_in": 0.95,
@@ -799,9 +928,9 @@
       "match": [
         "deepseek-v4-flash"
       ],
-      "price_in": 0.22,
-      "price_out": 0.66,
-      "price_cache_read": 0.007,
+      "price_in": 0.3,
+      "price_out": 1.2,
+      "price_cache_read": 0.006,
       "_note": "Catches a drifted deepseek-v4-flash-* id that is not explicitly aliased. The 0731 build itself resolves through the alias on deepseek-v4p1-flash and prices there."
     },
     {
@@ -845,6 +974,16 @@
     },
     {
       "match": [
+        "fable-5-2",
+        "mythos-5-2"
+      ],
+      "price_in": 8,
+      "price_out": 40,
+      "price_cache_read": 0.2,
+      "_note": "Fable/Mythos 5.2 $8/$40, cache read 0.025x = $0.20 (platform.claude.com pricing, verified 2026-11-18). Must precede the 5.1 and bare fable/mythos rows."
+    },
+    {
+      "match": [
         "fable-5-1",
         "mythos-5-1"
       ],
@@ -882,11 +1021,39 @@
     },
     {
       "match": [
+        "sonnet-5-5"
+      ],
+      "price_in": 2,
+      "price_out": 10,
+      "price_cache_read": 0.1,
+      "_note": "Sonnet 5.5 $2/$10, cache read 0.05x = $0.10 (verified 2026-11-18). Must precede the bare sonnet row, whose 0.1x default would double cache reads."
+    },
+    {
+      "match": [
         "sonnet"
       ],
       "price_in": 2,
       "price_out": 10,
       "_note": "Sonnet 5 $2/$10 \u2014 previously hit the $3/$15 defaults row. Re-verified against platform.claude.com 2026-09-02: the scheduled 2026-09-01 raise to $3/$15 was cancelled and this is the standard price."
+    },
+    {
+      "match": [
+        "haiku-5"
+      ],
+      "window": 1000000,
+      "price_in": 0.1,
+      "price_out": 0.5,
+      "price_cache_read": 0.01,
+      "price_tiers": [
+        {
+          "above_prompt_tokens": 100000,
+          "in": 5.0,
+          "out": 5.0,
+          "cache_read": 5.0,
+          "cache_write": 5.0
+        }
+      ],
+      "_note": "Haiku 5.5 (verified 2026-11-18). Must precede the bare haiku row, which is Haiku 4.5's 200K window and $1/$5 card."
     },
     {
       "match": [

@@ -91,3 +91,51 @@ func TestThinkingBlockRoundTrips(t *testing.T) {
 		t.Errorf("text block must not carry a thinking field: %s", tb)
 	}
 }
+
+// TestThinkingCurrentModelRules pins the 2026-11 thinking shapes: Fable 5.2
+// always carries block_binding drop_block (it 400s on an edited history on
+// every account, and the volatile system block edits it every turn), Haiku 5.5
+// takes an explicit disabled at EffortOff, and Sonnet 5.5 is never sent
+// disabled (it 400s on it).
+func TestThinkingCurrentModelRules(t *testing.T) {
+	cases := []struct {
+		name       string
+		model      string
+		effort     wire.Effort
+		wantJSON   string // the marshaled thinking object, "" = omitted
+		wantEffort string
+	}{
+		{"fable52 off", "claude-fable-5-2", wire.EffortOff, `{"type":"adaptive","block_binding":{"prefix_mismatch_behavior":"drop_block"}}`, ""},
+		{"fable52 high", "claude-fable-5-2", wire.EffortHigh, `{"type":"adaptive","block_binding":{"prefix_mismatch_behavior":"drop_block"}}`, "high"},
+		{"opus55 high keeps blocks", "claude-opus-5-5", wire.EffortHigh, `{"type":"adaptive"}`, "high"},
+		{"haiku55 off", "claude-haiku-5-5", wire.EffortOff, `{"type":"disabled"}`, ""},
+		{"haiku55 low", "claude-haiku-5-5", wire.EffortLow, `{"type":"adaptive"}`, "low"},
+		{"sonnet55 off omitted", "claude-sonnet-5-5", wire.EffortOff, "", ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			p := wireToParams(buildWire(wire.Request{Model: c.model, Effort: c.effort, Messages: []wire.Message{
+				{Role: "user", Blocks: []wire.Block{wire.TextBlock("hi")}},
+			}}, 4096, false, ""))
+			raw, err := json.Marshal(p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var body struct {
+				Thinking     json.RawMessage `json:"thinking"`
+				OutputConfig struct {
+					Effort string `json:"effort"`
+				} `json:"output_config"`
+			}
+			if err := json.Unmarshal(raw, &body); err != nil {
+				t.Fatal(err)
+			}
+			if got := string(body.Thinking); got != c.wantJSON {
+				t.Errorf("thinking = %s, want %s", got, c.wantJSON)
+			}
+			if body.OutputConfig.Effort != c.wantEffort {
+				t.Errorf("effort = %q, want %q", body.OutputConfig.Effort, c.wantEffort)
+			}
+		})
+	}
+}

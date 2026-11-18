@@ -7,7 +7,7 @@ import (
 	"github.com/memcode-ai/memcode/internal/wire"
 )
 
-// Fable 5.1 and Opus 5.5 answer a forced tool_choice with a 400, which used to
+// Fable 5.1/5.2, Opus 5.5 and Sonnet 5.5 answer a forced tool_choice with a 400, which used to
 // silently fail every judge, reflection and review verdict pinned to them.
 func TestForcedToolChoiceFallsBackToAutoWhereRejected(t *testing.T) {
 	verdict := wire.ToolDef{Name: "record_verdict", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"ok": map[string]any{"type": "boolean"}}}}
@@ -20,7 +20,7 @@ func TestForcedToolChoiceFallsBackToAutoWhereRejected(t *testing.T) {
 		}
 	}
 
-	for _, model := range []string{"claude-fable-5-1", "claude-opus-5-5", "claude-opus-5"} {
+	for _, model := range []string{"claude-fable-5-2", "claude-fable-5-1", "claude-opus-5-5", "claude-opus-5", "claude-sonnet-5-5", "claude-sonnet-5"} {
 		p := wireToParams(buildWire(req(model), 4096, false, ""))
 		if p.ToolChoice.OfAuto == nil || p.ToolChoice.OfTool != nil {
 			t.Errorf("%s: tool_choice = %+v, want auto", model, p.ToolChoice)
@@ -31,11 +31,11 @@ func TestForcedToolChoiceFallsBackToAutoWhereRejected(t *testing.T) {
 		}
 	}
 
-	p := wireToParams(buildWire(req("claude-sonnet-5"), 4096, false, ""))
+	p := wireToParams(buildWire(req("claude-haiku-5-5"), 4096, false, ""))
 	if p.ToolChoice.OfTool == nil || p.ToolChoice.OfTool.Name != "record_verdict" {
-		t.Errorf("sonnet: tool_choice = %+v, want forced record_verdict", p.ToolChoice)
+		t.Errorf("haiku: tool_choice = %+v, want forced record_verdict", p.ToolChoice)
 	}
 	if got := len(p.Messages[0].Content); got != 1 {
-		t.Errorf("sonnet: final user turn has %d blocks, want the prompt untouched", got)
+		t.Errorf("haiku: final user turn has %d blocks, want the prompt untouched", got)
 	}
 }

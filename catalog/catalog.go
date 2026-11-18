@@ -66,6 +66,21 @@ type CatalogModel struct {
 	// tool_choice auto instead. A model fact, so it lives here.
 	NoForcedToolChoice bool `json:"no_forced_tool_choice,omitempty"`
 
+	// DropUnboundThinking marks a model that enforces the preserved-thinking
+	// history check on EVERY account: a replayed thinking block whose system,
+	// tools or earlier messages changed since it was produced is a 400. The
+	// volatile system block changes every turn, so the adapter sends
+	// block_binding drop_block on these models and the API drops the stale
+	// blocks instead. Only Fable 5.2 today; models that enforce new accounts
+	// only keep reading the blocks on memcode's account, so dropping there would
+	// lose reasoning for nothing.
+	DropUnboundThinking bool `json:"drop_unbound_thinking,omitempty"`
+
+	// ThinkingLevels marks a Gemini model that takes thinkingLevel (LOW, MEDIUM,
+	// HIGH) and 400s on thinkingBudget. Gemini 4 is level-only and has no off,
+	// so the adapter maps EffortOff to LOW there.
+	ThinkingLevels bool `json:"thinking_levels,omitempty"`
+
 	// Aliases are RETIRED labels and ids that must keep resolving to this entry.
 	// When a vendor decommissions a model, deleting its row would make every pin
 	// naming it a hard "unknown model" 400 at the gateway; listing the dead name
@@ -294,6 +309,20 @@ func MinReasoningEffort(model string) string {
 func RejectsForcedToolChoice(model string) bool {
 	m, ok := LookupModel(model)
 	return ok && m.NoForcedToolChoice
+}
+
+// DropsUnboundThinking reports whether the adapter must send block_binding
+// drop_block so an edited history drops stale thinking blocks instead of 400ing.
+func DropsUnboundThinking(model string) bool {
+	m, ok := LookupModel(model)
+	return ok && m.DropUnboundThinking
+}
+
+// UsesThinkingLevels reports whether a Gemini model wants thinkingLevel rather
+// than a thinkingBudget.
+func UsesThinkingLevels(model string) bool {
+	m, ok := LookupModel(model)
+	return ok && m.ThinkingLevels
 }
 
 // Pricing is APPROXIMATE per-model rates in USD per MILLION tokens. Cache write ≈

@@ -14,35 +14,47 @@ func TestModelPricingRealIDs(t *testing.T) {
 		id      string
 		in, out float64
 	}{
-		{"gpt-5.6-sol", 4, 20}, // promo through at least 2026-11-21 (was billed $5/$30)
-		{"gpt-6-sol", 2, 10},
+		{"gpt-5.6-sol", 4, 20}, // promo until 2026-11-30 (was billed $5/$30)
+		{"gpt-6-sol", 2, 10},   // alias -> GPT-6.2 Sol
+		{"gpt-6.2-sol", 2, 10},
+		{"gpt-6.2-astra", 8, 40},
+		{"gpt-6.1-terra", 1, 5},
 		{"gpt-6-luna", 0.1, 0.5},
 		{"gpt-5.6-terra", 2, 12},
 		{"gpt-5.6-luna", 0.2, 1.2},
-		{"gemini-3.1-pro-preview", 2, 12},   // was mispriced → 1.5/9
-		{"gemini-3.8-flash", 0.75, 3.75},    // balanced default (promo through 2026-12-31)
+		{"gemini-4-carbon", 2, 10},          // introductory through 2026-11-30
+		{"gemini-3.1-pro-preview", 2, 10},   // alias -> Gemini 4 Carbon
+		{"gemini-4-hydrogen", 1.5, 7.5},     // the Gemini everyday model
+		{"gemini-3.8-flash", 1.5, 7.5},      // alias -> Gemini 4 Hydrogen
 		{"gemini-3.5-flash-lite", 0.3, 2.5}, // was billed 6x high → 1.5/9
 		{"grok-4.7", 2, 6},
 		{"grok-4.6", 2, 6},                                // alias -> 4.7, same card
 		{"accounts/fireworks/models/glm-5p2", 1.40, 4.40}, // was $0
 		{"accounts/fireworks/models/glm-5p1", 1.40, 4.40},
-		{"accounts/fireworks/models/kimi-k3", 3.00, 15.00}, // K3's own Fireworks headline card ($3/$15), NOT the kimi family rule
+		{"accounts/fireworks/models/kimi-k3p1-pro", 2.00, 10.00}, // its own Fireworks card, NOT the kimi family rule
+		{"accounts/fireworks/models/kimi-k3", 2.00, 10.00},       // alias -> K3.1 Pro
 		{"accounts/fireworks/models/qwen3p8-max", 2.00, 6.00},
 		{"accounts/fireworks/models/qwen3p8-2p4t-a95b", 2.00, 6.00}, // legacy path
 		// Decommissioned 2026-09-25 and aliased onto V4.1 Flash, so they price as Flash.
-		{"accounts/fireworks/models/deepseek-v4-pro-0813", 0.22, 0.66},
-		{"deepseek-v4-pro", 0.22, 0.66},
-		{"accounts/fireworks/models/deepseek-v4p1-flash", 0.22, 0.66},
+		{"accounts/fireworks/models/deepseek-v4-pro-0813", 0.30, 1.20},
+		{"deepseek-v4-pro", 0.30, 1.20},
+		{"accounts/fireworks/models/deepseek-v4p1-flash", 0.30, 1.20}, // alias -> the 1017 build
+		{"accounts/fireworks/models/deepseek-v4p1-flash-1017", 0.30, 1.20},
 		// Superseded but still deployed on Fireworks: without its own rate row this
 		// falls to the $1.40/$4.40 Fireworks floor and bills 6x.
-		{"accounts/fireworks/models/deepseek-v4-flash-0731", 0.22, 0.66},
+		{"accounts/fireworks/models/deepseek-v4-flash-0731", 0.30, 1.20},
 		{"accounts/fireworks/models/glm-5p3", 1.40, 4.40},
 		{"accounts/fireworks/models/glm-5p3-flash", 0.15, 0.50},
-		{"claude-opus-5-5", 4, 20}, // Opus 5.5 is cheaper than Opus 5
-		{"claude-opus-5", 4, 20},   // alias -> Opus 5.5
-		{"claude-opus-4-8", 5, 25}, // legacy Opus, family rule
-		{"claude-fable-5", 10, 50}, // Fable 5 flagship $10/$50 (explicit entry price)
-		{"claude-sonnet-5", 2, 10}, // explicit sonnet rule (was falling to $3/$15 defaults)
+		{"claude-opus-5-5", 4, 20},              // Opus 5.5 is cheaper than Opus 5
+		{"claude-opus-5", 4, 20},                // alias -> Opus 5.5
+		{"claude-opus-4-8", 5, 25},              // legacy Opus, family rule
+		{"claude-fable-5", 10, 50},              // legacy Fable 5, fable family rule
+		{"claude-fable-5-2", 8, 40},             // Fable 5.2 is cheaper than 5.1
+		{"claude-fable-5-1", 8, 40},             // alias -> Fable 5.2
+		{"claude-sonnet-5-5", 2, 10},            // same card as Sonnet 5
+		{"claude-sonnet-5", 2, 10},              // alias -> Sonnet 5.5
+		{"claude-haiku-5-5", 0.1, 0.5},          // prompts up to 100K
+		{"claude-haiku-4-5-20251001", 0.1, 0.5}, // alias -> Haiku 5.5
 		// Billing-only entries (embeddings/images) — priced so no metered call
 		// is ever $0. Same pinned numbers as apps/www ai-models.test.js.
 		{"gemini-embedding-2", 0.2, 0},
@@ -69,9 +81,10 @@ func TestModelPricingByLabel(t *testing.T) {
 		in    float64
 	}{
 		{"sol", 4}, {"terra", 2}, {"luna", 0.2}, {"opus", 4}, {"grok-4.6", 2},
-		{"glm-5p2", 1.40}, {"kimi-k3", 3.00}, {"qwen3p8-max", 2.00},
+		{"glm-5p2", 1.40}, {"kimi-k3", 2.00}, {"kimi-k3p1-pro", 2.00}, {"qwen3p8-max", 2.00},
+		{"fable", 8}, {"sonnet", 2}, {"haiku", 0.1}, {"gemini-pro", 2}, {"gemini-flash", 1.5},
 		// deepseek-v4-pro is an alias onto V4.1 Flash as of the 2026-09-25 decommission.
-		{"deepseek-v4-pro", 0.22}, {"deepseek-v4-flash", 0.22},
+		{"deepseek-v4-pro", 0.30}, {"deepseek-v4-flash", 0.30},
 		{"gemini-flash-lite", 0.3},
 	}
 	for _, c := range cases {
@@ -94,18 +107,22 @@ func TestContextWindowFireworks(t *testing.T) {
 		id   string
 		want int
 	}{
-		{"accounts/fireworks/models/glm-5p2", 1_048_576}, // alias -> GLM 5.3 // was defaulting to 200K
-		{"accounts/fireworks/models/kimi-k3", 1_000_000}, // k3 ≠ the kimi-k2 262K case
-		{"accounts/fireworks/models/kimi-k3", 1_000_000},
+		{"accounts/fireworks/models/glm-5p2", 1_048_576},       // alias -> GLM 5.3 // was defaulting to 200K
+		{"accounts/fireworks/models/kimi-k3p1-pro", 1_048_576}, // k3 ≠ the kimi-k2 262K case
+		{"accounts/fireworks/models/kimi-k3", 1_048_576},       // alias -> K3.1 Pro
 		{"accounts/fireworks/models/qwen3p8-max", 262_144},
 		{"accounts/fireworks/models/qwen3p8-2p4t-a95b", 262_144}, // legacy path, still deployed
 		{"accounts/fireworks/models/glm-5p3", 1_048_576},
 		{"accounts/fireworks/models/glm-5p3-flash", 1_048_576},
 		{"accounts/fireworks/models/deepseek-v4p1-flash", 1_048_576},
+		{"accounts/fireworks/models/deepseek-v4p1-flash-1017", 1_048_576},
 		{"accounts/fireworks/models/deepseek-v4-pro-0813", 1_048_576}, // alias -> V4.1 Flash
 		{"accounts/fireworks/models/deepseek-v4-flash-0731", 1_048_576},
 		{"gemini-3.1-pro-preview", 1_000_000},
 		{"gemini-3.8-flash", 1_000_000},
+		{"gemini-4-carbon", 1_000_000},
+		{"gemini-4-hydrogen", 1_000_000},
+		{"claude-haiku-5-5", 1_000_000},
 	}
 	for _, c := range cases {
 		if got := ContextWindow(c.id); got != c.want {
@@ -123,19 +140,24 @@ func TestModelPricingCacheRates(t *testing.T) {
 		cacheRead, cacheWrite float64
 	}{
 		{"grok-4.7", 0.5, 2.5},
-		{"claude-opus-5-5", 0.2, 5}, // 0.05x cache read
-		{"claude-sonnet-5", 0.2, 2.5},
+		{"claude-opus-5-5", 0.2, 5},   // 0.05x cache read
+		{"claude-sonnet-5", 0.1, 2.5}, // alias -> Sonnet 5.5, 0.05x cache read
+		{"claude-fable-5-2", 0.2, 10}, // 0.025x cache read
+		{"claude-haiku-5-5", 0.01, 0.125},
+		{"gemini-4-carbon", 0.1, 2.5}, // 0.05x cache read
+		{"gemini-4-hydrogen", 0.075, 1.875},
+		{"gpt-6.2-astra", 0.4, 10}, // 0.05x cache read
 		{"gpt-5.6-terra", 0.2, 2.5},
 		{"accounts/fireworks/models/glm-5p2", 0.26, 1.75}, // alias -> GLM 5.3 cache rate
-		{"accounts/fireworks/models/kimi-k3", 0.30, 3.75},
+		{"accounts/fireworks/models/kimi-k3", 0.20, 2.5},  // alias -> K3.1 Pro
 		// Qwen 3.8 Max publishes $0.25 cached, NOT the 0.1x default this used to inherit.
 		{"accounts/fireworks/models/qwen3p8-max", 0.25, 2.5},
 		{"accounts/fireworks/models/qwen3p8-2p4t-a95b", 0.25, 2.5}, // legacy path prices the same
 		{"accounts/fireworks/models/glm-5p3", 0.26, 1.75},
 		{"accounts/fireworks/models/glm-5p3-flash", 0.03, 0.1875},
-		{"accounts/fireworks/models/deepseek-v4p1-flash", 0.007, 0.275},
-		{"accounts/fireworks/models/deepseek-v4-pro-0813", 0.007, 0.275}, // alias -> V4.1 Flash
-		{"accounts/fireworks/models/deepseek-v4-flash-0731", 0.007, 0.275},
+		{"accounts/fireworks/models/deepseek-v4p1-flash-1017", 0.006, 0.375},
+		{"accounts/fireworks/models/deepseek-v4-pro-0813", 0.006, 0.375}, // alias -> V4.1 Flash
+		{"accounts/fireworks/models/deepseek-v4-flash-0731", 0.006, 0.375},
 		{"gpt-image-2", 0.8, 10},
 	}
 	for _, c := range cases {
@@ -289,10 +311,20 @@ func TestMinReasoningEffort(t *testing.T) {
 // always win over an alias.
 func TestRetiredModelAliases(t *testing.T) {
 	for _, c := range []struct{ alias, wantID string }{
-		{"deepseek-v4-pro", "accounts/fireworks/models/deepseek-v4p1-flash"},
-		{"accounts/fireworks/models/deepseek-v4-pro-0813", "accounts/fireworks/models/deepseek-v4p1-flash"},
-		{"accounts/fireworks/models/deepseek-v4-flash-0731", "accounts/fireworks/models/deepseek-v4p1-flash"},
-		{"accounts/fireworks/models/deepseek-v4-flash-vision-exp", "accounts/fireworks/models/deepseek-v4p1-flash"},
+		{"deepseek-v4-pro", "accounts/fireworks/models/deepseek-v4p1-flash-1017"},
+		{"accounts/fireworks/models/deepseek-v4-pro-0813", "accounts/fireworks/models/deepseek-v4p1-flash-1017"},
+		{"accounts/fireworks/models/deepseek-v4-flash-0731", "accounts/fireworks/models/deepseek-v4p1-flash-1017"},
+		{"accounts/fireworks/models/deepseek-v4-flash-vision-exp", "accounts/fireworks/models/deepseek-v4p1-flash-1017"},
+		{"accounts/fireworks/models/deepseek-v4p1-flash", "accounts/fireworks/models/deepseek-v4p1-flash-1017"},
+		{"kimi-k3", "accounts/fireworks/models/kimi-k3p1-pro"},
+		{"accounts/fireworks/models/kimi-k3", "accounts/fireworks/models/kimi-k3p1-pro"},
+		{"claude-fable-5-1", "claude-fable-5-2"},
+		{"claude-sonnet-5", "claude-sonnet-5-5"},
+		{"claude-haiku-4-5-20251001", "claude-haiku-5-5"},
+		{"claude-haiku-4-5", "claude-haiku-5-5"},
+		{"gemini-3.1-pro-preview", "gemini-4-carbon"},
+		{"gemini-3.8-flash", "gemini-4-hydrogen"},
+		{"gpt-6-sol", "gpt-6.2-sol"},
 		{"glm-5p2", "accounts/fireworks/models/glm-5p3"},
 		{"accounts/fireworks/models/glm-5p2", "accounts/fireworks/models/glm-5p3"},
 	} {
@@ -315,5 +347,36 @@ func TestRetiredModelAliases(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+// Haiku 5.5 bills a prompt over 100K tokens at 5x every rate, cached tokens
+// counting toward the threshold, the way Anthropic prices it.
+func TestHaiku55LongPromptCost(t *testing.T) {
+	short := CostUSD("claude-haiku-5-5", 100_000, 1_000_000, 0, 0)
+	if want := (100_000*0.1 + 1_000_000*0.5) / 1e6; math.Abs(short-want) > 1e-9 {
+		t.Errorf("100K prompt = $%.6f, want $%.6f (base card)", short, want)
+	}
+	long := CostUSD("claude-haiku-5-5", 10_000, 1_000_000, 100_000, 0)
+	if want := (10_000*0.5 + 1_000_000*2.5 + 100_000*0.05) / 1e6; math.Abs(long-want) > 1e-9 {
+		t.Errorf("110K prompt = $%.6f, want $%.6f (5x card)", long, want)
+	}
+}
+
+// The two thinking-shape flags are catalog facts the adapters read.
+func TestThinkingFlags(t *testing.T) {
+	if !DropsUnboundThinking("claude-fable-5-2") || !DropsUnboundThinking("fable") {
+		t.Error("Fable 5.2 enforces the history check on every account and must drop unbound blocks")
+	}
+	for _, m := range []string{"claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"} {
+		if DropsUnboundThinking(m) {
+			t.Errorf("%s must keep reading its thinking blocks (no drop_block)", m)
+		}
+	}
+	if !UsesThinkingLevels("gemini-4-carbon") || !UsesThinkingLevels("gemini-flash") {
+		t.Error("Gemini 4 takes thinking levels, not budgets")
+	}
+	if UsesThinkingLevels("gemini-3.5-flash-lite") {
+		t.Error("Gemini 3.5 Flash-Lite still takes a thinking budget")
 	}
 }

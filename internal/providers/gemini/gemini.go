@@ -141,7 +141,20 @@ func (g *Gemini) Complete(ctx context.Context, r wire.Request) (wire.Response, e
 // EffortHigh → a generous thinking budget (the model auto-caps), medium → a
 // moderate budget, low → a small budget, off → 0 (disables thinking). Returns
 // nil when thinking is off so the request omits the field entirely.
-func (g *Gemini) mapEffort(e wire.Effort) *genai.ThinkingConfig {
+//
+// A thinking_levels model (Gemini 4) 400s on any thinkingBudget and has no off,
+// so it gets a level instead and EffortOff becomes LOW, its lightest setting.
+func (g *Gemini) mapEffort(model string, e wire.Effort) *genai.ThinkingConfig {
+	if catalog.UsesThinkingLevels(model) {
+		lvl := genai.ThinkingLevelLow
+		switch e {
+		case wire.EffortHigh:
+			lvl = genai.ThinkingLevelHigh
+		case wire.EffortMedium:
+			lvl = genai.ThinkingLevelMedium
+		}
+		return &genai.ThinkingConfig{ThinkingLevel: lvl}
+	}
 	switch e {
 	case wire.EffortHigh:
 		// A high budget lets the model think deeply; Gemini auto-caps at its
@@ -416,8 +429,12 @@ func mapJSONTypeToGenai(t string) genai.Type {
 // instruction, tools, thinking budget, max output tokens, and tool choice
 // (forcing a named tool when set).
 func (g *Gemini) buildConfig(r wire.Request, maxTok int) *genai.GenerateContentConfig {
+	model := r.Model
+	if model == "" {
+		model = catalog.ModelGeminiFlash
+	}
 	cfg := &genai.GenerateContentConfig{
-		ThinkingConfig: g.mapEffort(r.Effort),
+		ThinkingConfig: g.mapEffort(model, r.Effort),
 	}
 	if maxTok > 0 {
 		// 0 = uncapped: omit the field so the model's own max output applies (an

@@ -10,9 +10,9 @@ package catalog
 // (Sonnet) and per-vendor tier fallbacks; the default inference tiers use the
 // GPT-5.6 ids below.
 const (
-	ModelOpus   = "claude-opus-5-5"           // anthropic frontier tier
-	ModelSonnet = "claude-sonnet-5"           // advisor default (second-opinion, cross-vendor); anthropic balanced tier
-	ModelHaiku  = "claude-haiku-4-5-20251001" // anthropic cheap tier
+	ModelOpus   = "claude-opus-5-5"   // anthropic frontier tier
+	ModelSonnet = "claude-sonnet-5-5" // advisor default (second-opinion, cross-vendor); anthropic balanced tier
+	ModelHaiku  = "claude-haiku-5-5"  // anthropic cheap tier
 )
 
 // GPT-5.6 model IDs — the default inference tiers (OpenAI Responses API). Sol is
@@ -24,11 +24,11 @@ const (
 	ModelLuna  = "gpt-5.6-luna"  // fast/cheap — classifier + reviewer
 )
 
-// Gemini 3 model IDs (Google, via the native genai SDK).
+// Gemini model IDs (Google, via the native genai SDK).
 const (
-	ModelGeminiPro       = "gemini-3.1-pro-preview" // frontier — escalation target
-	ModelGeminiFlash     = "gemini-3.8-flash"       // the Gemini vendor's everyday model
-	ModelGeminiFlashLite = "gemini-3.5-flash-lite"  // fast/cheap — classifier
+	ModelGeminiPro       = "gemini-4-carbon"       // frontier — escalation target
+	ModelGeminiFlash     = "gemini-4-hydrogen"     // the Gemini vendor's everyday model
+	ModelGeminiFlashLite = "gemini-3.5-flash-lite" // fast/cheap — classifier
 )
 
 // Grok model ID (xAI, via the OpenAI-compatible api.x.ai endpoint). Grok 4.7 is
