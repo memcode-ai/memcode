@@ -8,20 +8,21 @@ package catalog
 
 // Canonical Claude model IDs (current as of build). These back the ADVISOR
 // (Sonnet) and per-vendor tier fallbacks; the default inference tiers use the
-// GPT-5.6 ids below.
+// GPT-6 ids below.
 const (
 	ModelOpus   = "claude-opus-5-5"   // anthropic frontier tier
 	ModelSonnet = "claude-sonnet-5-5" // advisor default (second-opinion, cross-vendor); anthropic balanced tier
 	ModelHaiku  = "claude-haiku-5-5"  // anthropic cheap tier
 )
 
-// GPT-5.6 model IDs — the default inference tiers (OpenAI Responses API). Sol is
-// the frontier escalation target, Terra the balanced everyday default + fallback
-// absorb target, Luna the fast/cheap classifier.
+// GPT-6 model IDs — the OpenAI tiers (Responses API). Sol is the strong
+// escalation target, Terra the balanced everyday default + fallback absorb
+// target, Luna the fast/cheap classifier. Astra, the frontier tier, is pinned
+// by label only.
 const (
-	ModelSol   = "gpt-5.6-sol"   // frontier — escalation target
-	ModelTerra = "gpt-5.6-terra" // balanced — everyday default + fallback absorb
-	ModelLuna  = "gpt-5.6-luna"  // fast/cheap — classifier + reviewer
+	ModelSol   = "gpt-6.2-sol"   // strong — escalation target
+	ModelTerra = "gpt-6.1-terra" // balanced — everyday default + fallback absorb
+	ModelLuna  = "gpt-6-luna"    // fast/cheap — classifier + reviewer
 )
 
 // Gemini model IDs (Google, via the native genai SDK).

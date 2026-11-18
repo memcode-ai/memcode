@@ -45,10 +45,10 @@
       "window": 1000000,
       "vision": true,
       "reasoning": true,
-      "price_in": 2.0,
-      "price_out": 10.0,
-      "price_cache_read": 0.1,
-      "_note": "Gemini 4 Carbon (Google, gemini-4-carbon), Google's strongest reasoning model. Replaces Gemini 3.1 Pro as the Gemini frontier model; the 3.1 Pro and 3 Pro preview ids are aliased so pins migrate. VERIFIED LIVE on Vertex (location global) 2026-11-18: generateContent, function calling, Google Search grounding. Gemini 4 REJECTS thinkingBudget (400 'Use thinking level instead') and takes only thinkingLevel LOW, MEDIUM or HIGH (MINIMAL 400s and there is no off), which is the thinking_levels flag. LIMITS from the models page: 1M in, 64K out. PRICING verified aistudio.google.com/docs/pricing 2026-11-18: $2/$10, cache $0.10 (0.05x, hence price_cache_read), flat across the whole window. That rate is INTRODUCTORY through 2026-11-30; on 2026-12-01 it doubles to $4/$20 with cache $0.20, and this entry must change that day.",
+      "price_in": 4.0,
+      "price_out": 20.0,
+      "price_cache_read": 0.2,
+      "_note": "Gemini 4 Carbon (Google, gemini-4-carbon), Google's strongest reasoning model. Replaces Gemini 3.1 Pro as the Gemini frontier model; the 3.1 Pro and 3 Pro preview ids are aliased so pins migrate. VERIFIED LIVE on Vertex (location global) 2026-11-18: generateContent, function calling, Google Search grounding. Gemini 4 REJECTS thinkingBudget (400 'Use thinking level instead') and takes only thinkingLevel LOW, MEDIUM or HIGH (MINIMAL 400s and there is no off), which is the thinking_levels flag. LIMITS from the models page: 1M in, 64K out. PRICING verified aistudio.google.com/docs/pricing 2026-11-18: $4/$20, cache $0.20 (0.05x, hence price_cache_read), flat across the whole window. That is the card from 2026-12-01; Google charges an introductory $2/$10 (cache $0.10) through 2026-11-30, and the catalog carries the standing price instead of a dated flip (Tim, 2026-11-18).",
       "pinnable": true,
       "group": "Gemini",
       "desc": "Deep reasoning",
@@ -259,44 +259,8 @@
       "_note": "Claude Haiku 5.5 (Anthropic, claude-haiku-5-5). Supersedes Haiku 4.5 (still served at $1/$5), whose ids are aliased so pins and the anthropic subscription utility model move to 5.5. 1M window, 128K out, adaptive thinking on by default: budget_tokens 400s, {type:disabled} is accepted and is what EffortOff sends, so plumbing calls stay unthinking like 4.5. Forced tool_choice WORKS, verified live 2026-11-18, so no no_forced_tool_choice flag. PRICING verified platform.claude.com/docs/en/about-claude/pricing 2026-11-18: $0.10/$0.50, cache read $0.01, for prompts up to 100K tokens; a prompt over 100K (cache reads and writes count toward it) bills every rate at 5x ($0.50/$2.50/$0.05), which is the price_tiers entry. The newer tokenizer counts the same text as about 30% more tokens than 4.5."
     },
     {
-      "id": "gpt-6-astra",
-      "label": "astra",
-      "vendor": "openai",
-      "window": 1050000,
-      "vision": true,
-      "reasoning": true,
-      "price_in": 10.0,
-      "price_out": 50.0,
-      "price_tiers": [
-        {
-          "above_prompt_tokens": 272000,
-          "in": 2.0,
-          "out": 1.5,
-          "cache_read": 2.0,
-          "cache_write": 2.0
-        }
-      ],
-      "min_reasoning_effort": "low",
-      "_note": "GPT-6 Astra (OpenAI, GA 2026-09-03; API access opened 2026-09-05). Frontier tier. Responses API. 1.05M context, 128K max output, vision, PDF, reasoning (low/medium/high/xhigh/max) - note the floor is \"low\", NOT \"none\": a classifier turn sending none gets a 400, hence min_reasoning_effort. Cached input $1/M = the default in*0.1, so no price_cache_read override. Prompts over 272K bill 2x input/cache and 1.5x output for the WHOLE request; that is the price_tiers entry. Capabilities verified live against api.openai.com, not from docs alone.",
-      "pinnable": true,
-      "group": "OpenAI",
-      "desc": "Strongest reasoning",
-      "name": "GPT-6 Astra",
-      "pdf": true,
-      "www": {
-        "chat": true,
-        "order": 105,
-        "description": "OpenAI frontier GPT-6 Astra. Top-tier intelligence for coding, computer use and professional work, with a 1.05M context window."
-      },
-      "max_output": 128000,
-      "fallback": [
-        "opus",
-        "sol"
-      ]
-    },
-    {
       "id": "gpt-6.2-astra",
-      "label": "gpt-6.2-astra",
+      "label": "astra",
       "vendor": "openai",
       "window": 1050000,
       "vision": true,
@@ -314,7 +278,7 @@
         }
       ],
       "min_reasoning_effort": "low",
-      "_note": "GPT-6.2 Astra (OpenAI, 2026-11-17). Frontier tier, successor to GPT-6 Astra at a lower price. Responses API, 1.05M context, 128K max output. PRICING verified developers.openai.com/api/docs/pricing 2026-11-18: $8/$40, cached $0.40 (0.05x, hence price_cache_read); over 272K prompt tokens 2x input and cache, 1.5x output (price_tiers). Reasoning floor is low: 'none' 400s (verified 2026-11-18). DARK (not pinnable, no www block): as of 2026-11-18 the memcode OpenAI project gets 'does not have access to model' for it, and the org answers every model, GPT-5.6 included, with 'You have no credits remaining'. Activate once the project can call it.",
+      "_note": "Pinned as astra, replacing GPT-6 Astra (aliased). GPT-6.2 Astra (OpenAI, 2026-11-17). Frontier tier, successor to GPT-6 Astra at a lower price. Responses API, 1.05M context, 128K max output. PRICING verified developers.openai.com/api/docs/pricing 2026-11-18: $8/$40, cached $0.40 (0.05x, hence price_cache_read); over 272K prompt tokens 2x input and cache, 1.5x output (price_tiers). Reasoning floor is low: 'none' 400s (verified 2026-11-18). ENABLED 2026-11-18 on Tim's call while the memcode OpenAI project still reported 'does not have access to model' for the GPT-6.2/6.1 ids and the org answered every model with 'You have no credits remaining', so this entry has NOT been verified serving through memcode.",
       "name": "GPT-6.2 Astra",
       "desc": "Strongest reasoning",
       "group": "OpenAI",
@@ -323,11 +287,20 @@
       "fallback": [
         "opus",
         "sol"
+      ],
+      "pinnable": true,
+      "www": {
+        "chat": true,
+        "order": 105,
+        "description": "OpenAI frontier GPT-6.2 Astra. Top-tier intelligence for coding, computer use and professional work, with a 1.05M context window."
+      },
+      "aliases": [
+        "gpt-6-astra"
       ]
     },
     {
       "id": "gpt-6.2-sol",
-      "label": "gpt-6.2-sol",
+      "label": "sol",
       "vendor": "openai",
       "window": 1050000,
       "vision": true,
@@ -343,26 +316,33 @@
           "cache_write": 2.0
         }
       ],
-      "_note": "GPT-6.2 Sol (OpenAI, 2026-11-17). Balanced GPT-6 tier; supersedes GPT-6 Sol and GPT-6.1 Sol, both aliased. Responses API, 1.05M context, 128K max output. PRICING verified developers.openai.com/api/docs/pricing 2026-11-18: $2/$10, cached $0.10 (0.05x, hence price_cache_read); over 272K prompt tokens 2x input and cache, 1.5x output (price_tiers). Reasoning floor is low: 'none' 400s (verified 2026-11-18). DARK (not pinnable, no www block): as of 2026-11-18 the memcode OpenAI project gets 'does not have access to model' for it, and the org answers every model, GPT-5.6 included, with 'You have no credits remaining'. Activate once the project can call it.",
+      "_note": "Pinned as sol, replacing GPT-5.6 Sol (aliased). GPT-6.2 Sol (OpenAI, 2026-11-17). Balanced GPT-6 tier; supersedes GPT-6 Sol and GPT-6.1 Sol, both aliased. Responses API, 1.05M context, 128K max output. PRICING verified developers.openai.com/api/docs/pricing 2026-11-18: $2/$10, cached $0.10 (0.05x, hence price_cache_read); over 272K prompt tokens 2x input and cache, 1.5x output (price_tiers). Reasoning floor is low: 'none' 400s (verified 2026-11-18). ENABLED 2026-11-18 on Tim's call while the memcode OpenAI project still reported 'does not have access to model' for the GPT-6.2/6.1 ids and the org answered every model with 'You have no credits remaining', so this entry has NOT been verified serving through memcode.",
       "name": "GPT-6.2 Sol",
-      "desc": "Balanced everyday coding",
+      "desc": "Complex coding and agents",
       "group": "OpenAI",
       "pdf": true,
       "max_output": 128000,
       "fallback": [
         "sonnet",
-        "sol"
+        "terra"
       ],
       "price_cache_read": 0.1,
       "min_reasoning_effort": "low",
       "aliases": [
+        "gpt-5.6-sol",
         "gpt-6-sol",
         "gpt-6.1-sol"
-      ]
+      ],
+      "pinnable": true,
+      "www": {
+        "chat": true,
+        "order": 110,
+        "description": "OpenAI GPT-6.2 Sol for complex coding and agentic work, with a 1.05M context window."
+      }
     },
     {
       "id": "gpt-6.1-terra",
-      "label": "gpt-6.1-terra",
+      "label": "terra",
       "vendor": "openai",
       "window": 1050000,
       "vision": true,
@@ -379,7 +359,7 @@
           "cache_write": 2.0
         }
       ],
-      "_note": "GPT-6.1 Terra (OpenAI). The GPT-6 successor to GPT-5.6 Terra, at half its input price. Responses API, 1.05M context, 128K max output. PRICING verified developers.openai.com/api/docs/pricing 2026-11-18: $1/$5, cached $0.05 (0.05x, hence price_cache_read); over 272K prompt tokens 2x input and cache, 1.5x output (price_tiers). Its effort validation accepts 'none'. DARK (not pinnable, no www block): as of 2026-11-18 the memcode OpenAI project gets 'does not have access to model' for it, and the org answers every model, GPT-5.6 included, with 'You have no credits remaining'. Activate once the project can call it.",
+      "_note": "Pinned as terra, replacing GPT-5.6 Terra (aliased). GPT-6.1 Terra (OpenAI). The GPT-6 successor to GPT-5.6 Terra, at half its input price. Responses API, 1.05M context, 128K max output. PRICING verified developers.openai.com/api/docs/pricing 2026-11-18: $1/$5, cached $0.05 (0.05x, hence price_cache_read); over 272K prompt tokens 2x input and cache, 1.5x output (price_tiers). Its effort validation accepts 'none'. ENABLED 2026-11-18 on Tim's call while the memcode OpenAI project still reported 'does not have access to model' for the GPT-6.2/6.1 ids and the org answered every model with 'You have no credits remaining', so this entry has NOT been verified serving through memcode.",
       "name": "GPT-6.1 Terra",
       "desc": "Balanced everyday coding",
       "group": "OpenAI",
@@ -388,11 +368,20 @@
       "fallback": [
         "sonnet",
         "luna"
+      ],
+      "pinnable": true,
+      "www": {
+        "chat": true,
+        "order": 90,
+        "description": "Balanced GPT-6.1 model with strong reasoning at a fraction of the cost of Sol."
+      },
+      "aliases": [
+        "gpt-5.6-terra"
       ]
     },
     {
       "id": "gpt-6-luna",
-      "label": "gpt-6-luna",
+      "label": "luna",
       "vendor": "openai",
       "window": 1050000,
       "vision": true,
@@ -408,7 +397,7 @@
           "cache_write": 2.0
         }
       ],
-      "_note": "GPT-6 Luna (OpenAI). Efficient GPT-6 tier for focused, high-volume work. Responses API, 1.05M context, 128K max output, reasoning none..max. PRICING verified developers.openai.com/api/docs/pricing 2026-09-27: $0.10/$0.50, cached $0.01 (default 0.1x); over 272K prompt tokens 2x input/cache, 1.5x output (price_tiers). Re-verified on the pricing page 2026-11-18, unchanged. DARK (not pinnable, no www block): as of 2026-11-18 the memcode OpenAI project gets 'does not have access to model' for it, and the org answers every model, GPT-5.6 included, with 'You have no credits remaining'. Activate once the project can call it.",
+      "_note": "Pinned as luna, replacing GPT-5.6 Luna (aliased). GPT-6 Luna (OpenAI). Efficient GPT-6 tier for focused, high-volume work. Responses API, 1.05M context, 128K max output, reasoning none..max. PRICING verified developers.openai.com/api/docs/pricing 2026-09-27: $0.10/$0.50, cached $0.01 (default 0.1x); over 272K prompt tokens 2x input/cache, 1.5x output (price_tiers). Re-verified on the pricing page 2026-11-18, unchanged. ENABLED 2026-11-18 on Tim's call while the memcode OpenAI project still reported 'does not have access to model' for the GPT-6.2/6.1 ids and the org answered every model with 'You have no credits remaining', so this entry has NOT been verified serving through memcode.",
       "name": "GPT-6 Luna",
       "desc": "Fast and cheap",
       "group": "OpenAI",
@@ -416,112 +405,16 @@
       "max_output": 128000,
       "fallback": [
         "haiku",
-        "luna"
-      ]
-    },
-    {
-      "id": "gpt-5.6-sol",
-      "label": "sol",
-      "vendor": "openai",
-      "window": 1050000,
-      "vision": true,
-      "reasoning": true,
-      "price_in": 4.0,
-      "price_out": 20.0,
-      "_note": "GPT-5.6 Sol (OpenAI, GA 2026-07-09). Frontier tier. Responses API. 1.05M context, 128K max output, vision, reasoning. PRICING verified developers.openai.com/api/docs/pricing 2026-09-27: $4/$20 (cached $0.40 = default 0.1x), a PROMOTIONAL rate OpenAI says runs 'at least through November 21, 2026'; the previous $5/$30 overcharged every call. Re-checked 2026-11-18: the pricing page now says the promotion runs until 2026-11-30, so re-check after that date before touching it. Prompts over 272K bill 2x input/cache and 1.5x output for the whole request (price_tiers).",
-      "pinnable": true,
-      "group": "OpenAI",
-      "desc": "Strongest reasoning",
-      "name": "GPT-5.6 Sol",
-      "pdf": true,
-      "www": {
-        "chat": true,
-        "order": 110,
-        "description": "OpenAI frontier GPT-5.6 Sol. Top-tier intelligence for coding and professional work, with a 1.05M context window."
-      },
-      "max_output": 128000,
-      "fallback": [
-        "opus",
         "terra"
       ],
-      "price_tiers": [
-        {
-          "above_prompt_tokens": 272000,
-          "in": 2.0,
-          "out": 1.5,
-          "cache_read": 2.0,
-          "cache_write": 2.0
-        }
-      ]
-    },
-    {
-      "id": "gpt-5.6-terra",
-      "label": "terra",
-      "vendor": "openai",
-      "window": 1050000,
-      "vision": true,
-      "reasoning": true,
-      "price_in": 2,
-      "price_out": 12,
-      "_note": "GPT-5.6 Terra (OpenAI). Balanced tier \u2014 everyday default + fallback absorb target (was Sonnet in inference). PRICING verified 2026-08-15 developers.openai.com: $2/$12 (cut from $2.50/$15 on 2026-07-30). Prompts over 272K bill 2x input/cache and 1.5x output for the whole request (price_tiers, verified 2026-09-27).",
       "pinnable": true,
-      "group": "OpenAI",
-      "desc": "Balanced everyday coding",
-      "name": "GPT-5.6 Terra",
-      "pdf": true,
-      "www": {
-        "chat": true,
-        "order": 90,
-        "description": "Balanced GPT-5.6 model with strong reasoning at a fraction of the cost of Sol."
-      },
-      "max_output": 128000,
-      "fallback": [
-        "sonnet",
-        "luna"
-      ],
-      "price_tiers": [
-        {
-          "above_prompt_tokens": 272000,
-          "in": 2.0,
-          "out": 1.5,
-          "cache_read": 2.0,
-          "cache_write": 2.0
-        }
-      ]
-    },
-    {
-      "id": "gpt-5.6-luna",
-      "label": "luna",
-      "vendor": "openai",
-      "window": 1050000,
-      "vision": true,
-      "reasoning": true,
-      "price_in": 0.2,
-      "price_out": 1.2,
-      "_note": "GPT-5.6 Luna (OpenAI). Fast/cheap tier \u2014 classifier + reviewer (was Haiku in inference). PRICING verified 2026-08-15 developers.openai.com: $0.20/$1.20 (80% cut from $1/$6 on 2026-07-30). Prompts over 272K bill 2x input/cache and 1.5x output for the whole request (price_tiers, verified 2026-09-27).",
-      "pinnable": true,
-      "group": "OpenAI",
-      "desc": "Fast and cheap",
-      "name": "GPT-5.6 Luna",
-      "pdf": true,
       "www": {
         "chat": true,
         "order": 80,
-        "description": "Fast, cost-effective GPT-5.6 model for quick tasks and high-volume use cases."
+        "description": "Fast, cost-effective GPT-6 model for quick tasks and high-volume use cases."
       },
-      "max_output": 128000,
-      "fallback": [
-        "haiku",
-        "terra"
-      ],
-      "price_tiers": [
-        {
-          "above_prompt_tokens": 272000,
-          "in": 2.0,
-          "out": 1.5,
-          "cache_read": 2.0,
-          "cache_write": 2.0
-        }
+      "aliases": [
+        "gpt-5.6-luna"
       ]
     },
     {
@@ -809,10 +702,10 @@
         "gemini-4-carbon",
         "gemini-4-argon"
       ],
-      "price_in": 2.0,
-      "price_out": 10.0,
-      "price_cache_read": 0.1,
-      "_note": "Gemini 4 Carbon/Argon introductory $2/$10, cache $0.10, through 2026-11-30; $4/$20, cache $0.20, from 2026-12-01 (aistudio.google.com/docs/pricing, verified 2026-11-18)."
+      "price_in": 4.0,
+      "price_out": 20.0,
+      "price_cache_read": 0.2,
+      "_note": "Gemini 4 Carbon/Argon standing card from 2026-12-01: $4/$20, cache $0.20 (aistudio.google.com/docs/pricing, verified 2026-11-18). The introductory $2/$10 through 2026-11-30 is deliberately not modeled."
     },
     {
       "match": [

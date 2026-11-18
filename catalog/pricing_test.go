@@ -14,16 +14,17 @@ func TestModelPricingRealIDs(t *testing.T) {
 		id      string
 		in, out float64
 	}{
-		{"gpt-5.6-sol", 4, 20}, // promo until 2026-11-30 (was billed $5/$30)
+		{"gpt-5.6-sol", 2, 10}, // alias -> GPT-6.2 Sol
 		{"gpt-6-sol", 2, 10},   // alias -> GPT-6.2 Sol
 		{"gpt-6.2-sol", 2, 10},
 		{"gpt-6.2-astra", 8, 40},
 		{"gpt-6.1-terra", 1, 5},
 		{"gpt-6-luna", 0.1, 0.5},
-		{"gpt-5.6-terra", 2, 12},
-		{"gpt-5.6-luna", 0.2, 1.2},
-		{"gemini-4-carbon", 2, 10},          // introductory through 2026-11-30
-		{"gemini-3.1-pro-preview", 2, 10},   // alias -> Gemini 4 Carbon
+		{"gpt-5.6-terra", 1, 5},             // alias -> GPT-6.1 Terra
+		{"gpt-5.6-luna", 0.1, 0.5},          // alias -> GPT-6 Luna
+		{"gpt-6-astra", 8, 40},              // alias -> GPT-6.2 Astra
+		{"gemini-4-carbon", 4, 20},          // standing card from 2026-12-01
+		{"gemini-3.1-pro-preview", 4, 20},   // alias -> Gemini 4 Carbon
 		{"gemini-4-hydrogen", 1.5, 7.5},     // the Gemini everyday model
 		{"gemini-3.8-flash", 1.5, 7.5},      // alias -> Gemini 4 Hydrogen
 		{"gemini-3.5-flash-lite", 0.3, 2.5}, // was billed 6x high → 1.5/9
@@ -80,9 +81,9 @@ func TestModelPricingByLabel(t *testing.T) {
 		label string
 		in    float64
 	}{
-		{"sol", 4}, {"terra", 2}, {"luna", 0.2}, {"opus", 4}, {"grok-4.6", 2},
+		{"astra", 8}, {"sol", 2}, {"terra", 1}, {"luna", 0.1}, {"opus", 4}, {"grok-4.6", 2},
 		{"glm-5p2", 1.40}, {"kimi-k3", 2.00}, {"kimi-k3p1-pro", 2.00}, {"qwen3p8-max", 2.00},
-		{"fable", 8}, {"sonnet", 2}, {"haiku", 0.1}, {"gemini-pro", 2}, {"gemini-flash", 1.5},
+		{"fable", 8}, {"sonnet", 2}, {"haiku", 0.1}, {"gemini-pro", 4}, {"gemini-flash", 1.5},
 		// deepseek-v4-pro is an alias onto V4.1 Flash as of the 2026-09-25 decommission.
 		{"deepseek-v4-pro", 0.30}, {"deepseek-v4-flash", 0.30},
 		{"gemini-flash-lite", 0.3},
@@ -144,10 +145,10 @@ func TestModelPricingCacheRates(t *testing.T) {
 		{"claude-sonnet-5", 0.1, 2.5}, // alias -> Sonnet 5.5, 0.05x cache read
 		{"claude-fable-5-2", 0.2, 10}, // 0.025x cache read
 		{"claude-haiku-5-5", 0.01, 0.125},
-		{"gemini-4-carbon", 0.1, 2.5}, // 0.05x cache read
+		{"gemini-4-carbon", 0.2, 5}, // 0.05x cache read
 		{"gemini-4-hydrogen", 0.075, 1.875},
-		{"gpt-6.2-astra", 0.4, 10}, // 0.05x cache read
-		{"gpt-5.6-terra", 0.2, 2.5},
+		{"gpt-6.2-astra", 0.4, 10},                        // 0.05x cache read
+		{"gpt-6.1-terra", 0.05, 1.25},                     // 0.05x cache read
 		{"accounts/fireworks/models/glm-5p2", 0.26, 1.75}, // alias -> GLM 5.3 cache rate
 		{"accounts/fireworks/models/kimi-k3", 0.20, 2.5},  // alias -> K3.1 Pro
 		// Qwen 3.8 Max publishes $0.25 cached, NOT the 0.1x default this used to inherit.
@@ -264,18 +265,18 @@ func TestPriceTierHighestWinsRegardlessOfOrder(t *testing.T) {
 // The catalog's Astra entry must actually carry the 272K band, and CostUSD must
 // route a long request through it — this is the money path, not just the struct.
 func TestAstraLongPromptCost(t *testing.T) {
-	if p := ModelPricing("gpt-6-astra"); p.Input != 10 || p.Output != 50 || p.CacheRead != 1 {
-		t.Fatalf("base card = %+v, want 10/50 with cache read 1", p)
+	if p := ModelPricing("gpt-6.2-astra"); p.Input != 8 || p.Output != 40 || p.CacheRead != 0.4 {
+		t.Fatalf("base card = %+v, want 8/40 with cache read 0.4", p)
 	}
 	// 300K prompt clears 272K: input 2x, output 1.5x.
-	got := CostUSD("gpt-6-astra", 300_000, 1_000, 0, 0)
-	want := (300_000*20.0 + 1_000*75.0) / 1e6
+	got := CostUSD("gpt-6.2-astra", 300_000, 1_000, 0, 0)
+	want := (300_000*16.0 + 1_000*60.0) / 1e6
 	if math.Abs(got-want) > 1e-9 {
 		t.Errorf("long-prompt cost = %v, want %v", got, want)
 	}
 	// Same model, short prompt, base rates.
-	short := CostUSD("gpt-6-astra", 1_000, 1_000, 0, 0)
-	if wantShort := (1_000*10.0 + 1_000*50.0) / 1e6; math.Abs(short-wantShort) > 1e-9 {
+	short := CostUSD("gpt-6.2-astra", 1_000, 1_000, 0, 0)
+	if wantShort := (1_000*8.0 + 1_000*40.0) / 1e6; math.Abs(short-wantShort) > 1e-9 {
 		t.Errorf("short-prompt cost = %v, want %v", short, wantShort)
 	}
 }
@@ -285,21 +286,24 @@ func TestAstraLongPromptCost(t *testing.T) {
 // cached is exactly the underbill this mechanism exists to prevent.
 func TestPriceTierThresholdCountsCachedPrompt(t *testing.T) {
 	// 10K fresh + 280K cache read = 290K prompt → over the line.
-	got := CostUSD("gpt-6-astra", 10_000, 0, 280_000, 0)
-	want := (10_000*20.0 + 280_000*2.0) / 1e6
+	got := CostUSD("gpt-6.2-astra", 10_000, 0, 280_000, 0)
+	want := (10_000*16.0 + 280_000*0.8) / 1e6
 	if math.Abs(got-want) > 1e-9 {
 		t.Errorf("cached long prompt = %v, want %v", got, want)
 	}
 }
 
 // The effort floor is a catalog FACT, not an adapter special case: Astra rejects
-// "none", GPT-5.6 accepts it, and a model that declares no floor reports "".
+// "none" (so does GPT-6.2 Sol), GPT-6.1 Terra accepts it, and a model that
+// declares no floor reports "".
 func TestMinReasoningEffort(t *testing.T) {
-	if got := MinReasoningEffort("gpt-6-astra"); got != "low" {
-		t.Errorf("astra floor = %q, want \"low\"", got)
+	for _, m := range []string{"gpt-6.2-astra", "astra", "sol"} {
+		if got := MinReasoningEffort(m); got != "low" {
+			t.Errorf("%s floor = %q, want \"low\"", m, got)
+		}
 	}
-	if got := MinReasoningEffort("gpt-5.6-sol"); got != "" {
-		t.Errorf("sol floor = %q, want \"\" (no floor)", got)
+	if got := MinReasoningEffort("terra"); got != "" {
+		t.Errorf("terra floor = %q, want \"\" (no floor)", got)
 	}
 	if got := MinReasoningEffort("some-model-nobody-added"); got != "" {
 		t.Errorf("unknown floor = %q, want \"\"", got)
@@ -325,6 +329,10 @@ func TestRetiredModelAliases(t *testing.T) {
 		{"gemini-3.1-pro-preview", "gemini-4-carbon"},
 		{"gemini-3.8-flash", "gemini-4-hydrogen"},
 		{"gpt-6-sol", "gpt-6.2-sol"},
+		{"gpt-5.6-sol", "gpt-6.2-sol"},
+		{"gpt-5.6-terra", "gpt-6.1-terra"},
+		{"gpt-5.6-luna", "gpt-6-luna"},
+		{"gpt-6-astra", "gpt-6.2-astra"},
 		{"glm-5p2", "accounts/fireworks/models/glm-5p3"},
 		{"accounts/fireworks/models/glm-5p2", "accounts/fireworks/models/glm-5p3"},
 	} {
