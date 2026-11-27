@@ -188,7 +188,8 @@ func (s *appState) footerRow() ui.Widget {
 	// The model's real name. The provider word only appears when it adds
 	// something: a subscription or own-key lane, or a custom endpoint, never a
 	// plain repeat of the vendor the name already implies.
-	modelText := provider.DisplayName(model)
+	// Lowercase like every other footer segment: "gemini 4 carbon".
+	modelText := strings.ToLower(provider.DisplayName(model))
 	if pl := s.w.sess.ProviderLabel(); pl != "" {
 		if cm, ok := catalog.LookupModel(model); !ok || pl != cm.Vendor {
 			modelText = pl + " · " + modelText

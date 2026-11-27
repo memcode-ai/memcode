@@ -1255,3 +1255,17 @@ func TestEffortPickerOpensAndApplies(t *testing.T) {
 		t.Fatalf("the choice must be remembered: cfg.Effort = %q", cfg.Effort)
 	}
 }
+
+// TestFooterModelNameLowercase: the footer names the model by its real name
+// but in lowercase, like every other footer segment ("gemini 4 carbon", not
+// "Gemini 4 Carbon" or the generic label "gemini-pro").
+func TestFooterModelNameLowercase(t *testing.T) {
+	theme.Set("aurora")
+	sess := newTestSession(t)
+	sess.SetPin("gemini-pro", 0)
+	app := uitest.New(&appWidget{ctx: context.Background(), sess: sess, themeName: "aurora"})
+	app.Pump(120, 24)
+	if !app.Contains("gemini 4 carbon") || app.Contains("Gemini 4 Carbon") {
+		t.Fatalf("footer must show the lowercase model name.\n%q", app.Text())
+	}
+}

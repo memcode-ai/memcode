@@ -1127,9 +1127,9 @@ func (s *Session) complete(ctx context.Context, purpose llm.Purpose, req wire.Re
 		// Just the model name — it already implies the backend (glm-5p2 = cheap lane, opus =
 		// Anthropic). The cheap lane tags a short Pool label; Anthropic has none, so fall back to
 		// the short model id.
-		// The model's real name (Gemini 4 Carbon, Opus 5.5), not the catalog's
+		// The model's real name (gemini 4 carbon, opus 5.5), not the catalog's
 		// generic label.
-		name := provider.DisplayName(resp.Model)
+		name := strings.ToLower(provider.DisplayName(resp.Model)) // lowercase, like the rest of the chrome
 		if name == "" {
 			name = resp.Pool
 		}
