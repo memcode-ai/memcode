@@ -31,15 +31,26 @@ func (s *Session) runTestsTool(ctx context.Context, input json.RawMessage) toolR
 		return s.runGoTests(cctx, in)
 	case "pytest":
 		return s.runGenericTests(cctx, "pytest", pytestArgs(in), in)
+	case "unittest":
+		return s.runGenericTests(cctx, pythonBin(), unittestArgs(in), in)
 	case "jest":
 		return s.runGenericTests(cctx, "npx", jestArgs(in), in)
+	case "npm":
+		return s.runGenericTests(cctx, "npm", []string{"test", "--silent"}, in)
+	case "cargo":
+		return s.runGenericTests(cctx, "cargo", cargoArgs(in), in)
+	case "make":
+		return s.runGenericTests(cctx, "make", []string{"test"}, in)
 	default:
-		return errResult("run_tests couldn't detect a test runner (no go.mod / pyproject.toml / package.json with jest|vitest). Use bash to run the project's test command directly.")
+		return errResult("run_tests couldn't detect a test runner here (go.mod, Python test files, package.json, Cargo.toml or a Makefile test target). " +
+			"Run the project's tests with bash instead: a passing bash test run counts as verification, including for completing the final todo.")
 	}
 }
 
-// detectTestRunner picks a runner from repo markers. Go wins when go.mod is present
-// (this is a Go-first tool); otherwise pytest, then jest/vitest.
+// detectTestRunner picks a runner from repo markers, most specific first: Go,
+// configured pytest, Python test files (pytest when installed, else the
+// standard library's unittest), jest/vitest, an npm test script, cargo, and a
+// Makefile test target. "" when nothing matches.
 func detectTestRunner(root string) string {
 	if exists(filepath.Join(root, "go.mod")) {
 		return "go"
@@ -47,12 +58,95 @@ func detectTestRunner(root string) string {
 	if exists(filepath.Join(root, "pyproject.toml")) || exists(filepath.Join(root, "pytest.ini")) || exists(filepath.Join(root, "setup.cfg")) {
 		return "pytest"
 	}
+	if hasPythonTests(root) {
+		if _, err := exec.LookPath("pytest"); err == nil {
+			return "pytest"
+		}
+		return "unittest"
+	}
 	if b, err := os.ReadFile(filepath.Join(root, "package.json")); err == nil {
-		if s := string(b); strings.Contains(s, "\"jest\"") || strings.Contains(s, "\"vitest\"") {
+		s := string(b)
+		if strings.Contains(s, "\"jest\"") || strings.Contains(s, "\"vitest\"") {
 			return "jest"
 		}
+		if hasNpmTestScript(b) {
+			return "npm"
+		}
+	}
+	if exists(filepath.Join(root, "Cargo.toml")) {
+		return "cargo"
+	}
+	if hasMakeTestTarget(filepath.Join(root, "Makefile")) {
+		return "make"
 	}
 	return ""
+}
+
+// hasPythonTests reports test_*.py / *_test.py files at the root, in tests/ or
+// test/, or one package level down (pkg/tests/), the layouts unittest and
+// pytest discover.
+func hasPythonTests(root string) bool {
+	for _, pat := range []string{"test_*.py", "*_test.py", "tests/test_*.py", "test/test_*.py", "*/tests/test_*.py", "*/test_*.py"} {
+		if m, _ := filepath.Glob(filepath.Join(root, pat)); len(m) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// hasNpmTestScript reports a real "test" script (not npm init's placeholder
+// that only prints "no test specified" and exits 1).
+func hasNpmTestScript(pkg []byte) bool {
+	var p struct {
+		Scripts map[string]string `json:"scripts"`
+	}
+	if json.Unmarshal(pkg, &p) != nil {
+		return false
+	}
+	t := strings.TrimSpace(p.Scripts["test"])
+	return t != "" && !strings.Contains(t, "no test specified")
+}
+
+// hasMakeTestTarget reports a Makefile with a `test:` target.
+func hasMakeTestTarget(path string) bool {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		if strings.HasPrefix(line, "test:") {
+			return true
+		}
+	}
+	return false
+}
+
+// pythonBin is the interpreter for unittest runs: python3 where it exists.
+func pythonBin() string {
+	if _, err := exec.LookPath("python3"); err == nil {
+		return "python3"
+	}
+	return "python"
+}
+
+func unittestArgs(in tools.RunTestsInput) []string {
+	args := []string{"-m", "unittest"}
+	if in.Run != "" {
+		return append(args, "-k", in.Run)
+	}
+	args = append(args, "discover")
+	if in.Path != "" {
+		args = append(args, "-s", in.Path)
+	}
+	return args
+}
+
+func cargoArgs(in tools.RunTestsInput) []string {
+	args := []string{"test", "-q"}
+	if in.Run != "" {
+		args = append(args, in.Run)
+	}
+	return args
 }
 
 func exists(p string) bool { _, err := os.Stat(p); return err == nil }

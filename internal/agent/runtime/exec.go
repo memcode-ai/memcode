@@ -1055,11 +1055,38 @@ func (s *Session) markRead() {
 	s.mu.Unlock()
 }
 
-func (s *Session) markEdited() {
+// markEdited records an edit for the verified-after-edit completion gate.
+// Documentation-only files (README, .gitignore, a license) don't invalidate a
+// passing test run: nothing a build or test checks changed. A project wrote its
+// .gitignore and README after its tests passed, and the gate refused to close
+// the final todo until the tests were rerun for no reason.
+func (s *Session) markEdited(path string) {
+	if docsOnlyPath(path) {
+		return
+	}
 	s.mu.Lock()
 	s.metrics.didEdit = true
 	s.metrics.lastEditSeq = s.metrics.toolCalls
 	s.mu.Unlock()
+}
+
+// docsOnlyPath reports a file no build or test reads: prose docs and VCS or
+// license metadata. Data files (.txt, .json, .yaml) are NOT included: tests
+// often read them.
+func docsOnlyPath(path string) bool {
+	base := strings.ToLower(filepath.Base(path))
+	switch base {
+	case ".gitignore", ".gitattributes", ".editorconfig", "license", "notice", "authors", "codeowners":
+		return true
+	}
+	if strings.HasPrefix(base, "license.") || strings.HasPrefix(base, "changelog") {
+		return true
+	}
+	switch filepath.Ext(base) {
+	case ".md", ".mdx", ".markdown", ".rst":
+		return true
+	}
+	return false
 }
 
 func (s *Session) markVerified(ok bool) {
@@ -1510,7 +1537,7 @@ func (s *Session) editFile(ctx context.Context, input json.RawMessage) toolResul
 		return errResult(err.Error())
 	}
 	edit.Format(ctx, s.root, res.Path) // auto-format by file type (best-effort, if the tool is installed)
-	s.markEdited()
+	s.markEdited(res.Path)
 	if s.turn.editedPaths == nil {
 		s.turn.editedPaths = map[string]bool{}
 	}
@@ -1680,8 +1707,8 @@ func (s *Session) applyPatch(ctx context.Context, input json.RawMessage) toolRes
 		postHash, _ := edit.Hash(s.root, p)
 		s.noteFileHash(p, postHash)
 		s.emit(ctx, events.KindFileEdited, map[string]any{"path": p, "hash": postHash, "via": "apply_patch"})
+		s.markEdited(p)
 	}
-	s.markEdited()
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "OK, applied %d edits across %d file(s) atomically:\n", len(applied), len(dedupePaths(paths)))
@@ -1877,7 +1904,7 @@ func (s *Session) runGatedCommand(ctx context.Context, command, cwd string, back
 
 	// Catch out-of-band edits: files this command newly changed (e.g. via sed).
 	for _, f := range newlyChanged(before, changedFiles(ctx, s.root)) {
-		s.markEdited()
+		s.markEdited(f)
 		postHash, _ := edit.Hash(s.root, f)
 		s.noteFileHash(f, postHash) // memcode changed it via bash — keep the stale-guard view current
 		s.emit(ctx, events.KindFileEdited, map[string]any{"path": f, "via": "bash", "hash": postHash})
@@ -2012,7 +2039,7 @@ func (s *Session) runShell(ctx context.Context, command string) {
 
 	// Attribute files this command changed so memcode's state stays accurate.
 	for _, f := range newlyChanged(before, changedFiles(ctx, s.root)) {
-		s.markEdited()
+		s.markEdited(f)
 		postHash, _ := edit.Hash(s.root, f)
 		s.noteFileHash(f, postHash) // memcode changed it via $ shell — keep the stale-guard view current
 		s.emit(ctx, events.KindFileEdited, map[string]any{"path": f, "via": "shell", "hash": postHash})

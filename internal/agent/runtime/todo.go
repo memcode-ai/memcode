@@ -102,7 +102,7 @@ func (s *Session) applyTodoAction(action string, items todos.List, in tools.Todo
 		unverified := s.metrics.didEdit && s.metrics.lastVerifyOKSeq <= s.metrics.lastEditSeq
 		s.mu.Unlock()
 		if next.AllSettled() && unverified {
-			return nil, "cannot complete the final todo: no passing verification (build/tests) after your last edit. Run a build and/or tests first, then mark it done."
+			return nil, "cannot complete the final todo yet: no passing build or test run since your last code edit. Run the tests now (run_tests, or the project's test command with bash: a passing bash run counts), then mark it done in the same turn. Docs-only edits like a README or .gitignore don't count against this."
 		}
 		s.todos = next
 	case "block":
