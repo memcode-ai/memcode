@@ -513,7 +513,12 @@ func (g *Gemini) streamOnce(ctx context.Context, cl *genai.Client, model string,
 	var stopReason string
 	var fnCalls []wire.Block
 
-	for result, err := range cl.Models.GenerateContentStream(ctx, model, contents, cfg) {
+	// A silent upstream is abandoned after provcore.StreamStallIdle instead of
+	// held for as long as Google takes to give up (once 20 minutes, then a 503).
+	sctx, watch, stop := provcore.WatchStalls(ctx, provcore.StreamStallIdle)
+	defer stop()
+	for result, err := range cl.Models.GenerateContentStream(sctx, model, contents, cfg) {
+		watch.Touch()
 		if err != nil {
 			// Return whatever the vendor already billed before the cut — a cancelled or
 			// failed stream still costs the tokens consumed so far, and the Runner
@@ -527,6 +532,9 @@ func (g *Gemini) streamOnce(ctx context.Context, cl *genai.Client, model string,
 			}
 			if ctx.Err() != nil {
 				return partial, emitted, ctx.Err()
+			}
+			if watch.Stalled() {
+				return partial, emitted, &provcore.StreamStallError{Backend: "gemini", Idle: provcore.StreamStallIdle}
 			}
 			if isGeminiOverflow(err) {
 				return partial, emitted, &provcore.ContextOverflowError{Backend: "gemini", Message: err.Error()}

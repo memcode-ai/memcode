@@ -199,6 +199,15 @@ type Runner struct {
 	sel     *selection // control-plane snapshot + selection policy (forks share it)
 	session string     // this Session's id — stamped onto every request (the wire `user` field)
 	pin     string     // the session's model (the pin resolver settles it at start)
+	// retryNotify, when set, is told before each same-model retry (attempt,
+	// cause, wait), so the user sees the model being retried.
+	retryNotify func(attempt int, err error, delay time.Duration)
+}
+
+// SetRetryNotify registers the callback runWithRecovery calls before each
+// same-model retry.
+func (r *Runner) SetRetryNotify(fn func(attempt int, err error, delay time.Duration)) {
+	r.retryNotify = fn
 }
 
 // SetSession ties this Runner to a Session id so every call carries it on the wire
@@ -249,7 +258,7 @@ func (r *Runner) InvalidateModels() { r.sel.Invalidate() }
 // snapshot), never an executor with per-context state. The pin is inherited:
 // /model pins the whole session, sub-agents included.
 func (r *Runner) Fork() *Runner {
-	return &Runner{prov: r.prov, ledger: r.ledger, sel: r.sel, pin: r.pin}
+	return &Runner{prov: r.prov, ledger: r.ledger, sel: r.sel, pin: r.pin, retryNotify: r.retryNotify}
 }
 
 // Provider returns the wrapped provider — ONLY for capability assertions that aren't
@@ -279,6 +288,7 @@ func (r *Runner) prepare(ctx context.Context, p Purpose, req *wire.Request) (res
 	if !r.hostedPolicy() {
 		req.Pin = r.pin // endpoint mode / test fakes: session model or raw pass-through
 		req.Effort = resolveEffort(req.Pin, req.Effort)
+		dropEmptyAssistant(req)
 		if ep, ok := r.prov.(provider.Endpointer); ok {
 			if e, on := ep.Endpoint(); on {
 				if err := fitEndpointLimits(req, e.LimitsFor(req.Pin)); err != nil {
@@ -300,6 +310,7 @@ func (r *Runner) prepare(ctx context.Context, p Purpose, req *wire.Request) (res
 	req.Pin = res.label
 	req.Effort = resolveEffort(res.label, req.Effort)
 	scrubForeignThinking(req, res.label)
+	dropEmptyAssistant(req)
 	// The delegate doctrine was appended here: a cheap Automatic coding lane
 	// was told to hand non-code work to a strong-tier agent. Both halves of
 	// that sentence are gone — there is no cheap lane and no stronger tier to

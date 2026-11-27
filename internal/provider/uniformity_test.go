@@ -196,10 +196,11 @@ func TestBackendUniformity(t *testing.T) {
 	}
 	runner := llm.NewRunner(prov)
 	runner.SetPin("sonnet") // production's pin resolver always yields one
+	t.Cleanup(llm.SetSameModelRetryDelays(0, 0))
 
-	// Turn 4's primary (the pin) fails once → the catalog chain rescues on
-	// sonnet's declared fallback, terra. Scripted AFTER turns 1-3 so only turn 4
-	// trips it: failOnce is per-model and the earlier turns serve the pin too.
+	// Turn 4's primary (the pin) fails once → the SAME model is retried and
+	// serves; the pinned model is never swapped. Scripted AFTER turns 1-3 so only
+	// turn 4 trips it: failOnce is per-model and the earlier turns serve the pin too.
 	errs := script(t, &scriptedFail{Runner: runner, gw: gw})
 	for i, err := range errs {
 		if err != nil {
@@ -210,7 +211,7 @@ func TestBackendUniformity(t *testing.T) {
 	// to escalate a turn to the frontier tier; with one pinned model there is
 	// nothing to escalate to, and the pin is not something a hint may override.
 	// Only the classifier rides elsewhere, on the pinned vendor's small model.
-	wantHosted := []string{"sonnet", "haiku", "sonnet", "sonnet", "terra"}
+	wantHosted := []string{"sonnet", "haiku", "sonnet", "sonnet", "sonnet"}
 	if got := gw.requestedModels(); !equalStrings(got, wantHosted) {
 		t.Fatalf("hosted decision sequence = %v, want %v", got, wantHosted)
 	}

@@ -3,7 +3,9 @@ package llm
 import (
 	"context"
 	"errors"
+	"math/rand"
 	"net/http"
+	"time"
 
 	"github.com/memcode-ai/memcode/catalog"
 	"github.com/memcode-ai/memcode/internal/provider"
@@ -11,24 +13,18 @@ import (
 	"github.com/memcode-ai/memcode/internal/wire"
 )
 
-// recover.go — the CLI-side RECOVERY EXECUTOR: when a serve fails with a
-// model-class error (the backend 5xx'd, the lane is overloaded, the request
-// died after the transport's own retries), the agent walks the catalog's
-// fallback chain and retries the SAME call on the next capable, fundable
-// model — Claude Code's client-owned fallback, adopted exactly: the fallback
-// applies to the CURRENT call only (the next turn re-selects the primary),
-// and it fires only when NOTHING was emitted (Complete is atomic; Stream
-// tracks first emission).
+// recover.go — the CLI-side RECOVERY EXECUTOR. When a serve fails with an
+// infrastructure-class error (the backend 5xx'd or was unavailable, the stream
+// stalled, the request died after the transport's own retries), the SAME call
+// is retried on the SAME model after a backoff. The model never changes: the
+// user pinned it, and quietly moving a turn to another vendor (Gemini 4 Carbon
+// to Sonnet on a Claude subscription, 2026-11-27) is exactly what pinning
+// forbids. When the retries are spent the error surfaces, naming the model.
 //
-// Errors with their own policy stay OUT of the chain (the Claude Code line
-// between fallback-eligible and terminal classes): billing/entitlement 402s,
-// BYOK key failures (never silently retried on credits — the CLI may OFFER an
-// explicit consented credits retry via the billing-lane extension),
-// auth/sign-out, context overflow (compaction owns it), and mid-stream cuts
-// (the loop's same-call retry owns those).
-
-// maxModelFallbacks bounds one call's chain walk.
-const maxModelFallbacks = 2
+// Retries fire only when NOTHING was emitted, and never for errors with their
+// own policy: billing/entitlement 402s, BYOK key failures, auth/sign-out,
+// requests WE malformed (4xx), context overflow (compaction owns it) and
+// mid-stream cuts (the loop's same-call retry owns those).
 
 // terminalForFallback reports errors the fallback chain must never touch —
 // they carry their own recovery policy elsewhere.
@@ -137,71 +133,57 @@ func billingClass(err error) bool {
 		errors.Is(err, wire.ErrUnauthorized)
 }
 
-// nextFallback picks the next chain member that can actually take THIS call:
-// servable here, capability-compatible with the payload, and fundable under
-// the org's credit state. "" ends the walk.
-func nextFallback(label string, tried map[string]bool, req wire.Request, info provider.ModelsInfo) string {
-	estimate := estimateTokens(req)
-	needVision := hasBlock(req, "image")
-	needPDF := hasBlock(req, "document")
-	keyed := info.ByokVendorSet()
-	for _, fb := range catalog.FallbackChain(label) {
-		if tried[fb] {
-			continue
-		}
-		f, ok := info.Fact(fb)
-		if !ok {
-			continue // not servable on this backend
-		}
-		if needVision && !f.Vision {
-			continue
-		}
-		if needPDF && !f.PDF {
-			continue
-		}
-		if f.Window > 0 && estimate > f.Window {
-			continue
-		}
-		if info.CreditsExhausted && (len(keyed) > 0 || len(info.SubVendors) > 0) &&
-			!fundedVendor(f.Vendor, keyed, info) {
-			continue // the $0 rule holds mid-recovery too
-		}
-		return fb
-	}
-	return ""
+// sameModelRetryDelays are the waits before each extra attempt on the same
+// model, after the transport's own retries are spent. Exponential and jittered
+// (see retryDelay) because the usual cause is an overloaded upstream, which a
+// quick retry only hits again. A var so tests can shorten it.
+var sameModelRetryDelays = []time.Duration{10 * time.Second, 30 * time.Second}
+
+// SetSameModelRetryDelays replaces the same-model retry schedule and returns
+// a func restoring it. For tests outside this package; production never calls it.
+func SetSameModelRetryDelays(d ...time.Duration) (restore func()) {
+	old := sameModelRetryDelays
+	sameModelRetryDelays = d
+	return func() { sameModelRetryDelays = old }
 }
 
-// runWithRecovery executes one call with the fallback walk. call runs one
-// attempt against the label in req.Pin; emitted reports whether any output
-// reached the user (streamed text) — once true, recovery stops cold.
-func (r *Runner) runWithRecovery(ctx context.Context, req wire.Request, res resolved, info provider.ModelsInfo,
+// retryDelay is one wait with equal jitter: [d/2, d).
+func retryDelay(d time.Duration) time.Duration {
+	if d <= 1 {
+		return d
+	}
+	half := d / 2
+	return half + time.Duration(rand.Int63n(int64(half)))
+}
+
+// runWithRecovery executes one call, retrying the SAME model on
+// infrastructure-class failures. call runs one attempt against req.Pin;
+// emitted reports whether any output reached the user (streamed text), and
+// once it has, nothing is retried.
+func (r *Runner) runWithRecovery(ctx context.Context, req wire.Request, res resolved, _ provider.ModelsInfo,
 	emitted func() bool, call func(wire.Request) (wire.Response, error)) (wire.Response, error) {
 
-	tried := map[string]bool{res.label: true}
-	label := res.label
-	reason := ""
 	for attempt := 0; ; attempt++ {
 		resp, err := call(req)
 		if err == nil {
-			r.finalize(&resp, res, reason)
+			r.finalize(&resp, res, "")
 			return resp, nil
 		}
 		if billingClass(err) {
 			r.sel.Invalidate() // credits/keys state just changed under us
 		}
-		if ctx.Err() != nil || terminalForFallback(err) || emitted() || attempt >= maxModelFallbacks || res.subOnly {
+		if ctx.Err() != nil || terminalForFallback(err) || emitted() || attempt >= len(sameModelRetryDelays) {
 			return resp, err
 		}
-		next := nextFallback(label, tried, req, info)
-		if next == "" {
-			return resp, err
+		delay := retryDelay(sameModelRetryDelays[attempt])
+		if r.retryNotify != nil {
+			r.retryNotify(attempt+1, err, delay)
 		}
-		reason = "model_error: " + clipErr(err)
-		tried[next] = true
-		label = next
-		req.Pin = next
-		req.Effort = resolveEffort(next, req.Effort)
-		scrubForeignThinking(&req, next)
+		select {
+		case <-ctx.Done():
+			return resp, ctx.Err()
+		case <-time.After(delay):
+		}
 	}
 }
 
@@ -234,11 +216,4 @@ func (r *Runner) finalize(resp *wire.Response, res resolved, fallbackReason stri
 			resp.Backend = v
 		}
 	}
-}
-
-// clipErr renders an upstream error for the ⇄ reason line: the friendly
-// status + provider message (bounded, rune-safe), not a 120-byte cut of the
-// raw SDK dump that usually stopped before the message began.
-func clipErr(err error) string {
-	return provider.FriendlyError(err)
 }

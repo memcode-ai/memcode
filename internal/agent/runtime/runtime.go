@@ -70,7 +70,7 @@ const (
 	// maxRetriesClientVisible mirrors the SDK client's retry bound (sdk-go client.maxRetries).
 	// Shown in the "⊙ retrying (n/N)" TUI line so the user sees the retry budget. Kept in sync
 	// manually — the client's constant is unexported (the SDK doesn't export its retry policy).
-	maxRetriesClientVisible = 3
+	maxRetriesClientVisible = 4
 )
 
 // Session runs one agent task against a project.
@@ -296,8 +296,16 @@ func New(st store.Store, runner *llm.Runner, root, model string, mode permission
 	// provider that doesn't support it (test fakes, a future local backend).
 	provider.SetRetryNotify(s.prov, func(attempt int, err error, delay time.Duration) {
 		s.printf("  ⊙ transient gateway error (%v) — retrying (%d/%d, in %s)\n",
-			err, attempt, maxRetriesClientVisible, delay.Round(time.Millisecond))
+			err, attempt, maxRetriesClientVisible, delay.Round(time.Second))
 	})
+	// Same-model retries after the transport's own are spent: the pinned model
+	// is retried, never swapped, and the user sees which model and why.
+	if runner != nil {
+		runner.SetRetryNotify(func(attempt int, err error, delay time.Duration) {
+			s.printf("  ⊙ %s failed (%s) — retrying the same model (%d/2, in %s)\n",
+				strings.ToLower(provider.DisplayName(s.pin)), provider.FriendlyError(err), attempt, delay.Round(time.Second))
+		})
+	}
 	return s
 }
 

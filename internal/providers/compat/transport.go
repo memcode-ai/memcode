@@ -293,15 +293,15 @@ func (t *Transport) Stream(ctx context.Context, r wire.Request, h wire.StreamHan
 //
 // Ported from the legacy SDK client (packages/sdk/go/client/client.go): on a
 // retryable status (429, 500, 502, 503, 504) or a transient net error, back
-// off with exponential + full jitter (honoring Retry-After) and re-issue the
+// off with exponential + equal jitter (honoring Retry-After) and re-issue the
 // POST — the endpoint is stateless between calls. Other 4xx are permanent and
 // never retried. Bounded so a genuinely-down endpoint fails cleanly.
 
 const (
-	maxRetries  = 3
+	maxRetries  = 4
 	retryBaseMs = 1000  // base backoff: 1s
 	retryFactor = 2     // exponential factor
-	retryCapMs  = 10000 // backoff cap: 10s
+	retryCapMs  = 15000 // backoff cap: 15s
 )
 
 // newRequest builds one attempt: body, auth, accept. Everything the backend
@@ -450,9 +450,9 @@ func retryAfterDelay(resp *http.Response) (time.Duration, bool) {
 	return d, true
 }
 
-// backoffDelay computes exponential backoff with full jitter:
-// rand(0, base·factor^attempt), capped — spread so concurrent retries don't
-// synchronize.
+// backoffDelay computes exponential backoff with equal jitter: a wait in
+// [base/2, base) for base = 1s·2^attempt, capped at 15s, so retries spread out
+// without ever firing almost immediately.
 func backoffDelay(attempt int) time.Duration {
 	base := time.Duration(retryBaseMs) * time.Millisecond
 	for i := 0; i < attempt; i++ {
@@ -462,5 +462,9 @@ func backoffDelay(attempt int) time.Duration {
 			break
 		}
 	}
-	return time.Duration(rand.Int63n(int64(base)))
+	// Equal jitter: [base/2, base). Full jitter's [0, base) let a retry fire a
+	// few milliseconds later, three times inside three seconds, which an
+	// overloaded upstream can't recover from; half the nominal wait is the floor.
+	half := base / 2
+	return half + time.Duration(rand.Int63n(int64(half)))
 }

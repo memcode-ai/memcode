@@ -72,12 +72,6 @@ func applyLaneFacts(info provider.ModelsInfo, lanes []provider.LaneInfo, gateway
 // when they picked the model. Credential lanes below still decide WHICH
 // credential pays for that vendor, which is a different question and stays.
 
-// fundedVendor reports a vendor with a no-credit serving path: a gateway BYOK
-// key, a local key lane (merged into Byok above), or a subscription lane.
-func fundedVendor(v string, keyed map[string]bool, info provider.ModelsInfo) bool {
-	return keyed[v] || info.SubVendors[v]
-}
-
 // scrubForeignThinking drops thinking/redacted_thinking blocks FOREIGN to the
 // serving vendor: per-turn family switching (a lane turn after a gateway
 // Claude turn, a mid-call fallback hop) can otherwise replay one vendor's
@@ -127,4 +121,47 @@ func scrubForeignThinking(req *wire.Request, servingLabel string) {
 		}
 		m.Blocks = kept
 	}
+}
+
+// dropEmptyAssistant removes assistant messages that would reach the vendor
+// with nothing in them: no text, no tool call, no reasoning block. A failed or
+// empty turn could leave one in the history (the 503'd Carbon turn,
+// 2026-11-27), or scrubForeignThinking could empty one by stripping another
+// vendor's reasoning, and every later request then failed with "assistant
+// message has no content" on every model. Dropping it is lossless: there was
+// nothing to say. Consecutive user turns are accepted by every vendor.
+func dropEmptyAssistant(req *wire.Request) {
+	empty := 0
+	for _, m := range req.Messages {
+		if m.Role == "assistant" && !hasContent(m) {
+			empty++
+		}
+	}
+	if empty == 0 {
+		return
+	}
+	// A NEW slice: req.Messages shares its backing array with the session's
+	// own history, which must not be rewritten under it.
+	kept := make([]wire.Message, 0, len(req.Messages)-empty)
+	for _, m := range req.Messages {
+		if m.Role == "assistant" && !hasContent(m) {
+			continue
+		}
+		kept = append(kept, m)
+	}
+	req.Messages = kept
+}
+
+func hasContent(m wire.Message) bool {
+	for _, b := range m.Blocks {
+		switch b.Type {
+		case "text":
+			if strings.TrimSpace(b.Text) != "" {
+				return true
+			}
+		default: // tool_use, thinking, redacted_thinking, images, documents
+			return true
+		}
+	}
+	return false
 }

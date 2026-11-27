@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/memcode-ai/memcode/catalog"
 	"github.com/memcode-ai/memcode/internal/provider"
@@ -24,6 +25,7 @@ import (
 type scriptedProv struct {
 	requested []string
 	failures  map[string]error // label → error to return
+	failOnce  map[string]error // label → error returned on the FIRST call only
 	onEP      *provider.Endpoint
 	streamed  string // text to emit via handler before failing (emitted-guard tests)
 }
@@ -31,6 +33,10 @@ type scriptedProv struct {
 func (p *scriptedProv) Complete(_ context.Context, r wire.Request) (wire.Response, error) {
 	p.requested = append(p.requested, r.Pin)
 	if err := p.failures[r.Pin]; err != nil {
+		return wire.Response{}, err
+	}
+	if err := p.failOnce[r.Pin]; err != nil {
+		delete(p.failOnce, r.Pin)
 		return wire.Response{}, err
 	}
 	return wire.Response{StopReason: "end_turn", Model: r.Pin,
@@ -233,23 +239,36 @@ func TestContextOverflowRefuses(t *testing.T) {
 // that coercion by design — an explicit choice gets the gateway's clean 402
 // naming the vendor, never a silent switch. That is now the only behavior.
 
-func TestFallbackWalkOnModelError(t *testing.T) {
-	p := &scriptedProv{failures: map[string]error{"glm-5p2": errors.New("lane http 500: boom")}}
+// A pinned model is retried on an infrastructure failure, never swapped: a
+// one-off 500 is rescued by the SAME model, and a model that keeps failing
+// surfaces its error after the retries instead of moving to its old fallback.
+func TestPinnedModelRetriesTheSameModelNeverSwitches(t *testing.T) {
+	p := &scriptedProv{failOnce: map[string]error{"glm-5p2": errors.New("lane http 500: boom")}}
 	r := pinnedRunner(p, prodInfo(nil), "glm-5p2")
-
 	resp, err := r.Complete(context.Background(), MainLoop, userReq("hi"))
 	if err != nil {
-		t.Fatalf("the chain must rescue the call: %v", err)
+		t.Fatalf("a retry of the same model must rescue a one-off failure: %v", err)
 	}
-	// glm-5p2 fails → its declared chain: terra.
-	if len(p.requested) != 2 || p.requested[1] != "terra" {
-		t.Fatalf("walk = %v, want [glm-5p2 terra]", p.requested)
+	if len(p.requested) != 2 || p.requested[0] != "glm-5p2" || p.requested[1] != "glm-5p2" {
+		t.Fatalf("calls = %v, want [glm-5p2 glm-5p2]", p.requested)
 	}
-	if !strings.HasPrefix(resp.FallbackReason, "model_error: ") {
-		t.Fatalf("reason = %q, want model_error: …", resp.FallbackReason)
+	if resp.FallbackReason != "" || resp.RequestedModel != "glm-5p2" {
+		t.Fatalf("reason=%q requested=%q, want no fallback on the pinned model", resp.FallbackReason, resp.RequestedModel)
 	}
-	if resp.RequestedModel != "glm-5p2" {
-		t.Fatalf("RequestedModel = %q, want the primary selection", resp.RequestedModel)
+
+	p2 := &scriptedProv{failures: map[string]error{"glm-5p2": errors.New("lane http 503: unavailable")}}
+	r2 := pinnedRunner(p2, prodInfo(nil), "glm-5p2")
+	if _, err := r2.Complete(context.Background(), MainLoop, userReq("hi")); err == nil {
+		t.Fatal("a model that keeps failing must surface its error")
+	}
+	want := 1 + len(sameModelRetryDelays)
+	if len(p2.requested) != want {
+		t.Fatalf("calls = %v, want %d attempts", p2.requested, want)
+	}
+	for _, m := range p2.requested {
+		if m != "glm-5p2" {
+			t.Fatalf("calls = %v: the pinned model must never be swapped", p2.requested)
+		}
 	}
 }
 
@@ -273,8 +292,10 @@ func TestSubscriptionUtilityNeverWalksOffTheSubscription(t *testing.T) {
 	if _, err := r.Complete(context.Background(), Classify, userReq("hi")); err == nil {
 		t.Fatal("the subscription failure must surface")
 	}
-	if len(p.requested) != 1 || p.requested[0] != "haiku" {
-		t.Fatalf("walk = %v, want [haiku] only", p.requested)
+	for _, m := range p.requested {
+		if m != "haiku" {
+			t.Fatalf("calls = %v, want haiku only: the subscription plumbing never leaves it", p.requested)
+		}
 	}
 }
 
@@ -386,39 +407,36 @@ func TestForkInheritsPin(t *testing.T) {
 	}
 }
 
-// A 4xx that describes OUR request must never walk the fallback chain. The
-// next model would receive the same malformed conversation and fail the same
-// way — which is how one Gemini thought-signature 400 became 298 failed calls
-// across two models before anything gave up.
-//
-// 408 and 429 are the deliberate exceptions: those are timing, not shape, and
-// another model genuinely may serve them.
-func TestRequestShapeErrorsAreTerminalButTimingErrorsWalk(t *testing.T) {
+// A 4xx that describes OUR request is never retried: the retry would send the
+// same malformed conversation and fail the same way, which is how one Gemini
+// thought-signature 400 once became 298 failed calls. Timing and
+// infrastructure errors (408, 429, 5xx) retry the SAME model.
+func TestRequestShapeErrorsAreTerminalButTimingErrorsRetry(t *testing.T) {
 	apiErr := func(code int) error {
 		return fmt.Errorf("gemini stream: %w", &genai.APIError{Code: code, Message: "boom"})
 	}
 	for _, tc := range []struct {
 		name     string
 		code     int
-		wantCall int // total provider calls: 1 = terminal, 2 = walked
+		wantCall int // total provider calls: 1 = terminal, more = retried
 	}{
 		{"400 malformed request", 400, 1},
 		{"401 unauthorized", 401, 1},
 		{"403 forbidden", 403, 1},
 		{"404 unknown model", 404, 1},
-		{"408 timeout", 408, 2},
-		{"429 rate limited", 429, 2},
-		{"500 provider down", 500, 2},
-		{"503 unavailable", 503, 2},
+		{"408 timeout", 408, 1 + len(sameModelRetryDelays)},
+		{"429 rate limited", 429, 1 + len(sameModelRetryDelays)},
+		{"500 provider down", 500, 1 + len(sameModelRetryDelays)},
+		{"503 unavailable", 503, 1 + len(sameModelRetryDelays)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			p := &scriptedProv{failures: map[string]error{"glm-5p2": apiErr(tc.code)}}
 			r := pinnedRunner(p, prodInfo(nil), "glm-5p2")
 			_, _ = r.Complete(context.Background(), MainLoop, userReq("hi"))
 			if len(p.requested) != tc.wantCall {
-				verb := "walked the chain"
+				verb := "retried the same model"
 				if tc.wantCall == 1 {
-					verb = "stopped at the first model"
+					verb = "stopped at the first attempt"
 				}
 				t.Fatalf("%d → %d calls (%v), want %d — it should have %s",
 					tc.code, len(p.requested), p.requested, tc.wantCall, verb)
@@ -467,3 +485,27 @@ func TestIsTerminalExcludesRecoverableCauses(t *testing.T) {
 		t.Error("an exhausted lane raises the fallback-choice card; it must not kill the turn")
 	}
 }
+
+// An assistant message with nothing in it (a failed or empty turn left in the
+// history) is dropped before the request goes out, without touching the
+// caller's own slice; real assistant turns are kept.
+func TestDropEmptyAssistant(t *testing.T) {
+	history := []wire.Message{
+		{Role: "user", Blocks: []wire.Block{wire.TextBlock("build it")}},
+		{Role: "assistant", Blocks: nil},
+		{Role: "assistant", Blocks: []wire.Block{wire.TextBlock("  ")}},
+		{Role: "user", Blocks: []wire.Block{wire.TextBlock("continue")}},
+		{Role: "assistant", Blocks: []wire.Block{{Type: "tool_use", ID: "t1", Name: "bash"}}},
+	}
+	req := wire.Request{Messages: history}
+	dropEmptyAssistant(&req)
+	if len(req.Messages) != 3 || req.Messages[1].Role != "user" || req.Messages[2].Blocks[0].Type != "tool_use" {
+		t.Fatalf("messages = %+v", req.Messages)
+	}
+	if len(history) != 5 || history[1].Role != "assistant" {
+		t.Fatal("the caller's history must not be rewritten")
+	}
+}
+
+// Tests run the same-model retries without waiting.
+func init() { sameModelRetryDelays = []time.Duration{0, 0} }

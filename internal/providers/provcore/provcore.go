@@ -15,13 +15,16 @@ package provcore
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"math/rand"
 	"net"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/memcode-ai/memcode/internal/wire"
@@ -134,6 +137,10 @@ func RegisterErrorInfo(fn ErrorInfoExtractor) {
 // error via the registered extractors. ok is false for transport/non-API
 // errors (not retryable).
 func APIErrorInfo(err error) (status int, header http.Header, ok bool) {
+	var stall *StreamStallError
+	if errors.As(err, &stall) {
+		return http.StatusServiceUnavailable, nil, true // a silent upstream is an unavailable one
+	}
 	extractorMu.RLock()
 	defer extractorMu.RUnlock()
 	for _, fn := range extractors {
@@ -182,12 +189,55 @@ func RetryAfter(h http.Header) time.Duration {
 // Backoff is the bounded exponential delay for one attempt: 0.5s, 1s, 2s, 4s…
 // capped at 8s.
 func Backoff(attempt int) time.Duration {
-	d := 500 * time.Millisecond << (attempt - 1)
-	if d > 8*time.Second {
-		d = 8 * time.Second
+	d := time.Second << (attempt - 1)
+	if d > 20*time.Second {
+		d = 20 * time.Second
 	}
-	return d
+	// Equal jitter: [d/2, d). An overloaded upstream needs real waits, and
+	// jitter keeps concurrent retries from landing together.
+	half := d / 2
+	return half + time.Duration(rand.Int63n(int64(half)))
 }
+
+// StreamStallIdle is how long a streaming call may go without receiving
+// anything before it is abandoned as stalled. Reasoning summaries and usage
+// arrive every few seconds while a model works, so two silent minutes means the
+// upstream is stuck (a Gemini 4 Carbon call once hung 20 minutes before its 503).
+var StreamStallIdle = 2 * time.Minute
+
+// StreamStallError reports a stream abandoned after StreamStallIdle with no
+// data. APIErrorInfo reports it as a 503 so every retry layer retries it.
+type StreamStallError struct {
+	Backend string
+	Idle    time.Duration
+}
+
+func (e *StreamStallError) Error() string {
+	return fmt.Sprintf("%s stream stalled: no data for %s", e.Backend, e.Idle)
+}
+
+// StallWatch cancels a stream that goes silent: call Touch on every chunk, and
+// check Stalled when the stream errors. Stop it when the stream ends.
+type StallWatch struct {
+	idle    time.Duration
+	timer   *time.Timer
+	stalled atomic.Bool
+}
+
+// WatchStalls derives a context that is cancelled once idle passes with no
+// Touch, and the watch that tracks it.
+func WatchStalls(ctx context.Context, idle time.Duration) (context.Context, *StallWatch, context.CancelFunc) {
+	sctx, cancel := context.WithCancel(ctx)
+	w := &StallWatch{idle: idle}
+	w.timer = time.AfterFunc(idle, func() { w.stalled.Store(true); cancel() })
+	return sctx, w, func() { w.timer.Stop(); cancel() }
+}
+
+// Touch records that data arrived, restarting the idle clock.
+func (w *StallWatch) Touch() { w.timer.Reset(w.idle) }
+
+// Stalled reports whether the watch cancelled the stream for silence.
+func (w *StallWatch) Stalled() bool { return w.stalled.Load() }
 
 // LogToolInputMalformed reports a replayed tool_use block whose Input is not
 // valid JSON — telemetry, never fatal. The event is marshaled (never string-

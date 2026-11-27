@@ -113,10 +113,10 @@ func (c *Client) request(ctx context.Context, method, path string, body []byte, 
 // genuinely-down gateway fails cleanly.
 
 const (
-	maxRetries  = 3
+	maxRetries  = 4
 	retryBaseMs = 1000  // base backoff: 1s
 	retryFactor = 2     // exponential factor
-	retryCapMs  = 10000 // backoff cap: 10s
+	retryCapMs  = 15000 // backoff cap: 15s
 )
 
 // retryableStatus reports whether an HTTP status is a transient failure worth
@@ -199,9 +199,9 @@ func retryAfterDelay(resp *http.Response) (time.Duration, bool) {
 	return 0, false
 }
 
-// backoffDelay computes an exponential backoff with full jitter: delay = rand(0, base * 2^attempt),
-// capped at retryCap. Jitter spreads concurrent retries so a thundering herd of
-// clients doesn't synchronize on the same backoff slot.
+// backoffDelay computes an exponential backoff with equal jitter: a wait in
+// [base/2, base) for base = 1s·2^attempt, capped at retryCap. Jitter spreads
+// concurrent retries; the floor keeps a retry from firing almost immediately.
 func backoffDelay(attempt int) time.Duration {
 	base := time.Duration(retryBaseMs) * time.Millisecond
 	for i := 0; i < attempt; i++ {
@@ -211,8 +211,11 @@ func backoffDelay(attempt int) time.Duration {
 			break
 		}
 	}
-	// Full jitter: [0, base)
-	return time.Duration(rand.Int63n(int64(base)))
+	// Equal jitter: [base/2, base). Full jitter's [0, base) let a retry fire a
+	// few milliseconds later, three times inside three seconds, which an
+	// overloaded upstream can't recover from; half the nominal wait is the floor.
+	half := base / 2
+	return half + time.Duration(rand.Int63n(int64(half)))
 }
 
 // postWithRetry issues the POST and retries on transient failures (retryable status

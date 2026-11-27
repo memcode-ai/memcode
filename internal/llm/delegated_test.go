@@ -45,9 +45,9 @@ func TestDelegatedForkServesEveryCallAndLeavesPrimaryAlone(t *testing.T) {
 }
 
 // (7) A delegated worker's capability gaps and provider failures follow exactly
-// the same rules as anyone else's: refuse on a capability gap, and hop only
-// along the declared fallback chain on a provider error. A delegated pin is a
-// pin — it buys no special routing.
+// the same rules as anyone else's: refuse on a capability gap, and retry the
+// same model on a provider error. A delegated pin is a pin — it buys no special
+// routing.
 func TestDelegatedWorkerKeepsNormalFailureSemantics(t *testing.T) {
 	// Capability gap: refuse, touch no provider, name the fix.
 	p := &scriptedProv{}
@@ -62,13 +62,13 @@ func TestDelegatedWorkerKeepsNormalFailureSemantics(t *testing.T) {
 		t.Fatalf("a refused delegated turn must reach no provider, got %v", p.requested)
 	}
 
-	// Provider failure: one hop, along the declared chain, and nowhere else.
-	p2 := &scriptedProv{failures: map[string]error{"glm-5p2": errors.New("lane http 500: boom")}}
+	// Provider failure: the same model is retried, and nothing else is tried.
+	p2 := &scriptedProv{failOnce: map[string]error{"glm-5p2": errors.New("lane http 500: boom")}}
 	worker2 := pinnedRunner(p2, prodInfo(nil), "opus").ForkWithModel("glm-5p2")
 	if _, err := worker2.Complete(context.Background(), Agent, userReq("work")); err != nil {
-		t.Fatalf("the declared chain must rescue a delegated worker too: %v", err)
+		t.Fatalf("a retry of the same model must rescue a delegated worker too: %v", err)
 	}
-	if len(p2.requested) != 2 || p2.requested[1] != "terra" {
-		t.Fatalf("delegated fallback walk = %v, want [glm-5p2 terra]", p2.requested)
+	if len(p2.requested) != 2 || p2.requested[0] != "glm-5p2" || p2.requested[1] != "glm-5p2" {
+		t.Fatalf("delegated calls = %v, want [glm-5p2 glm-5p2]", p2.requested)
 	}
 }
