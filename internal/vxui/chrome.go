@@ -2,6 +2,7 @@ package vxui
 
 import (
 	"fmt"
+	"github.com/memcode-ai/memcode/catalog"
 	"strconv"
 	"strings"
 	"time"
@@ -43,8 +44,8 @@ func (s *appState) statusRow() ui.Widget {
 		// Surface the reasoning depth the SERVING model is ACTUALLY using (honest + lane-aware):
 		// GLM reasons at high/max, an Anthropic model shows its effort tier, a non-reasoning model
 		// shows nothing — instead of the old always-"effort: off" that lied on the cheap lane.
-		if tier := s.w.sess.ReasoningDisplay(); tier != "" {
-			meta += " · " + tier + " effort"
+		if lbl := s.w.sess.ReasoningDisplay(); lbl != "" {
+			meta += " · " + lbl
 		}
 		meta += " · esc to interrupt)"
 		return ui.RichText{Spans: []ui.TextSpan{
@@ -59,6 +60,30 @@ func (s *appState) statusRow() ui.Widget {
 	// Running background shells surface in the FOOTER only ("N shells") — one
 	// quiet cockpit segment, not a status-row banner. /jobs has the detail.
 	return ui.RichText{Spans: spans}
+}
+
+// reasoningRow is the latest line of the model's streamed reasoning summary,
+// clipped to one row under the status line. nil when idle or when the serving
+// vendor streams no summary.
+func (s *appState) reasoningRow() ui.Widget {
+	if !s.busy() {
+		return nil
+	}
+	line := []rune(s.w.sess.ReasoningSnippet())
+	if len(line) == 0 {
+		return nil
+	}
+	max := s.width - 6
+	if max < 20 {
+		max = 20
+	}
+	if len(line) > max {
+		line = append(line[:max-1], '…')
+	}
+	return ui.RichText{Spans: []ui.TextSpan{
+		{Text: "  ↳ ", Style: s.sty.muted},
+		{Text: string(line), Style: s.sty.dim},
+	}}
 }
 
 // queuedRows lists the messages waiting behind the running turn, just above the composer,
@@ -160,11 +185,19 @@ func (s *appState) footerRow() ui.Widget {
 		}
 		add(fmt.Sprintf("ctx %d%%", pct), st)
 	}
-	modelText := provider.ShortModel(model)
+	// The model's real name. The provider word only appears when it adds
+	// something: a subscription or own-key lane, or a custom endpoint, never a
+	// plain repeat of the vendor the name already implies.
+	modelText := provider.DisplayName(model)
 	if pl := s.w.sess.ProviderLabel(); pl != "" {
-		modelText = pl + " · " + modelText
+		if cm, ok := catalog.LookupModel(model); !ok || pl != cm.Vendor {
+			modelText = pl + " · " + modelText
+		}
 	}
 	add(modelText, s.sty.muted)
+	if lbl := s.w.sess.ReasoningDisplay(); lbl != "" {
+		add(lbl, s.sty.muted)
+	}
 	// The last turn served on the user's OWN provider key (zero credit debit).
 	// Strictly per-turn: the session clears the flag on every non-BYOK response.
 	if s.w.sess.ServedByok() {

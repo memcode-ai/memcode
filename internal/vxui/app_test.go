@@ -1211,12 +1211,15 @@ func TestEscDisarmedByOtherKey(t *testing.T) {
 	}
 }
 
-// TestEffortPickerOpensAndApplies verifies a bare /effort opens the level selector
-// (it used to just print the setting and demand an argument) and that choosing a
-// row applies it to the session.
+// TestEffortPickerOpensAndApplies verifies a bare /effort opens the level
+// selector on the saved level (medium by default; there is no auto), that
+// choosing a row applies it to the session, and that the choice is remembered.
 func TestEffortPickerOpensAndApplies(t *testing.T) {
 	theme.Set("aurora")
 	sess := newTestSession(t)
+	if _, err := config.Init(sess.Root(), false); err != nil {
+		t.Fatalf("config.Init: %v", err)
+	}
 	app := uitest.New(&appWidget{ctx: context.Background(), sess: sess, themeName: "aurora"})
 	app.Pump(80, 24)
 	for _, r := range "/effort" {
@@ -1225,13 +1228,14 @@ func TestEffortPickerOpensAndApplies(t *testing.T) {
 	app.Pump(80, 24)
 	app.Enter()
 	app.Pump(80, 24)
-	if !app.Contains("Thinking effort") || !app.Contains("❯ ● Auto") {
-		t.Fatalf("/effort didn't open the selector on the current level (auto).\n%q", app.Text())
+	if !app.Contains("Thinking effort") || !app.Contains("❯ ● Medium") {
+		t.Fatalf("/effort didn't open the selector on the saved level (medium).\n%q", app.Text())
 	}
-	for i := 0; i < 3; i++ { // auto → off → medium → high
-		app.Send(vaxis.Key{Keycode: vaxis.KeyDown})
-		app.Pump(80, 24)
+	if app.Contains("Auto") {
+		t.Fatalf("auto is gone: the picker must not offer it.\n%q", app.Text())
 	}
+	app.Send(vaxis.Key{Keycode: vaxis.KeyDown}) // medium → high
+	app.Pump(80, 24)
 	if !app.Contains("❯   High") {
 		t.Fatalf("Down didn't reach High.\n%q", app.Text())
 	}
@@ -1242,5 +1246,12 @@ func TestEffortPickerOpensAndApplies(t *testing.T) {
 	}
 	if app.Contains("Thinking effort") {
 		t.Fatalf("selector still open after Enter.\n%q", app.Text())
+	}
+	cfg, err := config.Load(sess.Root())
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+	if cfg.Effort != "high" {
+		t.Fatalf("the choice must be remembered: cfg.Effort = %q", cfg.Effort)
 	}
 }

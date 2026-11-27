@@ -63,28 +63,32 @@ func TestGrokStampsGrokBackend(t *testing.T) {
 	}
 }
 
-// TestGrokReasoningEffortClamped: xAI's reasoning.effort vocabulary is low|high —
-// the full OpenAI range must clamp (xhigh→high, none/minimal→low) so a hard turn
-// reasons at high instead of erroring on an unsupported value.
-func TestGrokReasoningEffortClamped(t *testing.T) {
+// TestGrokReasoningEffort: Grok 4.7 takes low, medium, high and xhigh as-is
+// (max was already resolved to xhigh by the catalog), and since xAI can't turn
+// reasoning off, EffortOff sends low. OpenAI keeps none for off, and a model
+// with a catalog floor (GPT-6.2 Astra) gets the floor instead.
+func TestGrokReasoningEffort(t *testing.T) {
 	g := NewGrok("k")
-	cases := []struct {
+	for _, c := range []struct {
 		eff  wire.Effort
 		want string
 	}{
+		{wire.EffortXhigh, "xhigh"},
 		{wire.EffortHigh, "high"},
-		{wire.EffortMedium, "high"},
+		{wire.EffortMedium, "medium"},
 		{wire.EffortLow, "low"},
 		{wire.EffortOff, "low"},
-	}
-	for _, c := range cases {
-		if got := string(g.effortFor(c.eff)); got != c.want {
-			t.Errorf("effortFor(%v) = %q, want %q", c.eff, got, c.want)
+	} {
+		if got := string(g.effortFor(catalog.ModelGrok47, c.eff)); got != c.want {
+			t.Errorf("grok effortFor(%v) = %q, want %q", c.eff, got, c.want)
 		}
 	}
-	// OpenAI stays unclamped.
-	if got := string(NewOpenAI("k").effortFor(wire.EffortHigh)); got != "xhigh" {
-		t.Errorf("openai effortFor(high) = %q, want xhigh", got)
+	o := NewOpenAI("k")
+	if got := string(o.effortFor("luna", wire.EffortOff)); got != "none" {
+		t.Errorf("openai luna effortFor(off) = %q, want none", got)
+	}
+	if got := string(o.effortFor("astra", wire.EffortOff)); got != "low" {
+		t.Errorf("openai astra effortFor(off) = %q, want its catalog floor low", got)
 	}
 }
 

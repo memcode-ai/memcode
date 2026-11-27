@@ -59,6 +59,12 @@ type CatalogModel struct {
 	// Empty means "no floor": send whatever the effort maps to.
 	MinReasoningEffort string `json:"min_reasoning_effort,omitempty"`
 
+	// Efforts lists the levels of memcode's universal effort scale (low, medium,
+	// high, xhigh, max) this model supports natively, lowest first, from the
+	// vendor's own docs. ResolveEffort maps any other level onto the closest of
+	// these. Empty means the catalog declares none and levels pass through.
+	Efforts []string `json:"efforts,omitempty"`
+
 	// NoForcedToolChoice marks a model that rejects a forced tool_choice
 	// ({type:"tool"} or {type:"any"}) with a 400. Claude Fable 5.1 and Opus 5.5
 	// do; the structured-output callers (judges, reflection, review verdicts)
@@ -313,6 +319,58 @@ func MinReasoningEffort(model string) string {
 		return m.MinReasoningEffort
 	}
 	return ""
+}
+
+// EffortScale is memcode's universal reasoning-effort scale, lowest first. Two
+// values sit outside it: "" (off: no extended thinking, used by helper calls)
+// and "default" (send no effort; the vendor's own default applies).
+var EffortScale = []string{"low", "medium", "high", "xhigh", "max"}
+
+func effortIndex(level string) int {
+	for i, l := range EffortScale {
+		if l == level {
+			return i
+		}
+	}
+	return -1
+}
+
+// ModelEfforts returns the scale levels a model supports natively, lowest
+// first, or nil when the catalog declares none.
+func ModelEfforts(model string) []string {
+	if m, ok := LookupModel(model); ok {
+		return m.Efforts
+	}
+	return nil
+}
+
+// ResolveEffort maps a universal effort level onto the closest level the model
+// supports natively. On a tie it takes the higher level, the same direction the
+// vendors collapse unsupported levels (Fireworks runs GLM's low and medium as
+// high). "" (off), "default", unknown levels, and models with no declared
+// levels pass through unchanged. Equal labels on different vendors are not
+// equal reasoning budgets; this only picks the nearest native setting.
+func ResolveEffort(model, level string) string {
+	want := effortIndex(level)
+	sup := ModelEfforts(model)
+	if want < 0 || len(sup) == 0 {
+		return level
+	}
+	best, bestIdx, bestDist := level, -1, len(EffortScale)+1
+	for _, l := range sup {
+		i := effortIndex(l)
+		if i < 0 {
+			continue
+		}
+		d := i - want
+		if d < 0 {
+			d = -d
+		}
+		if d < bestDist || (d == bestDist && i > bestIdx) {
+			best, bestIdx, bestDist = l, i, d
+		}
+	}
+	return best
 }
 
 // RejectsForcedToolChoice reports whether a model 400s on a forced tool_choice,

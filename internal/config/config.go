@@ -126,6 +126,12 @@ type Config struct {
 	// planner/executor. Off by default; set via /extramile. Consumes extra tokens.
 	ExtraMile bool `json:"extra_mile,omitempty"`
 
+	// Effort is the remembered thinking effort on memcode's universal scale (low,
+	// medium, high, xhigh, max) or "default" for the vendor's own setting. Empty
+	// means medium. Set via /effort; mapped per model to the closest level the
+	// model supports.
+	Effort string `json:"effort,omitempty"`
+
 	// ServingDefault caches the gateway's everyday (cheap-lane) model id — learned from
 	// /v1/models at startup and persisted, so the banner + footer show what actually runs
 	// (e.g. glm-5p2) immediately on the NEXT launch instead of the CLI's bootstrap identity

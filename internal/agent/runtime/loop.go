@@ -203,31 +203,16 @@ func (s *Session) runLoop(ctx context.Context, sys promptSpec, messages *[]wire.
 			refl := s.reflectGate(ctx, *messages, &committedOut)
 			return s.finishPlan(ctx, sys, messages, committedOut, iterations, refl)
 		}
-		// Thinking depth is judged PER USER MESSAGE by the turn_intent classifier
-		// (fired in scoreTurn; joined here, once, before the first model call):
-		// trivial asks run with no thinking, deep work gets full thinking from
-		// turn ONE. The MODEL is not judged — it is the user's pin, for every
-		// turn of the session.
-		s.joinTurnJudge(ctx)
+		// Thinking depth is the user's choice (/effort), the same on every turn
+		// and in plan mode. Nothing raises it on its own: not a hard-looking
+		// message, not a self-heal round, not planning. The model can still
+		// adjust its own depth within a turn through the reasoning tool.
 		eff := s.turnEffort
-		if s.turn.healRounds > 0 {
-			// Stuck fixing its OWN broken edit — full thinking so it CONVERGES
-			// instead of spiraling. It used to also escalate to the frontier
-			// tier; there is no tier to escalate to, and swapping the model
-			// mid-session is exactly what the pin forbids.
-			eff = wire.EffortHigh
-		}
-		if s.planCtl.Planning() {
-			// The executive planner — deciding what to research, judging sufficiency,
-			// resolving forks — is hard reasoning on the reasoning tier. Think hard to
-			// match the model (synthesis is already EffortHigh; this is the loop itself).
-			eff = wire.EffortHigh
-		}
 		// Budget the output so thinking (which shares max_tokens) can't starve the tool calls.
-		// High effort = the largest hidden reasoning → give it the full plan-sized ceiling;
+		// Deep effort = the largest hidden reasoning → give it the full plan-sized ceiling;
 		// it's a CEILING, not a target, so the model still stops when done.
 		maxTok := mainMaxTokens
-		if eff == wire.EffortHigh {
+		if deepEffort(eff) {
 			maxTok = planMaxTokens
 		}
 		resp, err := s.complete(ctx, s.purpose, sys.request(wire.Request{
@@ -976,7 +961,7 @@ func (s *Session) synthesizePlan(ctx context.Context, sys promptSpec, messages *
 	if len(plan) < minPlanLen && ctx.Err() == nil {
 		s.printf("\n%s\n", metaStyle.Render("(plan came back empty — retrying synthesis…)"))
 		resp3, err3 := s.complete(ctx, llm.Synth, sys.withFact("nudge", "force").request(wire.Request{
-			Messages: *messages, Tools: nil, Effort: wire.EffortHigh, MaxTokens: planMaxTokens,
+			Messages: *messages, Tools: nil, Effort: s.effortOverride, MaxTokens: planMaxTokens,
 		}), committedOut, false)
 		if err3 == nil {
 			if t := strings.TrimSpace(resp3.Text()); len(t) > len(plan) {
@@ -1032,7 +1017,7 @@ func (s *Session) draftPlan(ctx context.Context, sys promptSpec, messages *[]wir
 	// model, which is the same model either way, so there is nothing to keep in
 	// sync.
 	for ; *iterations <= maxIterations; (*iterations)++ {
-		req := wire.Request{Messages: *messages, Tools: s.toolDefs(), Effort: wire.EffortHigh, MaxTokens: planMaxTokens}
+		req := wire.Request{Messages: *messages, Tools: s.toolDefs(), Effort: s.effortOverride, MaxTokens: planMaxTokens}
 		var err error
 		resp, err = s.complete(ctx, llm.Synth, sys.withFact("nudge", "wrapup").request(req), *committedOut, false) // stream
 		if err != nil {
@@ -1075,7 +1060,17 @@ func (s *Session) complete(ctx context.Context, purpose llm.Purpose, req wire.Re
 	// near the context limit) that leaks the call as TEXT and dead-ends the turn. One COMPLETE
 	// response → the whole tool call is assembled server-side (no chunk-boundary truncation),
 	// and scrollback rendering stays simple (only ever whole lines, never a partial delta).
-	resp, err := s.runner.Complete(ctx, purpose, req)
+	// Streamed for the side channels only: reasoning summaries and the vendor's
+	// running usage reach the status line while the call works, so a long think
+	// is visibly alive. Reply text is NOT streamed (no Text handler): it still
+	// renders as one block when the call finishes, and with no text emitted the
+	// fallback walk stays available.
+	s.beginCall()
+	resp, err := s.runner.Stream(ctx, purpose, req, wire.StreamHandler{
+		Reasoning: s.onReasoning,
+		Usage:     s.onCallUsage,
+	})
+	s.endCall()
 	s.traceWire(purpose, req, resp, err) // env-gated (MEMCODE_TRACE) end-to-end wire capture
 	if err == nil {
 		s.notifyTokens(committedOut + resp.OutputTokens) // snap the ↓ estimate to the real count
@@ -1132,9 +1127,11 @@ func (s *Session) complete(ctx context.Context, purpose llm.Purpose, req wire.Re
 		// Just the model name — it already implies the backend (glm-5p2 = cheap lane, opus =
 		// Anthropic). The cheap lane tags a short Pool label; Anthropic has none, so fall back to
 		// the short model id.
-		name := resp.Pool
+		// The model's real name (Gemini 4 Carbon, Opus 5.5), not the catalog's
+		// generic label.
+		name := provider.DisplayName(resp.Model)
 		if name == "" {
-			name = provider.ShortModel(resp.Model)
+			name = resp.Pool
 		}
 		line := "⇄ served by " + name
 		// Say WHOSE credential served the turn, every turn, from the RESPONSE
@@ -1165,9 +1162,10 @@ func (s *Session) complete(ctx context.Context, purpose llm.Purpose, req wire.Re
 		// Room/friction hints (user_friction_*) are internal interaction state — not surfaced
 		// (Tim: "don't show the room stuff"). Genuine routing reasons (self_heal, escalate,
 		// high_risk_surface) STILL show, so an unexpected escalation stays legible.
-		// Thinking EFFORT (also shown live on the spinner): the depth this turn reasoned at.
-		if req.Effort != wire.EffortOff {
-			line += " · " + string(req.Effort) + " effort"
+		// Thinking EFFORT (also shown live on the spinner): the level this turn
+		// asked for, and the native level the model ran when it lacks that one.
+		if lbl := EffortLabel(resp.Model, req.Effort); lbl != "" {
+			line += " · " + lbl
 		}
 		// One line per turn: a turn makes several model calls (tool loop, hidden recall,
 		// final answer) — print it once and re-announce only when routing actually shifts

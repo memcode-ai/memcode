@@ -309,14 +309,23 @@ func TestGeminiReplayWithoutSignatureSendsNone(t *testing.T) {
 func TestGeminiThinkingLevels(t *testing.T) {
 	g := &Gemini{}
 	for eff, want := range map[wire.Effort]genai.ThinkingLevel{
-		wire.EffortHigh:   genai.ThinkingLevelHigh,
-		wire.EffortMedium: genai.ThinkingLevelMedium,
-		wire.EffortLow:    genai.ThinkingLevelLow,
-		wire.EffortOff:    genai.ThinkingLevelLow,
+		wire.EffortMax:     thinkingLevelXhigh,
+		wire.EffortXhigh:   thinkingLevelXhigh,
+		wire.EffortHigh:    genai.ThinkingLevelHigh,
+		wire.EffortMedium:  genai.ThinkingLevelMedium,
+		wire.EffortLow:     genai.ThinkingLevelLow,
+		wire.EffortOff:     genai.ThinkingLevelLow,
+		wire.EffortDefault: "", // no level: the model's default
 	} {
 		tc := g.mapEffort("gemini-4-hydrogen", eff)
 		if tc == nil || tc.ThinkingLevel != want || tc.ThinkingBudget != nil {
-			t.Errorf("mapEffort(gemini-4-hydrogen, %v) = %+v, want level %s and no budget", eff, tc, want)
+			t.Errorf("mapEffort(gemini-4-hydrogen, %v) = %+v, want level %q and no budget", eff, tc, want)
+			continue
+		}
+		// Thought summaries stream whenever the model is asked to think; off
+		// (helper calls) asks for none.
+		if tc.IncludeThoughts != eff.Thinks() {
+			t.Errorf("mapEffort(gemini-4-hydrogen, %v).IncludeThoughts = %v, want %v", eff, tc.IncludeThoughts, eff.Thinks())
 		}
 	}
 }

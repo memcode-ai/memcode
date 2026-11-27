@@ -151,11 +151,19 @@ type ToolDef struct {
 type Effort string
 
 const (
-	EffortOff    Effort = ""       // no extended thinking (default; cheap paths)
+	EffortOff    Effort = ""       // no extended thinking (helper calls; cheap paths)
 	EffortLow    Effort = "low"    // light reasoning
-	EffortMedium Effort = "medium" // judgment calls (edits, reflection)
-	EffortHigh   Effort = "high"   // hardest reasoning (planning, review)
+	EffortMedium Effort = "medium" // memcode's default for real work
+	EffortHigh   Effort = "high"   // deep reasoning
+	EffortXhigh  Effort = "xhigh"  // deeper than high where the model offers it
+	EffortMax    Effort = "max"    // the model's deepest setting
+	// EffortDefault thinks but sends no effort, so the vendor's own default
+	// applies. Distinct from EffortOff, which turns thinking off.
+	EffortDefault Effort = "default"
 )
+
+// Thinks reports whether the effort asks for extended thinking at all.
+func (e Effort) Thinks() bool { return e != EffortOff }
 
 // RoutingHint is DELETED. It carried the escalation signals only the CLI could
 // observe — self-heal, room friction, high-risk surfaces — as inputs to the
@@ -338,6 +346,11 @@ func (r Response) ToolUses() []Block {
 // are intentionally NOT declared here — each consumer declares the structural interface
 // it needs, referencing these common types; an implementation merely satisfies it.
 type StreamHandler struct {
-	Text  func(delta string)
-	Usage func(input, output int)
+	Text func(delta string)
+	// Reasoning receives the model's reasoning SUMMARY text as it streams,
+	// where the vendor offers one (Claude summarized thinking, OpenAI reasoning
+	// summaries, Gemini thought summaries, reasoning_content on OpenAI-compatible
+	// lanes). Display only: it never enters the transcript or history.
+	Reasoning func(delta string)
+	Usage     func(input, output int)
 }

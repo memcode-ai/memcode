@@ -169,6 +169,9 @@ func (a *streamAccum) apply(c ChatChunk, h wire.StreamHandler) {
 	}
 	for _, ch := range c.Choices {
 		d := ch.Delta
+		if d.ReasoningContent != nil && *d.ReasoningContent != "" && h.Reasoning != nil {
+			h.Reasoning(*d.ReasoningContent)
+		}
 		if d.Content != nil && *d.Content != "" {
 			a.text.WriteString(*d.Content)
 			if h.Text != nil {

@@ -174,8 +174,9 @@ type appState struct {
 	extraMileChoosing bool // the /extramile on/off selector is open
 	extraMileSel      int
 
-	effortChoosing bool // the /effort level selector is open
-	effortSel      int
+	effortChoosing bool  // the /effort level selector is open
+	effortSel      int   // cursor index into effortRows
+	effortRows     []int // effortOptions indexes shown for the current model
 
 	// rewind picker overlay (modal, two-stage): list ↑↓ choose → Enter review →
 	// confirm Enter restore / Esc back. Destructive, so it always confirms.
@@ -1584,7 +1585,13 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 	// the model is burning time when it's just waiting for you (Claude Code likewise drops the
 	// status bar while a prompt is up). The card below still renders.
 	if s.statusStripVisible() {
-		rows = append(rows, s.statusRow(), ui.SizedBox{Height: 1})
+		rows = append(rows, s.statusRow())
+		// What the model is reasoning about right now, from the vendor's streamed
+		// reasoning summary: one muted line, so a long think is visibly working.
+		if r := s.reasoningRow(); r != nil {
+			rows = append(rows, r)
+		}
+		rows = append(rows, ui.SizedBox{Height: 1})
 		// Live task panel directly below the status bar (Claude-Code style) — updates in place.
 		if panel := s.todoPanel(); len(panel) > 0 {
 			rows = append(rows, panel...)

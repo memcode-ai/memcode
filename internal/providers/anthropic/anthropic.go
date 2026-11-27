@@ -203,7 +203,7 @@ const thinkingBindingBeta = "thinking-binding-controls-2026-08-01"
 
 // wireOutputConfig carries the top-level `effort` hint (NOT nested under thinking).
 type wireOutputConfig struct {
-	Effort string `json:"effort,omitempty"` // low | medium | high
+	Effort string `json:"effort,omitempty"` // low | medium | high | xhigh | max
 }
 
 // supportsAdaptiveThinking reports whether a model accepts adaptive thinking +
@@ -240,6 +240,11 @@ func thinkingFor(model string, e wire.Effort) (*wireThinking, *wireOutputConfig)
 			return &wireThinking{Type: "disabled"}, nil
 		}
 		return nil, nil
+	}
+	// EffortDefault thinks at the model's own default depth: adaptive with no
+	// effort hint, so the API applies its default.
+	if e == wire.EffortDefault {
+		return &wireThinking{Type: "adaptive", DropUnbound: drop}, nil
 	}
 	return &wireThinking{Type: "adaptive", DropUnbound: drop}, &wireOutputConfig{Effort: string(e)}
 }
@@ -476,7 +481,10 @@ func wireToParams(w wireRequest) anthropicsdk.MessageNewParams {
 		if w.Thinking.Type == "disabled" {
 			p.Thinking = anthropicsdk.ThinkingConfigParamUnion{OfDisabled: &anthropicsdk.ThinkingConfigDisabledParam{}}
 		} else {
-			adaptive := anthropicsdk.ThinkingConfigAdaptiveParam{}
+			// Summarized display streams readable reasoning summaries; Claude 5.x
+			// defaults to omitted, which shows the user minutes of silence. The
+			// signature (what continuity needs) is identical either way.
+			adaptive := anthropicsdk.ThinkingConfigAdaptiveParam{Display: anthropicsdk.ThinkingConfigAdaptiveDisplaySummarized}
 			if w.Thinking.DropUnbound {
 				// The pinned SDK predates block_binding, so it rides as an extra field.
 				adaptive.SetExtraFields(map[string]any{
@@ -961,9 +969,13 @@ func (a *Anthropic) streamOnce(ctx context.Context, key string, r wire.Request, 
 			case anthropicsdk.InputJSONDelta:
 				b.json.WriteString(d.PartialJSON)
 			case anthropicsdk.ThinkingDelta:
-				// Captured for the mandatory round-trip, NOT streamed to the user —
-				// reasoning is the model's scratch space, not part of the reply.
+				// Captured for the mandatory round-trip. The summary text also
+				// streams to the display-only Reasoning channel; it never joins
+				// the reply text.
 				b.thinking.WriteString(d.Thinking)
+				if h.Reasoning != nil && d.Thinking != "" {
+					h.Reasoning(d.Thinking)
+				}
 			case anthropicsdk.SignatureDelta:
 				b.signature += d.Signature
 			}

@@ -1,6 +1,10 @@
 package runtime
 
-import "github.com/memcode-ai/memcode/internal/wire"
+import (
+	"strings"
+
+	"github.com/memcode-ai/memcode/internal/wire"
+)
 
 // isCheapLane reports whether a wire Backend value is the cheap lane. The
 // gateway sanitizes the lane's internal backend to the vendor-neutral wire
@@ -75,4 +79,65 @@ func (s *Session) setTurnEffort(e wire.Effort) {
 	s.dispMu.Lock()
 	defer s.dispMu.Unlock()
 	s.turnEffort = e
+}
+
+// deepEffort reports an effort that may spend a large hidden-reasoning budget,
+// so the call gets the plan-sized output ceiling instead of the main one.
+// Default counts: the vendor default can itself be high.
+func deepEffort(e wire.Effort) bool {
+	switch e {
+	case wire.EffortHigh, wire.EffortXhigh, wire.EffortMax, wire.EffortDefault:
+		return true
+	}
+	return false
+}
+
+// reasoningTailMax bounds the buffered reasoning summary: the status line only
+// ever shows its last line.
+const reasoningTailMax = 600
+
+// beginCall clears the in-flight usage and reasoning before a model call.
+func (s *Session) beginCall() {
+	s.dispMu.Lock()
+	defer s.dispMu.Unlock()
+	s.inflightIn, s.inflightOut, s.reasoningTail = 0, 0, ""
+}
+
+// endCall drops the in-flight state once the call has finished: the ledger now
+// holds the authoritative counts.
+func (s *Session) endCall() { s.beginCall() }
+
+// onCallUsage records usage the provider reported mid-stream. These are the
+// vendor's own running counts (Gemini reports them on every chunk); calls whose
+// vendor reports usage only at the end simply show nothing until then.
+func (s *Session) onCallUsage(in, out int) {
+	s.dispMu.Lock()
+	defer s.dispMu.Unlock()
+	s.inflightIn, s.inflightOut = in, out
+}
+
+// onReasoning appends streamed reasoning-summary text for the status line.
+func (s *Session) onReasoning(delta string) {
+	s.dispMu.Lock()
+	defer s.dispMu.Unlock()
+	t := s.reasoningTail + delta
+	if len(t) > reasoningTailMax {
+		t = t[len(t)-reasoningTailMax:]
+	}
+	s.reasoningTail = t
+}
+
+// ReasoningSnippet is the latest line of the in-flight call's reasoning
+// summary ("" when the vendor streams none or no call is running).
+func (s *Session) ReasoningSnippet() string {
+	s.dispMu.Lock()
+	t := s.reasoningTail
+	s.dispMu.Unlock()
+	lines := strings.Split(strings.TrimSpace(t), "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		if l := strings.TrimSpace(strings.Trim(lines[i], "*#_ ")); l != "" {
+			return l
+		}
+	}
+	return ""
 }

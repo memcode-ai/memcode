@@ -307,6 +307,10 @@ type Delta struct {
 	Content       *string           `json:"content,omitempty"`
 	ToolCalls     []ToolCallDelta   `json:"tool_calls,omitempty"`
 	MemcodeOpaque []json.RawMessage `json:"memcode_opaque,omitempty"`
+	// ReasoningContent carries reasoning summary text as it streams: Fireworks
+	// thinking models send it, and the memcode gateway forwards every vendor's
+	// summaries in it. Display-only; never part of the reply.
+	ReasoningContent *string `json:"reasoning_content,omitempty"`
 }
 
 // ToolCallDelta is a streamed tool-call fragment, accumulated by Index.

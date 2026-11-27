@@ -14,26 +14,24 @@ import (
 // the model's HIGH tier, hard turns (EffortHigh) at MAX, tool-less utility calls and non-reasoning
 // models get nothing (so GLM no longer silently defaults to Max on every turn).
 func TestReasoningEffortMapping(t *testing.T) {
-	glm := "accounts/fireworks/models/glm-5p2"
-	cases := []struct {
-		name     string
-		model    string
-		eff      wire.Effort
-		hasTools bool
-		want     string
+	glm := "accounts/fireworks/models/glm-5p3"
+	kimi := "accounts/fireworks/models/kimi-k3p1-pro"
+	for _, c := range []struct {
+		name  string
+		model string
+		eff   wire.Effort
+		want  string
 	}{
-		{"ordinary agentic → high", glm, wire.EffortOff, true, "high"},
-		{"medium agentic → high", glm, wire.EffortMedium, true, "high"},
-		{"hard agentic → max", glm, wire.EffortHigh, true, "max"},
-		{"tool-less GLM, no effort → none (suppress default thinking)", glm, wire.EffortOff, false, "none"},
-		{"tool-less Kimi K3, no effort → none", "accounts/fireworks/models/kimi-k3", wire.EffortOff, false, "none"},
-		{"tool-less GLM WITH effort → omit (let it think)", glm, wire.EffortHigh, false, ""},
-		{"tool-less gpt-oss → omit (rejects none)", "accounts/fireworks/models/gpt-oss-120b", wire.EffortOff, false, ""},
-		{"non-reasoning model → omit", "accounts/fireworks/models/llama-v3", wire.EffortHigh, true, ""},
-	}
-	for _, c := range cases {
-		if got := laneReasoningEffort(c.model, c.eff, c.hasTools); got != c.want {
-			t.Errorf("%s: laneReasoningEffort(%q,%v,%v)=%q want %q", c.name, c.model, c.eff, c.hasTools, got, c.want)
+		{"resolved level passes through", glm, wire.EffortMax, "max"},
+		{"high passes through", glm, wire.EffortHigh, "high"},
+		{"low passes through", kimi, wire.EffortLow, "low"},
+		{"default omits the field", glm, wire.EffortDefault, ""},
+		{"off on GLM sends its floor (GLM rejects none)", glm, wire.EffortOff, "high"},
+		{"off on Kimi sends none (it thinks when omitted)", kimi, wire.EffortOff, "none"},
+		{"non-reasoning model → omit", "accounts/fireworks/models/llama-v3", wire.EffortHigh, ""},
+	} {
+		if got := laneReasoningEffort(c.model, c.eff); got != c.want {
+			t.Errorf("%s: laneReasoningEffort(%q,%v)=%q want %q", c.name, c.model, c.eff, got, c.want)
 		}
 	}
 }

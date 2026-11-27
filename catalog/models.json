@@ -8,6 +8,12 @@
       "window": 500000,
       "vision": true,
       "reasoning": true,
+      "efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
       "price_in": 2.0,
       "price_out": 6.0,
       "price_cache_read": 0.5,
@@ -45,6 +51,11 @@
       "window": 1000000,
       "vision": true,
       "reasoning": true,
+      "efforts": [
+        "low",
+        "medium",
+        "high"
+      ],
       "price_in": 4.0,
       "price_out": 20.0,
       "price_cache_read": 0.2,
@@ -77,6 +88,12 @@
       "window": 1000000,
       "vision": true,
       "reasoning": true,
+      "efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
       "price_in": 1.5,
       "price_out": 7.5,
       "price_cache_read": 0.075,
@@ -136,6 +153,13 @@
       "max_output": 128000,
       "vision": true,
       "reasoning": true,
+      "efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
       "pinnable": true,
       "group": "Claude",
       "desc": "Best for complex tasks",
@@ -166,6 +190,13 @@
       "max_output": 128000,
       "vision": true,
       "reasoning": true,
+      "efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
       "pinnable": true,
       "group": "Claude",
       "price_in": 8.0,
@@ -197,6 +228,13 @@
       "max_output": 128000,
       "vision": true,
       "reasoning": true,
+      "efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
       "pinnable": true,
       "group": "Claude",
       "desc": "Efficient for routine tasks",
@@ -227,6 +265,13 @@
       "max_output": 128000,
       "vision": true,
       "reasoning": true,
+      "efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
       "pinnable": true,
       "group": "Claude",
       "desc": "Fastest for quick answers",
@@ -280,6 +325,13 @@
         }
       ],
       "min_reasoning_effort": "low",
+      "efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
       "_note": "Pinned as astra, replacing GPT-6 Astra (aliased). GPT-6.2 Astra (OpenAI, 2026-11-17). Frontier tier, successor to GPT-6 Astra at a lower price. Responses API, 1.05M context, 128K max output. PRICING verified developers.openai.com/api/docs/pricing 2026-11-18: $8/$40, cached $0.40 (0.05x, hence price_cache_read); over 272K prompt tokens 2x input and cache, 1.5x output (price_tiers). Reasoning floor is low: 'none' 400s (verified 2026-11-18). ENABLED 2026-11-18 on Tim's call while the memcode OpenAI project still reported 'does not have access to model' for the GPT-6.2/6.1 ids and the org answered every model with 'You have no credits remaining', so this entry has NOT been verified serving through memcode.",
       "name": "GPT-6.2 Astra",
       "desc": "Strongest reasoning",
@@ -330,6 +382,13 @@
       ],
       "price_cache_read": 0.1,
       "min_reasoning_effort": "low",
+      "efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
       "aliases": [
         "gpt-5.6-sol",
         "gpt-6-sol",
@@ -349,6 +408,13 @@
       "window": 1050000,
       "vision": true,
       "reasoning": true,
+      "efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
       "price_in": 1.0,
       "price_out": 5.0,
       "price_cache_read": 0.05,
@@ -388,6 +454,13 @@
       "window": 1050000,
       "vision": true,
       "reasoning": true,
+      "efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
       "price_in": 0.1,
       "price_out": 0.5,
       "price_tiers": [
@@ -426,6 +499,11 @@
       "window": 1048576,
       "vision": false,
       "reasoning": true,
+      "min_reasoning_effort": "high",
+      "efforts": [
+        "high",
+        "max"
+      ],
       "price_in": 1.4,
       "price_out": 4.4,
       "price_cache_read": 0.26,
@@ -456,6 +534,11 @@
       "window": 1048576,
       "vision": true,
       "reasoning": true,
+      "min_reasoning_effort": "high",
+      "efforts": [
+        "high",
+        "max"
+      ],
       "price_in": 0.15,
       "price_out": 0.5,
       "price_cache_read": 0.03,
@@ -482,6 +565,9 @@
       "window": 262144,
       "vision": true,
       "reasoning": true,
+      "efforts": [
+        "high"
+      ],
       "price_in": 2.0,
       "price_out": 6.0,
       "price_cache_read": 0.25,
@@ -508,6 +594,11 @@
       "window": 1048576,
       "vision": true,
       "reasoning": true,
+      "efforts": [
+        "low",
+        "high",
+        "max"
+      ],
       "pinnable": true,
       "group": "Kimi",
       "price_in": 2.0,
@@ -538,6 +629,11 @@
       "window": 1048576,
       "vision": true,
       "reasoning": true,
+      "efforts": [
+        "low",
+        "high",
+        "max"
+      ],
       "_note": "DeepSeek V4.1 Flash, the 2026-10-17 build (Fireworks serverless). Repointed 2026-11-18 from accounts/fireworks/models/deepseek-v4p1-flash (the 2026-09-10 build, aliased) to the newer snapshot; VERIFIED LIVE that day, and the Fireworks models API reports 1,048,576 context, image input and tools for it. PRICING verified docs.fireworks.ai/serverless/pricing 2026-11-18: $0.30 in / $0.006 cached / $1.20 out for both builds. The catalog had $0.22/$0.007/$0.66, which undercharged every call. The older V4 Flash 0731, V4 Pro 0813 and V4 Flash Vision Exp ids, decommissioned 2026-09-25, stay aliased here.",
       "pinnable": true,
       "group": "DeepSeek",
@@ -981,5 +1077,6 @@
   "_utility_models_note": "Per-vendor utility model used INSTEAD of utility_model when the session's pinned model is served by an attached SUBSCRIPTION lane of that vendor (e.g. a Claude Pro/Max login). Keeps background plumbing on the subscription the user chose rather than leaking to the gateway's utility vendor. Add a vendor only once its small model is verified to serve on that vendor's subscription transport.",
   "utility_models": {
     "anthropic": "haiku"
-  }
+  },
+  "_efforts_note": "efforts lists the levels of memcode's universal scale (low, medium, high, xhigh, max) each model supports natively, from the vendors' docs, verified 2026-11-27: Claude 5.x all five (also probed live on fable/opus/sonnet/haiku 5.x); GPT-6.x all five (developers.openai.com model pages); Gemini 4 Carbon LOW/MEDIUM/HIGH and Hydrogen adds XHIGH (Google Cloud model guides); Grok 4.7 low/medium/high/xhigh (docs.x.ai); Fireworks per family from docs.fireworks.ai post-chatcompletions: GLM 5.2 line high/max, Kimi K3 line low/high/max, DeepSeek V4 line low/high/max, Qwen3.8 hybrid on/off so one level. catalog.ResolveEffort maps any other level to the nearest supported one (ties go up). Pinnable models without a list pass levels through."
 }

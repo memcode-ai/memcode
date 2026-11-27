@@ -221,8 +221,11 @@ func TestOpenAIReasoningEffortMapping(t *testing.T) {
 	}{
 		{"off → none", wire.EffortOff, "none"},
 		{"low → low", wire.EffortLow, "low"},
-		{"medium → high", wire.EffortMedium, "high"},
-		{"high → xhigh", wire.EffortHigh, "xhigh"},
+		{"medium → medium", wire.EffortMedium, "medium"},
+		{"high → high", wire.EffortHigh, "high"},
+		{"xhigh → xhigh", wire.EffortXhigh, "xhigh"},
+		{"max → max", wire.EffortMax, "max"},
+		{"default → omitted", wire.EffortDefault, ""},
 	}
 	for _, c := range cases {
 		got := string(mapEffort(c.eff))
@@ -271,9 +274,9 @@ func TestOpenAIWireShape(t *testing.T) {
 	if !strings.Contains(gotBody, `"max_output_tokens":512`) {
 		t.Errorf("max_output_tokens missing: %s", gotBody)
 	}
-	// reasoning effort xhigh (EffortHigh → xhigh).
-	if !strings.Contains(gotBody, `"effort":"xhigh"`) {
-		t.Errorf("reasoning effort xhigh missing: %s", gotBody)
+	// Reasoning effort maps one to one (EffortHigh → high), with summaries on.
+	if !strings.Contains(gotBody, `"reasoning":{"effort":"high","summary":"auto"}`) {
+		t.Errorf("reasoning effort high + summary auto missing: %s", gotBody)
 	}
 	// The tool definition (flat — name top-level, not nested under "function").
 	if !strings.Contains(gotBody, `"name":"read_file"`) {

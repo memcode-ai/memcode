@@ -86,79 +86,81 @@ type Session struct {
 	// policy is the user's behavior layer: typed settings on named decision
 	// points, resolved deterministically (internal/policy). The delegated model
 	// is one policy among several rather than a bespoke field.
-	policy            *policy.Resolver
-	lastServedModel   string // last turn's serving model — cross-family thinking-block hygiene (loop.go)
-	pinWindow         int    // the pin's context window from the picker list (0 = unknown; sizes the meter before the first serve)
-	mode              permissions.Mode
-	modeMu            sync.RWMutex // guards mode: the TUI goroutine cycles it (Shift+Tab // /mode) while the engine reads it at the permission gate
-	personality       string       // chosen voice (built-in key or custom text); travels as a fact, tone-only
-	personalityRoll   string       // the concrete voice "random" rolled for THIS session (set in SetPersonality)
-	extraMile         bool         // "extra mile" mode: travels as a fact; the doctrine composer injects an above-and-beyond rule for planner+executor
-	effortOverride    wire.Effort  // user-forced thinking effort (/effort); applied when hasEffortOverride is set
-	hasEffortOverride bool         // false → auto (the turn_intent judge decides per turn); true → use effortOverride every turn
-	out               io.Writer
-	width             int // terminal width, for full-row diff backgrounds (0 → fallback)
-	approve           func(context.Context, ApprovalRequest) ApprovalDecision
-	ask               func(context.Context, AskRequest) AskResponse // HITL clarifying questions
-	mu                sync.Mutex                                    // guards output + metric counters during concurrent tool execution, and planCtl.Task/LastPlan for the plan-gate snapshot (PlanGateSnapshot / pinPresentedPlan)
-	browserRenderOK   bool                                          // user consented to local browser rendering this session
-	browserEnabled    bool                                          // --chrome: browser tools are advertised and a Chrome session is lazily launched
-	browserSession    *browser.Session                              // the persistent Chrome instance (lazily created on first browser tool call) — guarded by browserMu
-	browserMu         sync.Mutex                                    // guards browserSession init/teardown/access: read-only browser tools are parallel-safe, so concurrent goroutines reach browserOrInit
-	noContext         bool                                          // cold mode: skip the ContextPack (for A/B evaluation)
-	readOnly          bool                                          // explorer mode: no edit_file/bash (a "reader" sub-agent)
-	chatReadOnly      bool                                          // ambient read-only for the main session — session-scoped only, never persisted; orthogonal to readOnly (one-shot sub-agent gate) and to plan mode
-	toolPolicy        tools.Policy                                  // agent tool policy (toolsets allow/deny); zero = unrestricted
-	browserHeadless   bool                                          // gateway/service sessions run Chrome headless (no desktop)
-	noApprover        bool                                          // detached job: no human can answer approval prompts
-	denyCommands      []string                                      // capability ceiling: command patterns this run may never execute
-	adminMode         bool                                          // admin session (`memcode admin`): admin tools only, settings doctrine
-	adminExec         AdminExecutor                                 // cmd-injected admin operations (engine never imports the gateway layer)
-	iterCap           int                                           // per-session runLoop iteration override (0 = mode default); set on the bounded plan-review sub-session
-	scope             string                                        // scout/explorer subsystem scope (tags gather telemetry)
-	lastText          string                                        // most recent assistant text (for Answer)
-	lastErr           error                                         // terminal error of the most recent turn (for one-shot exit codes)
-	sessionID         string
-	pinnedID          string                            // caller-chosen session id (SetSessionID): StartChat uses it verbatim instead of minting, for gateway conversation continuity
-	headSHA           string                            // repo HEAD at session start — provenance stamp for signals emitted this session
-	resumeID          string                            // when set, the next StartChat re-enters this session with its saved transcript (see transcript.go)
-	allowPending      string                            // permission-provenance note awaiting its surface's header (see allowNote/flushAllowNote)
-	hookSet           *hooks.Set                        // user hooks (~/.memcode/hooks.json + project), lazily loaded; see hooks.go
-	ckpt              *checkpoint.Log                   // per-session edit pre-images (rewind); recreated with the session id
-	curCkpt           *checkpoint.Checkpoint            // the open checkpoint for the RUNNING turn (nil between turns)
-	slog              atomic.Pointer[sessionlog.Writer] // append-only episodic log (.memcode/sessions/<id>/); a turn can still be running when the session ends
-	bgJobs            *jobs.Registry                    // background jobs ($ … & / agent-started servers)
-	mcp               *mcp.Manager                      // connected MCP servers + their tools (.mcp.json); nil when none configured
-	lspMgr            *lsp.Manager                      // resident language servers (diagnostics + nav); lazily started, detect-and-connect
-	lspOnce           sync.Once                         // guards lazy lspMgr creation
-	mcpPending        []mcp.ScopedServer                // project-scoped servers awaiting approval (reviewed on the first interactive turn)
-	mcpConfigs        map[string]mcp.ServerConfig       // connected servers' configs (invocation grants key to their hash)
-	extraMCPServers   map[string]mcp.ServerConfig       // set programmatically (e.g. existing-Chrome), merged in at connect time — see SetExtraMCPServers
-	mcpInteractive    bool                              // this session can complete interactive flows (approval prompts, OAuth browser)
-	mcpErrsShown      int                               // count of MCP connect errors already surfaced (so Add doesn't re-print)
-	bgCtx             context.Context                   // LONG-LIVED ctx for jobs (session-scoped, NOT a turn ctx)
-	bgCancel          context.CancelFunc                // ends the session scope: EndChat cancels so turn-boundary writes stop
-	outcomeCancel     context.CancelFunc                // stops the async post-session learning loop (see EndChat)
-	outcomeDone       chan struct{}                     // closed when that loop has fully exited — EndChat joins on it
-	bgWork            sync.WaitGroup                    // turn-boundary background work (task-shape classification) — EndChat joins on it
-	testEditIntent    bool                              // user explicitly asked to change tests/specs/behavior this turn
-	lastUserText      string                            // the user's most recent request (ground truth for the authorization judge)
-	redactor          *secrets.Redactor
-	approvals         []permissions.Approval // remembered allow-rules
-	observer          UIObserver             // optional front-end tap (TUI); may be nil
-	toolNotify        func(label string)     // optional per-tool-call activity tap (job heartbeat); may be nil
-	mood              *mood.Tracker          // running interaction-friction reading
-	cadence           *mood.CadenceTracker   // message timing (burst / rapid-correction)
-	room              room.State             // assessed interaction/room state (drives policy)
-	todos             todos.List             // the agent's in-memory work tracker (scratchpad) — guarded by todosMu
-	todosMu           sync.Mutex             // guards todos: DeferWhilePlanning mutates it from the TUI intake thread while the engine's runLoop/todoTool read + write it
+	policy          *policy.Resolver
+	lastServedModel string // last turn's serving model — cross-family thinking-block hygiene (loop.go)
+	pinWindow       int    // the pin's context window from the picker list (0 = unknown; sizes the meter before the first serve)
+	mode            permissions.Mode
+	modeMu          sync.RWMutex // guards mode: the TUI goroutine cycles it (Shift+Tab // /mode) while the engine reads it at the permission gate
+	personality     string       // chosen voice (built-in key or custom text); travels as a fact, tone-only
+	personalityRoll string       // the concrete voice "random" rolled for THIS session (set in SetPersonality)
+	extraMile       bool         // "extra mile" mode: travels as a fact; the doctrine composer injects an above-and-beyond rule for planner+executor
+	effortOverride  wire.Effort  // the session's thinking effort (/effort): medium unless the user picks another; every turn uses it
+	out             io.Writer
+	width           int // terminal width, for full-row diff backgrounds (0 → fallback)
+	approve         func(context.Context, ApprovalRequest) ApprovalDecision
+	ask             func(context.Context, AskRequest) AskResponse // HITL clarifying questions
+	mu              sync.Mutex                                    // guards output + metric counters during concurrent tool execution, and planCtl.Task/LastPlan for the plan-gate snapshot (PlanGateSnapshot / pinPresentedPlan)
+	browserRenderOK bool                                          // user consented to local browser rendering this session
+	browserEnabled  bool                                          // --chrome: browser tools are advertised and a Chrome session is lazily launched
+	browserSession  *browser.Session                              // the persistent Chrome instance (lazily created on first browser tool call) — guarded by browserMu
+	browserMu       sync.Mutex                                    // guards browserSession init/teardown/access: read-only browser tools are parallel-safe, so concurrent goroutines reach browserOrInit
+	noContext       bool                                          // cold mode: skip the ContextPack (for A/B evaluation)
+	readOnly        bool                                          // explorer mode: no edit_file/bash (a "reader" sub-agent)
+	chatReadOnly    bool                                          // ambient read-only for the main session — session-scoped only, never persisted; orthogonal to readOnly (one-shot sub-agent gate) and to plan mode
+	toolPolicy      tools.Policy                                  // agent tool policy (toolsets allow/deny); zero = unrestricted
+	browserHeadless bool                                          // gateway/service sessions run Chrome headless (no desktop)
+	noApprover      bool                                          // detached job: no human can answer approval prompts
+	denyCommands    []string                                      // capability ceiling: command patterns this run may never execute
+	adminMode       bool                                          // admin session (`memcode admin`): admin tools only, settings doctrine
+	adminExec       AdminExecutor                                 // cmd-injected admin operations (engine never imports the gateway layer)
+	iterCap         int                                           // per-session runLoop iteration override (0 = mode default); set on the bounded plan-review sub-session
+	scope           string                                        // scout/explorer subsystem scope (tags gather telemetry)
+	lastText        string                                        // most recent assistant text (for Answer)
+	lastErr         error                                         // terminal error of the most recent turn (for one-shot exit codes)
+	sessionID       string
+	pinnedID        string                            // caller-chosen session id (SetSessionID): StartChat uses it verbatim instead of minting, for gateway conversation continuity
+	headSHA         string                            // repo HEAD at session start — provenance stamp for signals emitted this session
+	resumeID        string                            // when set, the next StartChat re-enters this session with its saved transcript (see transcript.go)
+	allowPending    string                            // permission-provenance note awaiting its surface's header (see allowNote/flushAllowNote)
+	hookSet         *hooks.Set                        // user hooks (~/.memcode/hooks.json + project), lazily loaded; see hooks.go
+	ckpt            *checkpoint.Log                   // per-session edit pre-images (rewind); recreated with the session id
+	curCkpt         *checkpoint.Checkpoint            // the open checkpoint for the RUNNING turn (nil between turns)
+	slog            atomic.Pointer[sessionlog.Writer] // append-only episodic log (.memcode/sessions/<id>/); a turn can still be running when the session ends
+	bgJobs          *jobs.Registry                    // background jobs ($ … & / agent-started servers)
+	mcp             *mcp.Manager                      // connected MCP servers + their tools (.mcp.json); nil when none configured
+	lspMgr          *lsp.Manager                      // resident language servers (diagnostics + nav); lazily started, detect-and-connect
+	lspOnce         sync.Once                         // guards lazy lspMgr creation
+	mcpPending      []mcp.ScopedServer                // project-scoped servers awaiting approval (reviewed on the first interactive turn)
+	mcpConfigs      map[string]mcp.ServerConfig       // connected servers' configs (invocation grants key to their hash)
+	extraMCPServers map[string]mcp.ServerConfig       // set programmatically (e.g. existing-Chrome), merged in at connect time — see SetExtraMCPServers
+	mcpInteractive  bool                              // this session can complete interactive flows (approval prompts, OAuth browser)
+	mcpErrsShown    int                               // count of MCP connect errors already surfaced (so Add doesn't re-print)
+	bgCtx           context.Context                   // LONG-LIVED ctx for jobs (session-scoped, NOT a turn ctx)
+	bgCancel        context.CancelFunc                // ends the session scope: EndChat cancels so turn-boundary writes stop
+	outcomeCancel   context.CancelFunc                // stops the async post-session learning loop (see EndChat)
+	outcomeDone     chan struct{}                     // closed when that loop has fully exited — EndChat joins on it
+	bgWork          sync.WaitGroup                    // turn-boundary background work (task-shape classification) — EndChat joins on it
+	testEditIntent  bool                              // user explicitly asked to change tests/specs/behavior this turn
+	lastUserText    string                            // the user's most recent request (ground truth for the authorization judge)
+	redactor        *secrets.Redactor
+	approvals       []permissions.Approval // remembered allow-rules
+	observer        UIObserver             // optional front-end tap (TUI); may be nil
+	toolNotify      func(label string)     // optional per-tool-call activity tap (job heartbeat); may be nil
+	mood            *mood.Tracker          // running interaction-friction reading
+	cadence         *mood.CadenceTracker   // message timing (burst / rapid-correction)
+	room            room.State             // assessed interaction/room state (drives policy)
+	todos           todos.List             // the agent's in-memory work tracker (scratchpad) — guarded by todosMu
+	todosMu         sync.Mutex             // guards todos: DeferWhilePlanning mutates it from the TUI intake thread while the engine's runLoop/todoTool read + write it
 
 	planCtl *plan.Controller // plan-mode state (active/revision/models/apply), owned by EnterPlan/ExitPlan (plan.go)
 
 	metrics           metricsState         // session accounting counters (tool calls, reads, edit/verify seqs) (metricsstate.go)
 	served            servedState          // backend/routing telemetry of the last main call (servedstate.go)
 	dispMu            sync.Mutex           // guards served + turnEffort: the TUI render goroutine reads them every frame while the engine writes them mid-turn (separate from mu so a render read never blocks on output I/O)
-	turnEffort        wire.Effort          // thinking effort for THIS turn (set per turn; default off — see turnintent.go) — read under dispMu
+	turnEffort        wire.Effort          // thinking effort for THIS turn: the session's effort, or the model's own adjustment via the reasoning tool — read under dispMu
+	inflightIn        int                  // input tokens the provider has reported for the call in flight (0 between calls) — read under dispMu
+	inflightOut       int                  // output tokens the provider has reported for the call in flight; never estimated — read under dispMu
+	reasoningTail     string               // the end of the in-flight call's streamed reasoning summary, for the status line — read under dispMu
 	servingDefault    string               // the everyday serving model (gateway cheap lane) shown before any turn runs — read under dispMu
 	turn              *turnState           // per-turn loop state, reset each runLoop (turnstate.go)
 	skills            []skills.Skill       // discovered skill catalog (own + Claude Code plugins)
@@ -187,11 +189,7 @@ type Session struct {
 	// onto every request this turn, the judged thinking baseline the reasoning
 	// tool's "auto" restores, the previous judgment (continuation inheritance),
 	// and the one-shot plan-hint flag. Engine goroutine only.
-	turnJudge        chan turnJudgment
-	turnBaseEffort   wire.Effort
-	lastJudgment     turnJudgment
-	nudgedPlanIntent bool
-	conversational   bool // an interactive multi-turn session (StartChat), not a one-shot run
+	conversational bool // an interactive multi-turn session (StartChat), not a one-shot run
 	// runtimeAuth supplies the machine's runtime authorizations for a task
 	// trial run. Injected by the host so the engine never reads gateway config.
 	runtimeAuth      func() runtimes.Authorizations
@@ -282,6 +280,10 @@ func New(st store.Store, runner *llm.Runner, root, model string, mode permission
 		bgCtx:      context.Background(), // replaced with the session ctx in StartChat/Run
 		turn:       newTurnState(),       // non-nil default; runLoop replaces it each turn
 		planCtl:    &plan.Controller{},
+		// Medium is memcode's default effort: the vendor default for Opus 5.5,
+		// Haiku 5.5, Gemini 4 Carbon and GPT-6, and quick enough to stay
+		// interactive. The user changes it with /effort; it is never auto-picked.
+		effortOverride: wire.EffortMedium,
 	}
 	// Wire the gateway client's retry-notify into the session's output, so transient
 	// HTTP failures (Cloud Run cold-start 502, 429, a dropped connection) surface a
@@ -558,10 +560,8 @@ func (s *Session) Run(ctx context.Context, task string) (Result, error) {
 		Blocks: []wire.Block{{Type: "text", Text: task}},
 	}}
 
-	// Headless has no room assessment — the turn_intent judge classifies the task
-	// synchronously (a background "audit the repo" is exactly the deep case);
-	// the ladder resolves the model from the turn's intent.
-	s.judgeTurnSync(ctx, task)
+	// The session's effort serves the whole task; nothing re-judges it.
+	s.setTurnEffort(s.effortOverride)
 	iterations, completed, err := s.runLoop(ctx, sys, &messages)
 	if err != nil {
 		return Result{}, err

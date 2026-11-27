@@ -137,39 +137,54 @@ func (g *Gemini) Complete(ctx context.Context, r wire.Request) (wire.Response, e
 	return g.Stream(ctx, r, wire.StreamHandler{})
 }
 
-// mapEffort translates memcode's abstract Effort onto Gemini's ThinkingConfig.
-// EffortHigh → a generous thinking budget (the model auto-caps), medium → a
-// moderate budget, low → a small budget, off → 0 (disables thinking). Returns
-// nil when thinking is off so the request omits the field entirely.
+// thinkingLevelXhigh is Gemini 4's level above HIGH (Hydrogen and Neon offer
+// it); the pinned genai SDK predates the constant.
+const thinkingLevelXhigh genai.ThinkingLevel = "XHIGH"
+
+// mapEffort translates memcode's universal effort scale onto Gemini's
+// ThinkingConfig. The level arrives already resolved to one the model supports
+// (catalog.ResolveEffort).
 //
-// A thinking_levels model (Gemini 4) 400s on any thinkingBudget and has no off,
-// so it gets a level instead and EffortOff becomes LOW, its lightest setting.
+// A thinking_levels model (Gemini 4) 400s on any thinkingBudget and has no off:
+// low/medium/high/xhigh map to the matching level, max to XHIGH (Gemini has no
+// MAX), EffortDefault sends no level so the model's default applies, and
+// EffortOff becomes LOW, its lightest setting. Thought summaries are requested
+// whenever the model thinks, so they can stream to the user.
+//
+// Older budget models get a thinking budget per level, 0 for off.
 func (g *Gemini) mapEffort(model string, e wire.Effort) *genai.ThinkingConfig {
 	if catalog.UsesThinkingLevels(model) {
-		lvl := genai.ThinkingLevelLow
+		cfg := &genai.ThinkingConfig{IncludeThoughts: e.Thinks()}
 		switch e {
-		case wire.EffortHigh:
-			lvl = genai.ThinkingLevelHigh
+		case wire.EffortDefault:
+			// no level: the model's own default
 		case wire.EffortMedium:
-			lvl = genai.ThinkingLevelMedium
+			cfg.ThinkingLevel = genai.ThinkingLevelMedium
+		case wire.EffortHigh:
+			cfg.ThinkingLevel = genai.ThinkingLevelHigh
+		case wire.EffortXhigh, wire.EffortMax:
+			cfg.ThinkingLevel = thinkingLevelXhigh
+		default: // EffortLow, EffortOff
+			cfg.ThinkingLevel = genai.ThinkingLevelLow
 		}
-		return &genai.ThinkingConfig{ThinkingLevel: lvl}
+		return cfg
+	}
+	budget := func(n int32) *genai.ThinkingConfig {
+		return &genai.ThinkingConfig{ThinkingBudget: &n, IncludeThoughts: n > 0}
 	}
 	switch e {
-	case wire.EffortHigh:
+	case wire.EffortDefault:
+		return &genai.ThinkingConfig{IncludeThoughts: true}
+	case wire.EffortHigh, wire.EffortXhigh, wire.EffortMax:
 		// A high budget lets the model think deeply; Gemini auto-caps at its
-		// model limit. 24576 is a generous budget for Gemini 3 Pro/Flash.
-		b := int32(24576)
-		return &genai.ThinkingConfig{ThinkingBudget: &b}
+		// model limit.
+		return budget(24576)
 	case wire.EffortMedium:
-		b := int32(8192)
-		return &genai.ThinkingConfig{ThinkingBudget: &b}
+		return budget(8192)
 	case wire.EffortLow:
-		b := int32(2048)
-		return &genai.ThinkingConfig{ThinkingBudget: &b}
+		return budget(2048)
 	default: // EffortOff
-		b := int32(0)
-		return &genai.ThinkingConfig{ThinkingBudget: &b}
+		return budget(0)
 	}
 }
 
@@ -548,7 +563,12 @@ func (g *Gemini) streamOnce(ctx context.Context, cl *genai.Client, model string,
 				continue
 			}
 			if part.Thought {
-				continue // reasoning — per-call only, not streamed to the user
+				// A thought summary: display-only, streamed to the Reasoning
+				// channel and never part of the reply or the history.
+				if h.Reasoning != nil && part.Text != "" {
+					h.Reasoning(part.Text)
+				}
+				continue
 			}
 			if part.Text != "" {
 				text.WriteString(part.Text)

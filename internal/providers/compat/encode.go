@@ -48,11 +48,11 @@ func (t *Transport) encodeBody(r wire.Request, stream bool) (ChatRequest, error)
 		}
 	}
 	if t.lane {
-		// The lane's model-conditional reasoning vocabulary (none/high/max —
+		// The lane's model-conditional reasoning vocabulary (the resolved level, or none/floor for off —
 		// ported from the gateway's Fireworks client verbatim).
-		body.ReasoningEffort = laneReasoningEffort(body.Model, r.Effort, len(r.Tools) > 0)
+		body.ReasoningEffort = laneReasoningEffort(body.Model, r.Effort)
 	} else if r.Effort != wire.EffortOff {
-		body.ReasoningEffort = string(r.Effort) // the vocabularies coincide (low|medium|high)
+		body.ReasoningEffort = string(r.Effort) // memcode's scale as-is: low|medium|high|xhigh|max, or "default" (the gateway parses all of them)
 	}
 	if r.Session != "" {
 		body.User = r.Session // wire-native session affinity; the gateway reflects it into X-Memcode-Session

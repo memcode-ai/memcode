@@ -72,6 +72,7 @@ func runInteractive(ctx context.Context, mode permissions.Mode, modeExplicit boo
 	sess.SetRuntimeAuth(loadAuthorizations)
 	sess.SetPersonality(cfg.Personality) // remembered agent voice (tone only)
 	sess.SetExtraMile(cfg.ExtraMile)     // remembered "extra mile" mode (above-and-beyond)
+	sess.SetEffortOverride(cfg.Effort)   // remembered thinking effort ("" → medium)
 	if ep, onEndpoint := prov.Endpoint(); onEndpoint {
 		// Endpoint mode: the hosted pin/vendor are GATEWAY label namespaces —
 		// meaningless (or worse, misrouting) against an arbitrary endpoint. The

@@ -47,6 +47,16 @@ func DefaultModel(t Tier) string {
 
 // ShortModel maps a model id back to its short alias for display (the inverse of
 // ResolveAlias). Unknown ids are returned unchanged.
+// DisplayName is the human name of a model for the footer and the served-by
+// line ("Gemini 4 Carbon", "Opus 5.5", "Grok 4.7") from the catalog, falling
+// back to ShortModel for ids the catalog doesn't name.
+func DisplayName(id string) string {
+	if m, ok := catalog.LookupModel(id); ok && m.Name != "" {
+		return m.Name
+	}
+	return ShortModel(id)
+}
+
 func ShortModel(id string) string {
 	switch id {
 	case catalog.ModelOpus:

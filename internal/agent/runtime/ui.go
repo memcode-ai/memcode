@@ -105,7 +105,13 @@ func (s *Session) CacheStats() (read, write int) {
 // Tokens returns cumulative session token flow: total input the model saw (uncached
 // + cache reads) and total output. Footer "↑in ↓out".
 func (s *Session) Tokens() (in, out int) {
-	return ledger.Tokens(s.runner.Ledger())
+	in, out = ledger.Tokens(s.runner.Ledger())
+	// Plus whatever the provider has reported for the call in flight, so the
+	// counters move during a long call when the vendor exposes running usage.
+	s.dispMu.Lock()
+	in, out = in+s.inflightIn, out+s.inflightOut
+	s.dispMu.Unlock()
+	return in, out
 }
 
 // Spend returns the session's token breakdown and estimated cost in USD (priced per
@@ -252,34 +258,33 @@ func (s *Session) SetDenyCommands(patterns []string) { s.denyCommands = patterns
 // not read the gateway's configuration itself.
 func (s *Session) SetRuntimeAuth(f func() runtimes.Authorizations) { s.runtimeAuth = f }
 
-// SetEffortOverride forces the per-turn thinking effort from the /effort command: "off",
-// "medium", or "high" pin it every turn; "auto" (or anything else) clears the override and
-// returns to the per-turn heuristic (effortForTurn). EffortOverride reports the current setting.
+// SetEffortOverride sets the session's thinking effort from /effort (or a
+// remembered config value): low, medium, high, xhigh or max on memcode's
+// universal scale, "default" for the vendor's own default, or "off" (agents
+// pinned to no thinking). The legacy "auto" and anything unrecognized become
+// medium, memcode's default; there is no per-turn auto-selection any more.
 func (s *Session) SetEffortOverride(level string) {
-	switch level {
-	case "off":
-		s.effortOverride, s.hasEffortOverride = wire.EffortOff, true
-	case "medium":
-		s.effortOverride, s.hasEffortOverride = wire.EffortMedium, true
-	case "high":
-		s.effortOverride, s.hasEffortOverride = wire.EffortHigh, true
-	default:
-		s.hasEffortOverride = false // "auto" → back to the heuristic
-	}
+	s.effortOverride = ParseEffort(level)
 }
 
-func (s *Session) EffortOverride() string {
-	if !s.hasEffortOverride {
-		return "auto"
+// ParseEffort maps a user-facing effort name onto the wire level, medium for
+// anything it doesn't recognize (including the retired "auto").
+func ParseEffort(level string) wire.Effort {
+	switch e := wire.Effort(strings.ToLower(strings.TrimSpace(level))); e {
+	case wire.EffortLow, wire.EffortMedium, wire.EffortHigh, wire.EffortXhigh, wire.EffortMax, wire.EffortDefault:
+		return e
+	case "off":
+		return wire.EffortOff
 	}
-	switch s.effortOverride {
-	case wire.EffortHigh:
-		return "high"
-	case wire.EffortMedium:
-		return "medium"
-	default:
+	return wire.EffortMedium
+}
+
+// EffortOverride reports the session's chosen effort by name ("off" for none).
+func (s *Session) EffortOverride() string {
+	if s.effortOverride == wire.EffortOff {
 		return "off"
 	}
+	return string(s.effortOverride)
 }
 
 // Personality returns the chosen voice ("" = default).
@@ -599,62 +604,40 @@ func (s *Session) ThinkingEffort() string {
 	return string(e)
 }
 
-// ReasoningDisplay returns the HONEST reasoning-depth tier the SERVING model is actually using
-// this turn ("high"/"max"/"medium"/"low"), or "" when the model exposes no thinking — for the
-// status line. It is lane-aware (reasoningTier): a hybrid open model (GLM etc.) reasons at HIGH on
-// ordinary turns and MAX on hard ones, matching the gateway's reasoning_effort policy; an Anthropic
-// adaptive model shows its effort tier; anything else shows nothing. This replaces the old label
-// that always read "effort: off" — which LIED on the cheap lane (GLM was actually at high/max).
+// ReasoningDisplay describes the effort the next call actually runs at, for
+// the status line and footer: "medium effort", "default effort", or, when the
+// model lacks the chosen level, "max effort, runs as xhigh". "" when the model
+// doesn't think (no declared levels and not a reasoning model) or effort is off.
 func (s *Session) ReasoningDisplay() string {
-	return reasoningTier(s.ServingModel(), wire.Effort(s.ThinkingEffort()))
-}
-
-// reasoningTier is the pure model+effort → tier mapping behind ReasoningDisplay (testable without
-// a live Session). It mirrors the gateway: the open hybrid models honor reasoning_effort
-// (ordinary→high, hard→max); adaptive models (Anthropic Opus/Sonnet, OpenAI GPT-5.6) take the
-// effort verbatim (GPT-5.6 maps high→xhigh via the gateway's mapEffort).
-func reasoningTier(model string, eff wire.Effort) string {
-	m := strings.ToLower(model)
-	switch {
-	case modelHybridReasoning(m):
-		if eff == wire.EffortHigh {
-			return "max"
-		}
-		return "high"
-	case modelAnthropicAdaptive(m), isOpenAIReasoning(m):
-		switch eff {
-		case wire.EffortHigh:
-			return "high"
-		case wire.EffortMedium:
-			return "medium"
-		case wire.EffortLow:
-			return "low"
-		}
+	model := s.DisplayModel()
+	if model == "" {
+		model = s.ServingModel()
 	}
-	return ""
-}
-
-// modelHybridReasoning reports whether a served model is an open hybrid-reasoning model that honors
-// the cheap lane's reasoning_effort knob (kept in sync with the gateway's supportsReasoningEffort).
-func modelHybridReasoning(model string) bool {
-	for _, s := range []string{"glm", "qwen", "deepseek", "kimi", "minimax", "gpt-oss"} {
-		if strings.Contains(model, s) {
-			return true
-		}
+	e := wire.Effort(s.ThinkingEffort())
+	if e == wire.EffortOff {
+		e = s.effortOverride
 	}
-	return false
+	return EffortLabel(model, e)
 }
 
-// isOpenAIReasoning reports whether a served model is an OpenAI GPT-5.6 model that takes the
-// Responses API reasoning.effort knob (kept in sync with the gateway's OpenAI provider).
-func isOpenAIReasoning(model string) bool {
-	return strings.Contains(strings.ToLower(model), "gpt-5.6")
-}
-
-// modelAnthropicAdaptive reports whether a served model takes adaptive thinking + effort (Opus/
-// Sonnet) — kept in sync with the gateway's supportsAdaptiveThinking.
-func modelAnthropicAdaptive(model string) bool {
-	return strings.Contains(model, "opus") || strings.Contains(model, "sonnet")
+// EffortLabel is the pure model+effort description behind ReasoningDisplay and
+// the served-by line. Equal labels on different vendors are not equal budgets,
+// so it only ever names the native level the model runs, never a translation.
+func EffortLabel(model string, e wire.Effort) string {
+	if e == wire.EffortOff {
+		return ""
+	}
+	cm, known := catalog.LookupModel(model)
+	if known && len(cm.Efforts) == 0 && !cm.Reasoning {
+		return "" // a non-reasoning model: nothing to show
+	}
+	if e == wire.EffortDefault {
+		return "default effort"
+	}
+	if got := catalog.ResolveEffort(model, string(e)); got != string(e) {
+		return string(e) + " effort, runs as " + got
+	}
+	return string(e) + " effort"
 }
 
 // Mode returns the active permission mode.

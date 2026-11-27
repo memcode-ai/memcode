@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/memcode-ai/memcode/catalog"
 	"github.com/memcode-ai/memcode/internal/providers/provcore"
 	"github.com/memcode-ai/memcode/internal/wire"
 )
@@ -51,29 +52,31 @@ func (t *Transport) mapError(status int, raw []byte) error {
 	return fmt.Errorf("lane http %d: %s", status, msg)
 }
 
-// laneReasoningEffort maps the abstract Effort onto a lane model's
-// reasoning_effort. Policy (ported unchanged): ordinary tool-carrying turns
-// reason at the model's HIGH tier, genuinely-hard turns (EffortHigh) at MAX;
-// tool-less Fireworks turns send an explicit "none" (Kimi/GLM default to
-// emitting a chain of thought when the field is omitted) — except gpt-oss,
-// which rejects "none". "" = omit (a non-reasoning model stays untouched).
-func laneReasoningEffort(model string, e wire.Effort, hasTools bool) string {
+// laneReasoningEffort maps memcode's universal effort scale onto a lane model's
+// reasoning_effort. The level arrives already resolved to one the model
+// supports (catalog.ResolveEffort), so low/medium/high/xhigh/max pass through
+// as the same word. EffortDefault omits the field so the model's default
+// applies. EffortOff (helper calls) sends the model's catalog floor when it has
+// one (GLM rejects none: its lowest real level is high), else an explicit
+// "none" on Fireworks, because Kimi, Qwen and DeepSeek think by default when
+// the field is omitted. "" = omit (a non-reasoning model stays untouched).
+func laneReasoningEffort(model string, e wire.Effort) string {
 	if !supportsReasoningEffort(model) {
 		return ""
 	}
-	if !hasTools {
-		if strings.HasPrefix(model, "accounts/") && !strings.Contains(strings.ToLower(model), "gpt-oss") && e == wire.EffortOff {
+	switch e {
+	case wire.EffortDefault:
+		return ""
+	case wire.EffortOff:
+		if floor := catalog.MinReasoningEffort(model); floor != "" {
+			return floor
+		}
+		if strings.HasPrefix(model, "accounts/") {
 			return "none"
 		}
-		return ""
+		return "low"
 	}
-	if e == wire.EffortHigh {
-		if strings.Contains(strings.ToLower(model), "grok") {
-			return "high" // Grok doesn't support "max" — cap at "high"
-		}
-		return "max"
-	}
-	return "high"
+	return string(e)
 }
 
 // supportsReasoningEffort reports whether a served model honors the lane's
@@ -81,7 +84,7 @@ func laneReasoningEffort(model string, e wire.Effort, hasTools bool) string {
 // we omit the field and never risk a 400 on a non-reasoning endpoint.
 func supportsReasoningEffort(model string) bool {
 	m := strings.ToLower(model)
-	for _, s := range []string{"glm", "qwen", "deepseek", "kimi", "minimax", "gpt-oss", "grok"} {
+	for _, s := range []string{"glm", "qwen", "deepseek", "kimi", "minimax", "grok"} {
 		if strings.Contains(m, s) {
 			return true
 		}

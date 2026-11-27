@@ -247,12 +247,9 @@ func (s *Session) Submit(ctx context.Context, st *ChatState, line string) {
 	// the assessed mode drives the permission policy and the per-turn guidance.
 	s.room = room.Assess(reading, room.Gather(ctx, s.store, s.sessionID)) // current session only — no cross-session friction leak
 	s.recordMood(ctx, dec.Bundle.Text, reading)
-	// Thinking + tier are an LLM judgment (turn_intent, fired concurrently and
-	// joined in runLoop); the deterministic pieces here are FACTS only — the
-	// /effort override pins, room state sets the provisional effort.
-	if s.provisionalEffort() {
-		s.startTurnJudge(ctx, dec.Bundle.Text)
-	}
+	// Every turn thinks at the session's effort, the level the user chose with
+	// /effort (medium by default). Nothing judges or raises it per message.
+	s.setTurnEffort(s.effortOverride)
 
 	// NOT dec.Route. The intake gate below deliberately ignores the parsed route
 	// (input.Parse's default is Steer, which cannot stand in for user intent —
@@ -495,13 +492,8 @@ func (s *Session) scoreTurn(ctx context.Context, text string) {
 	s.emit(ctx, events.KindUserInputReceived, map[string]any{"mood": reading, "cadence": cad})
 	s.room = room.Assess(reading, room.Gather(ctx, s.store, s.sessionID))
 	s.recordMood(ctx, text, reading)
-	// Thinking + tier are an LLM judgment (turn_intent, fired concurrently and
-	// joined in runLoop before the first model call); the deterministic pieces
-	// here are FACTS only — the /effort override pins, room state sets the
-	// provisional effort while the judge is in flight.
-	if s.provisionalEffort() {
-		s.startTurnJudge(ctx, text)
-	}
+	// Every turn thinks at the session's effort (see Submit).
+	s.setTurnEffort(s.effortOverride)
 	if s.observer != nil {
 		s.observer.Mood(reading)
 		s.observer.Room(s.room)

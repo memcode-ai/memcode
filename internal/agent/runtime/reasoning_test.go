@@ -41,7 +41,7 @@ func TestReasoningSelfAdjust(t *testing.T) {
 // mid-turn (the default returns at the next turn's scoring), and `auto` means
 // "back to the default" — the user's setting when one exists.
 func TestReasoningOverridesSessionDefaultMidTurn(t *testing.T) {
-	s := &Session{out: io.Discard, effortOverride: wire.EffortMedium, hasEffortOverride: true}
+	s := &Session{out: io.Discard, effortOverride: wire.EffortMedium}
 	s.setTurnEffort(wire.EffortMedium)
 	r := reasonCall(t, s, `{"effort":"high"}`)
 	if r.isError || s.ThinkingEffort() != "high" {

@@ -67,10 +67,7 @@ func (s *Session) reasoningTool(ctx context.Context, input json.RawMessage) tool
 	if current == "" {
 		current = "off"
 	}
-	sessionDefault := "auto"
-	if s.hasEffortOverride {
-		sessionDefault = s.EffortOverride()
-	}
+	sessionDefault := s.EffortOverride()
 	if eff == "" {
 		return textResult(fmt.Sprintf("thinking effort is %s (session default: %s — it returns when this turn ends). Adjust with effort: off | medium | high | auto, or delegate a hard sub-problem with task.", current, sessionDefault))
 	}
@@ -83,11 +80,7 @@ func (s *Session) reasoningTool(ctx context.Context, input json.RawMessage) tool
 	case "high":
 		level = wire.EffortHigh
 	case "auto":
-		if s.hasEffortOverride {
-			level = s.effortOverride // auto = back to the session default, which the user set
-		} else {
-			level = s.turnBaseEffort // the turn_intent judge's baseline for THIS turn — never re-judge mid-turn
-		}
+		level = s.effortOverride // back to the session's effort, the level the user set
 	default:
 		return errResult("effort must be off, medium, high, or auto")
 	}

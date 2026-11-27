@@ -200,6 +200,7 @@ func (r *Runner) runWithRecovery(ctx context.Context, req wire.Request, res reso
 		tried[next] = true
 		label = next
 		req.Pin = next
+		req.Effort = resolveEffort(next, req.Effort)
 		scrubForeignThinking(&req, next)
 	}
 }

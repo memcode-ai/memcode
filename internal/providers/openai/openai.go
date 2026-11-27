@@ -67,7 +67,7 @@ type OpenAI struct {
 	backend      string // wire backend tag stamped on responses ("openai" | "grok")
 	defaultModel string // side-channel + display model (Terra | grok-4.6)
 	keyEnv       string // env var named in missing-key errors
-	clampEffort  bool   // clamp reasoning.effort to the low|high vocabulary (xAI)
+	clampEffort  bool   // the vendor can't turn reasoning off: EffortOff sends low (xAI)
 	includeEnc   bool   // request encrypted-reasoning round-trip (OpenAI-only includable)
 
 	// extraHeaders are sent on every request — the identity a subscription
@@ -125,33 +125,41 @@ func (o *OpenAI) Complete(ctx context.Context, r wire.Request) (wire.Response, e
 	return o.Stream(ctx, r, wire.StreamHandler{})
 }
 
-// mapEffort translates memcode's abstract Effort onto the Responses API's reasoning.effort
-// vocabulary (none|minimal|low|medium|high|xhigh). EffortHigh (the hardest planning/review
-// turns) maps to xhigh; a normal tool-carrying turn maps to high; EffortOff maps to none so
-// a cheap classifier turn stays fast. The GPT-5.6 family supports the full range.
+// mapEffort translates memcode's universal effort scale onto the Responses API's
+// reasoning.effort, one to one: low, medium, high, xhigh and max are the same
+// words on both sides (the level was already resolved to one the model supports,
+// catalog.ResolveEffort). EffortDefault maps to "" so the field is omitted and
+// the vendor's default applies; EffortOff maps to none.
 func mapEffort(e wire.Effort) shared.ReasoningEffort {
 	switch e {
-	case wire.EffortHigh:
-		return shared.ReasoningEffortXhigh
-	case wire.EffortMedium:
-		return shared.ReasoningEffortHigh
 	case wire.EffortLow:
 		return shared.ReasoningEffortLow
+	case wire.EffortMedium:
+		return shared.ReasoningEffortMedium
+	case wire.EffortHigh:
+		return shared.ReasoningEffortHigh
+	case wire.EffortXhigh:
+		return shared.ReasoningEffortXhigh
+	case wire.EffortMax:
+		return shared.ReasoningEffortMax
+	case wire.EffortDefault:
+		return ""
 	default: // EffortOff
 		return shared.ReasoningEffortNone
 	}
 }
 
-// effortFor applies the adapter's effort vocabulary: mapEffort's full range for
-// OpenAI; clamped to low|high for vendors that reject the rest (xAI grok).
-func (o *OpenAI) effortFor(e wire.Effort) shared.ReasoningEffort {
+// effortFor applies the model's floor to EffortOff: a model that rejects none
+// (catalog min_reasoning_effort, e.g. GPT-6.2 Astra and Sol) gets its floor,
+// and a vendor that can't turn reasoning off at all (xAI) gets low.
+func (o *OpenAI) effortFor(model string, e wire.Effort) shared.ReasoningEffort {
 	eff := mapEffort(e)
-	if o.clampEffort {
-		switch eff {
-		case shared.ReasoningEffortXhigh:
-			eff = shared.ReasoningEffortHigh
-		case shared.ReasoningEffortNone, shared.ReasoningEffortMinimal:
-			eff = shared.ReasoningEffortLow
+	if eff == shared.ReasoningEffortNone {
+		if floor := catalog.MinReasoningEffort(model); floor != "" {
+			return shared.ReasoningEffort(floor)
+		}
+		if o.clampEffort {
+			return shared.ReasoningEffortLow
 		}
 	}
 	return eff
@@ -194,9 +202,15 @@ func (o *OpenAI) buildParams(r wire.Request, maxTok int) responses.ResponseNewPa
 		p.Instructions = oai.String(r.System)
 	}
 
-	// Reasoning effort (always set — GPT-5.6 defaults to a non-trivial effort when omitted,
-	// so an explicit none keeps classifier/utility turns cheap).
-	p.Reasoning = shared.ReasoningParam{Effort: o.effortFor(r.Effort)}
+	// Reasoning effort: set for every level except EffortDefault (omitted, so the
+	// vendor default applies). An explicit none keeps helper calls cheap.
+	p.Reasoning = shared.ReasoningParam{Effort: o.effortFor(r.Model, r.Effort)}
+	// Reasoning summaries stream as response.reasoning_summary_text.delta, so the
+	// user sees what the model is working on instead of a silent wait. OpenAI only;
+	// xAI streams no summaries on this API.
+	if o.includeEnc && r.Effort.Thinks() {
+		p.Reasoning.Summary = shared.ReasoningSummaryAuto
+	}
 
 	// Include encrypted reasoning content so thinking blocks survive the stateless
 	// round-trip. OpenAI-only: xAI (grok) doesn't support the includable.
@@ -483,6 +497,13 @@ func (o *OpenAI) streamOnce(ctx context.Context, params responses.ResponseNewPar
 			if h.Text != nil {
 				h.Text(evt.Delta)
 				emitted = true // output forwarded — no longer safe to retry this stream
+			}
+
+		case "response.reasoning_summary_text.delta":
+			// Display-only: the summary streams to the Reasoning channel and is
+			// never part of the reply or the round-tripped reasoning item.
+			if h.Reasoning != nil && evt.Delta != "" {
+				h.Reasoning(evt.Delta)
 			}
 
 		case "response.reasoning_text.delta":

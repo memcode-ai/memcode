@@ -126,6 +126,7 @@ for local gateway development. Never store keys in .memcode.`,
 
 		noContext, _ := cmd.Flags().GetBool("no-context")
 		sess := runtime.New(st, runner, cfg.Root, model, mode, userOut())
+		sess.SetEffortOverride(cfg.Effort) // the remembered thinking effort ("" → medium); an agent job's pin overrides it below
 		// A trial run inside task creation may need a subscription runtime, and only
 		// the CLI knows what this machine has been authorised for. Passed as a
 		// function so a grant made mid-session is visible without a restart.

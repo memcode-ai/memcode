@@ -278,6 +278,7 @@ func (r *Runner) prepare(ctx context.Context, p Purpose, req *wire.Request) (res
 	req.Purpose, req.Session = string(p), r.session
 	if !r.hostedPolicy() {
 		req.Pin = r.pin // endpoint mode / test fakes: session model or raw pass-through
+		req.Effort = resolveEffort(req.Pin, req.Effort)
 		if ep, ok := r.prov.(provider.Endpointer); ok {
 			if e, on := ep.Endpoint(); on {
 				if err := fitEndpointLimits(req, e.LimitsFor(req.Pin)); err != nil {
@@ -297,12 +298,20 @@ func (r *Runner) prepare(ctx context.Context, p Purpose, req *wire.Request) (res
 		return res, info, true, res.err
 	}
 	req.Pin = res.label
+	req.Effort = resolveEffort(res.label, req.Effort)
 	scrubForeignThinking(req, res.label)
 	// The delegate doctrine was appended here: a cheap Automatic coding lane
 	// was told to hand non-code work to a strong-tier agent. Both halves of
 	// that sentence are gone — there is no cheap lane and no stronger tier to
 	// delegate to, only the model the user chose.
 	return res, info, true, nil
+}
+
+// resolveEffort maps the request's effort onto the closest level the serving
+// model supports (catalog.ResolveEffort), so what goes on the wire is a level
+// the model takes natively. Off and default pass through.
+func resolveEffort(model string, e wire.Effort) wire.Effort {
+	return wire.Effort(catalog.ResolveEffort(model, string(e)))
 }
 
 // fitEndpointLimits fits a request inside a custom endpoint's declared

@@ -126,8 +126,11 @@ func (s *Session) spawnAgent(ctx context.Context, spec AgentSpec) (AgentResult, 
 	if spec.IterCap > 0 {
 		sub.iterCap = spec.IterCap
 	}
-	if spec.Effort != "" { // a reasoning delegate pins its thinking depth for the whole run
-		sub.effortOverride, sub.hasEffortOverride = spec.Effort, true
+	// A sub-agent thinks at the user's chosen effort, unless it is a reasoning
+	// delegate pinning its own depth for the whole run.
+	sub.effortOverride = s.effortOverride
+	if spec.Effort != "" {
+		sub.effortOverride = spec.Effort
 	}
 	// Share the parent's HITL channel so a MUTATING sub-agent's approvals surface in the same
 	// TUI cards (the parent turn is blocked here, so there's no contention). Read-only agents

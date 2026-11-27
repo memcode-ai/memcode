@@ -105,11 +105,14 @@ func TestThinkingCurrentModelRules(t *testing.T) {
 		wantJSON   string // the marshaled thinking object, "" = omitted
 		wantEffort string
 	}{
-		{"fable52 off", "claude-fable-5-2", wire.EffortOff, `{"type":"adaptive","block_binding":{"prefix_mismatch_behavior":"drop_block"}}`, ""},
-		{"fable52 high", "claude-fable-5-2", wire.EffortHigh, `{"type":"adaptive","block_binding":{"prefix_mismatch_behavior":"drop_block"}}`, "high"},
-		{"opus55 high keeps blocks", "claude-opus-5-5", wire.EffortHigh, `{"type":"adaptive"}`, "high"},
+		{"fable52 off", "claude-fable-5-2", wire.EffortOff, `{"display":"summarized","type":"adaptive","block_binding":{"prefix_mismatch_behavior":"drop_block"}}`, ""},
+		{"fable52 high", "claude-fable-5-2", wire.EffortHigh, `{"display":"summarized","type":"adaptive","block_binding":{"prefix_mismatch_behavior":"drop_block"}}`, "high"},
+		{"opus55 high keeps blocks", "claude-opus-5-5", wire.EffortHigh, `{"display":"summarized","type":"adaptive"}`, "high"},
+		{"opus55 xhigh", "claude-opus-5-5", wire.EffortXhigh, `{"display":"summarized","type":"adaptive"}`, "xhigh"},
+		{"opus55 max", "claude-opus-5-5", wire.EffortMax, `{"display":"summarized","type":"adaptive"}`, "max"},
+		{"opus55 default sends no effort", "claude-opus-5-5", wire.EffortDefault, `{"display":"summarized","type":"adaptive"}`, ""},
 		{"haiku55 off", "claude-haiku-5-5", wire.EffortOff, `{"type":"disabled"}`, ""},
-		{"haiku55 low", "claude-haiku-5-5", wire.EffortLow, `{"type":"adaptive"}`, "low"},
+		{"haiku55 low", "claude-haiku-5-5", wire.EffortLow, `{"display":"summarized","type":"adaptive"}`, "low"},
 		{"sonnet55 off omitted", "claude-sonnet-5-5", wire.EffortOff, "", ""},
 	}
 	for _, c := range cases {
