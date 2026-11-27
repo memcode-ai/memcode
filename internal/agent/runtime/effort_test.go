@@ -78,8 +78,21 @@ func TestReasoningSnippet(t *testing.T) {
 	if got := s.ReasoningSnippet(); got != "Planning the engine" {
 		t.Fatalf("snippet = %q", got)
 	}
+	// The line survives the end of the call and the tool runs that follow, so
+	// it doesn't flash away between the calls of one turn...
 	s.endCall()
+	s.beginCall()
+	if got := s.ReasoningSnippet(); got != "Planning the engine" {
+		t.Fatalf("snippet between calls = %q, want the last summary kept", got)
+	}
+	// ...until the next call streams its own summary, which replaces it...
+	s.onReasoning("Writing the tests")
+	if got := s.ReasoningSnippet(); got != "Writing the tests" {
+		t.Fatalf("snippet after the next call's reasoning = %q", got)
+	}
+	// ...and a new user turn starts clean.
+	s.clearReasoning()
 	if got := s.ReasoningSnippet(); got != "" {
-		t.Fatalf("snippet after the call = %q, want empty", got)
+		t.Fatalf("snippet at a new turn = %q, want empty", got)
 	}
 }

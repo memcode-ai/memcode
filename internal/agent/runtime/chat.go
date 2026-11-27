@@ -250,6 +250,7 @@ func (s *Session) Submit(ctx context.Context, st *ChatState, line string) {
 	// Every turn thinks at the session's effort, the level the user chose with
 	// /effort (medium by default). Nothing judges or raises it per message.
 	s.setTurnEffort(s.effortOverride)
+	s.clearReasoning()
 
 	// NOT dec.Route. The intake gate below deliberately ignores the parsed route
 	// (input.Parse's default is Steer, which cannot stand in for user intent —
@@ -494,6 +495,7 @@ func (s *Session) scoreTurn(ctx context.Context, text string) {
 	s.recordMood(ctx, text, reading)
 	// Every turn thinks at the session's effort (see Submit).
 	s.setTurnEffort(s.effortOverride)
+	s.clearReasoning()
 	if s.observer != nil {
 		s.observer.Mood(reading)
 		s.observer.Room(s.room)

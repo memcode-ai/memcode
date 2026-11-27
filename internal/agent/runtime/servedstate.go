@@ -96,16 +96,31 @@ func deepEffort(e wire.Effort) bool {
 // ever shows its last line.
 const reasoningTailMax = 600
 
-// beginCall clears the in-flight usage and reasoning before a model call.
+// beginCall clears the in-flight usage before a model call. The reasoning line
+// stays: the previous call's summary keeps showing until this call streams its
+// own, so the line doesn't flash away between the calls of one turn.
 func (s *Session) beginCall() {
 	s.dispMu.Lock()
 	defer s.dispMu.Unlock()
-	s.inflightIn, s.inflightOut, s.reasoningTail = 0, 0, ""
+	s.inflightIn, s.inflightOut = 0, 0
+	s.reasoningNewCall = true
 }
 
-// endCall drops the in-flight state once the call has finished: the ledger now
-// holds the authoritative counts.
-func (s *Session) endCall() { s.beginCall() }
+// endCall drops the in-flight usage once the call has finished: the ledger now
+// holds the authoritative counts. The reasoning line stays for the turn.
+func (s *Session) endCall() {
+	s.dispMu.Lock()
+	defer s.dispMu.Unlock()
+	s.inflightIn, s.inflightOut = 0, 0
+}
+
+// clearReasoning empties the reasoning line at the start of a user turn, so the
+// last turn's summary never shows on the next one.
+func (s *Session) clearReasoning() {
+	s.dispMu.Lock()
+	defer s.dispMu.Unlock()
+	s.reasoningTail, s.reasoningNewCall = "", false
+}
 
 // onCallUsage records usage the provider reported mid-stream. These are the
 // vendor's own running counts (Gemini reports them on every chunk); calls whose
@@ -120,6 +135,9 @@ func (s *Session) onCallUsage(in, out int) {
 func (s *Session) onReasoning(delta string) {
 	s.dispMu.Lock()
 	defer s.dispMu.Unlock()
+	if s.reasoningNewCall {
+		s.reasoningTail, s.reasoningNewCall = "", false // a new call's summary replaces the last one
+	}
 	t := s.reasoningTail + delta
 	if len(t) > reasoningTailMax {
 		t = t[len(t)-reasoningTailMax:]
@@ -127,8 +145,8 @@ func (s *Session) onReasoning(delta string) {
 	s.reasoningTail = t
 }
 
-// ReasoningSnippet is the latest line of the in-flight call's reasoning
-// summary ("" when the vendor streams none or no call is running).
+// ReasoningSnippet is the latest line of this turn's streamed reasoning
+// summary ("" when the vendor streams none or the turn hasn't reasoned yet).
 func (s *Session) ReasoningSnippet() string {
 	s.dispMu.Lock()
 	t := s.reasoningTail

@@ -160,7 +160,8 @@ type Session struct {
 	turnEffort        wire.Effort          // thinking effort for THIS turn: the session's effort, or the model's own adjustment via the reasoning tool — read under dispMu
 	inflightIn        int                  // input tokens the provider has reported for the call in flight (0 between calls) — read under dispMu
 	inflightOut       int                  // output tokens the provider has reported for the call in flight; never estimated — read under dispMu
-	reasoningTail     string               // the end of the in-flight call's streamed reasoning summary, for the status line — read under dispMu
+	reasoningTail     string               // the end of this turn's latest streamed reasoning summary, for the status line — read under dispMu
+	reasoningNewCall  bool                 // the next reasoning delta starts a new call's summary (replaces reasoningTail) — under dispMu
 	servingDefault    string               // the everyday serving model (gateway cheap lane) shown before any turn runs — read under dispMu
 	turn              *turnState           // per-turn loop state, reset each runLoop (turnstate.go)
 	skills            []skills.Skill       // discovered skill catalog (own + Claude Code plugins)
