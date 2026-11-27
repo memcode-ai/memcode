@@ -94,7 +94,7 @@ func deepEffort(e wire.Effort) bool {
 
 // reasoningTailMax bounds the buffered reasoning summary: the status line only
 // ever shows its last line.
-const reasoningTailMax = 600
+const reasoningTailMax = 2000
 
 // beginCall clears the in-flight usage before a model call. The reasoning line
 // stays: the previous call's summary keeps showing until this call streams its

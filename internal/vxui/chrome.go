@@ -69,21 +69,49 @@ func (s *appState) reasoningRow() ui.Widget {
 	if !s.busy() {
 		return nil
 	}
-	line := []rune(s.w.sess.ReasoningSnippet())
-	if len(line) == 0 {
+	line := s.w.sess.ReasoningSnippet()
+	if line == "" {
 		return nil
 	}
-	max := s.width - 6
-	if max < 20 {
-		max = 20
-	}
-	if len(line) > max {
-		line = append(line[:max-1], '…')
-	}
+	// Wrapped in full, never clipped to one row: a cut-off thought tells the
+	// reader nothing.
 	return ui.RichText{Spans: []ui.TextSpan{
 		{Text: "  ↳ ", Style: s.sty.muted},
-		{Text: string(line), Style: s.sty.dim},
-	}}
+		{Text: line, Style: s.sty.dim},
+	}, SoftWrap: true}
+}
+
+// subagentRows shows each running sub-agent live (Explore scouts, workers):
+// label, elapsed time and tools used, with its question under it. Without
+// these a long-running scout was invisible until it finished.
+func (s *appState) subagentRows() []ui.Widget {
+	if !s.busy() {
+		return nil
+	}
+	subs := s.w.sess.RunningSubagents()
+	if len(subs) == 0 {
+		return nil
+	}
+	glyph := string(spinFrames[s.spin%len(spinFrames)])
+	rows := make([]ui.Widget, 0, 2*len(subs))
+	for _, a := range subs {
+		detail := " · " + elapsedShort(a.Elapsed)
+		if a.Tools > 0 {
+			detail += fmt.Sprintf(" · %d tool%s", a.Tools, pluralS(a.Tools))
+		}
+		rows = append(rows, ui.RichText{Spans: []ui.TextSpan{
+			{Text: "  " + glyph + " ", Style: s.sty.brand},
+			{Text: a.Label, Style: s.sty.emph},
+			{Text: detail, Style: s.sty.muted},
+		}})
+		if t := strings.Join(strings.Fields(a.Task), " "); t != "" {
+			rows = append(rows, ui.RichText{Spans: []ui.TextSpan{
+				{Text: "    ", Style: s.sty.dim},
+				{Text: t, Style: s.sty.dim},
+			}, SoftWrap: true, MaxLines: 2})
+		}
+	}
+	return rows
 }
 
 // queuedRows lists the messages waiting behind the running turn, just above the composer,

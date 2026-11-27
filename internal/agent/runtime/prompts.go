@@ -102,6 +102,11 @@ func (s *Session) baseFacts() map[string]string {
 		"platform": stdruntime.GOOS,
 		"shell":    shellName(),
 	}
+	// The root's top-level shape, so where to look is decided from facts, not
+	// guessed: separate repos, empty folders, sizes.
+	if l := layoutFact(s.root); l != "" {
+		f["layout"] = l
+	}
 	if p := s.personalityFact(); p != "" {
 		// The doctrine composer gates this to conversational modes and wraps it in a
 		// tone-only guard; sent here so it rides every turn without per-spec plumbing.

@@ -230,3 +230,21 @@ func TestDelegateDoctrineNotInCompose(t *testing.T) {
 		}
 	}
 }
+
+// The layout fact renders, with its rule, in the modes that decide where to
+// look, and stays out of the others.
+func TestLayoutRendered(t *testing.T) {
+	facts := map[string]string{"root": "/w", "platform": "darwin", "shell": "zsh", "layout": "moonlight/ — empty"}
+	for _, mode := range []string{"chat", "plan", "scout"} {
+		stable, _, err := Compose(mode, facts, "", "", false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(stable, "moonlight/ — empty") || !strings.Contains(stable, "Size research to the task") {
+			t.Errorf("%s: layout fact or rule missing", mode)
+		}
+	}
+	if stable, _, _ := Compose("reflect", facts, "", "", false); strings.Contains(stable, "Size research to the task") {
+		t.Error("reflect must not carry the layout")
+	}
+}

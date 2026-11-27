@@ -1591,6 +1591,7 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		if r := s.reasoningRow(); r != nil {
 			rows = append(rows, r)
 		}
+		rows = append(rows, s.subagentRows()...)
 		rows = append(rows, ui.SizedBox{Height: 1})
 		// Live task panel directly below the status bar (Claude-Code style) — updates in place.
 		if panel := s.todoPanel(); len(panel) > 0 {

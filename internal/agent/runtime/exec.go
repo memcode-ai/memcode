@@ -156,6 +156,7 @@ func (s *Session) execute(ctx context.Context, u wire.Block) toolResult {
 	s.metrics.toolCalls++
 	seq := s.metrics.toolCalls
 	s.mu.Unlock()
+	s.liveTools.Add(1)
 	// Redact the tool input before it is persisted — the model may pass a secret
 	// (e.g. a bearer token in a command).
 	s.emit(ctx, events.KindToolCalled, map[string]any{"tool": u.Name, "input": s.redactor.Redact(string(u.Input))})

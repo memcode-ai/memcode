@@ -528,6 +528,11 @@ nothing relevant, say so in one line.`,
 	default:
 		return "", "", fmt.Errorf("unknown mode %q", mode)
 	}
+	// The root's top-level layout (a session-start fact, so it stays in the cached
+	// prefix) and the one rule it exists for: size research to the task.
+	if l := f("layout"); l != "" && layoutModes[mode] {
+		base += "\n\n" + fmt.Sprintf(layoutDoctrine, f("root"), l)
+	}
 	// NOTE: delegateDoctrine (cheap-lane delegation) is NOT composed here — it is
 	// routing-owned prose, appended by the Runner's selection policy
 	// (llm.Runner.prepare) only when the cheap coding lane serves an interactive
@@ -643,6 +648,21 @@ do NOT say "ok" — return "revise" (or "escalate" if the unverifiable thing is 
 and concrete, but never confident beyond your evidence.`
 
 // needsRoot marks the modes whose templates require the client repo root.
+// layoutModes get the top-level layout fact: every mode that decides where to
+// read or research in the root.
+var layoutModes = map[string]bool{"chat": true, "exec": true, "plan": true, "scout": true, "apply": true}
+
+// layoutDoctrine renders the layout fact with the rule it serves. General, not
+// tied to any one repo shape: the map says what is there, the rule says to look
+// only where the task points.
+const layoutDoctrine = `Top level of %s at session start:
+%s
+
+Size research to the task. Look where the task points before looking anywhere else: read the folders and
+files it names, and widen only when what you find there sends you elsewhere. A folder marked git repo is
+its own project; treat separate projects as unrelated unless the task connects them. An empty folder the
+task names is a fresh start: there is nothing in it to research, so begin the work there.`
+
 var needsRoot = map[string]bool{"chat": true, "exec": true, "plan": true, "cold": true, "scout": true, "apply": true, "plan_review": true}
 
 // applyBody is APPLY MODE: execute an already-approved plan. The defining constraint vs

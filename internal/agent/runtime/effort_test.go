@@ -96,3 +96,20 @@ func TestReasoningSnippet(t *testing.T) {
 		t.Fatalf("snippet at a new turn = %q, want empty", got)
 	}
 }
+
+// A running sub-agent is listed live with its label, task and tool count, and
+// drops off the list when it finishes.
+func TestRunningSubagents(t *testing.T) {
+	s := &Session{}
+	sub := &Session{}
+	s.trackSub(sub, subLabel(AgentSpec{Purpose: "explore", Scope: "moonlight"}), "Is Moonlight implemented?")
+	sub.liveTools.Add(3)
+	got := s.RunningSubagents()
+	if len(got) != 1 || got[0].Label != "Explore(moonlight)" || got[0].Task != "Is Moonlight implemented?" || got[0].Tools != 3 {
+		t.Fatalf("running = %+v", got)
+	}
+	s.untrackSub(sub)
+	if got := s.RunningSubagents(); len(got) != 0 {
+		t.Fatalf("finished sub-agent still listed: %+v", got)
+	}
+}

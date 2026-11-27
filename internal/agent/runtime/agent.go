@@ -3,8 +3,10 @@ package runtime
 import (
 	"context"
 	"io"
+	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/memcode-ai/memcode/internal/agent/input"
@@ -110,6 +112,10 @@ func (s *Session) spawnAgent(ctx context.Context, spec AgentSpec) (AgentResult, 
 		}
 	}
 	sub.policy, sub.pin = s.policy, s.pin // a worker's own workers resolve the same way
+	// Visible while it runs: the status strip shows each running sub-agent with
+	// its elapsed time and tool count, not only once it finishes.
+	s.trackSub(sub, subLabel(spec), spec.Task)
+	defer s.untrackSub(sub)
 	// The run's capability ceiling binds its workers too.
 	sub.denyCommands = append([]string(nil), s.denyCommands...)
 	if spec.Site != nil {
@@ -214,3 +220,59 @@ func (t toolEvents) Todos(todos.List)           {}
 func (t toolEvents) Tokens(int)                 {}
 func (t toolEvents) Raw(string)                 {}
 func (t toolEvents) AssistantText(string)       {}
+
+// liveSub is a running sub-agent as the status strip shows it.
+type liveSub struct {
+	label, task string
+	started     time.Time
+}
+
+// SubagentStatus is one running sub-agent for the TUI: what it is, what it was
+// asked, how long it has run and how many tools it has used so far.
+type SubagentStatus struct {
+	Label, Task string
+	Elapsed     time.Duration
+	Tools       int
+}
+
+// subLabel names a sub-agent the way its finished line does: Explore(scope)
+// for a scout, Agent otherwise.
+func subLabel(spec AgentSpec) string {
+	if spec.Purpose == llm.Explore {
+		scope := spec.Scope
+		if scope == "" {
+			scope = "repo"
+		}
+		return "Explore(" + scope + ")"
+	}
+	return "Agent"
+}
+
+func (s *Session) trackSub(sub *Session, label, task string) {
+	s.subMu.Lock()
+	defer s.subMu.Unlock()
+	if s.liveSubs == nil {
+		s.liveSubs = map[*Session]liveSub{}
+	}
+	s.liveSubs[sub] = liveSub{label: label, task: task, started: time.Now()}
+}
+
+func (s *Session) untrackSub(sub *Session) {
+	s.subMu.Lock()
+	defer s.subMu.Unlock()
+	delete(s.liveSubs, sub)
+}
+
+// RunningSubagents lists this session's sub-agents that are still working,
+// oldest first.
+func (s *Session) RunningSubagents() []SubagentStatus {
+	s.subMu.Lock()
+	defer s.subMu.Unlock()
+	now := time.Now()
+	out := make([]SubagentStatus, 0, len(s.liveSubs))
+	for sub, ls := range s.liveSubs {
+		out = append(out, SubagentStatus{Label: ls.label, Task: ls.task, Elapsed: now.Sub(ls.started), Tools: int(sub.liveTools.Load())})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Elapsed > out[j].Elapsed })
+	return out
+}

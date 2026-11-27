@@ -162,6 +162,9 @@ type Session struct {
 	inflightOut       int                  // output tokens the provider has reported for the call in flight; never estimated — read under dispMu
 	reasoningTail     string               // the end of this turn's latest streamed reasoning summary, for the status line — read under dispMu
 	reasoningNewCall  bool                 // the next reasoning delta starts a new call's summary (replaces reasoningTail) — under dispMu
+	liveTools         atomic.Int64         // tool calls this session has run, readable by the render goroutine without s.mu
+	subMu             sync.Mutex           // guards liveSubs
+	liveSubs          map[*Session]liveSub // this session's sub-agents while they run, for the live status rows
 	servingDefault    string               // the everyday serving model (gateway cheap lane) shown before any turn runs — read under dispMu
 	turn              *turnState           // per-turn loop state, reset each runLoop (turnstate.go)
 	skills            []skills.Skill       // discovered skill catalog (own + Claude Code plugins)
