@@ -313,15 +313,19 @@ func EnsureGitignore(root string) {
 type Source string
 
 const (
-	SourceGit      Source = "git toplevel"
-	SourceExisting Source = "existing .memcode"
-	SourceCWD      Source = "working directory"
+	SourceGit Source = "git toplevel"
+	SourceCWD Source = "working directory"
 )
 
-// Resolve determines the canonical project root for memcode state. To avoid
-// creating divergent state depending on the working directory, it prefers the
-// git repository root; only outside a repo does it fall back to an existing
-// .memcode ancestor, then the working directory itself.
+// Resolve determines the canonical project root for memcode state: the git
+// repository root when start is inside a repo (starting in a subfolder still
+// works on the whole repo), otherwise exactly the folder you started in.
+//
+// There is no walking up to an ancestor's .memcode outside git: that folder
+// only proves memcode once ran there, not that it is this folder's project.
+// It attached new folders inside a workspace of unrelated repos to the whole
+// workspace (2026-11-27), and $HOME's own ~/.memcode would look like a project
+// to every non-git folder under it.
 func Resolve(start string) (root string, src Source, err error) {
 	abs, err := filepath.Abs(start)
 	if err != nil {
@@ -329,9 +333,6 @@ func Resolve(start string) (root string, src Source, err error) {
 	}
 	if top, ok := gitToplevel(abs); ok {
 		return top, SourceGit, nil
-	}
-	if dir, err := findRoot(abs); err == nil {
-		return dir, SourceExisting, nil
 	}
 	return abs, SourceCWD, nil
 }
@@ -548,30 +549,6 @@ func gitToplevel(start string) (string, bool) {
 	}
 	top := strings.TrimSpace(string(out))
 	return top, top != ""
-}
-
-// findRoot walks up from start looking for a directory containing .memcode.
-//
-// The home directory is NEVER a project root. ~/.memcode is memcode's
-// user-global state dir (config.json, state.db, sessions) and is shaped exactly
-// like a project's, so an unguarded walk adopts $HOME as the project for every
-// non-git directory under it — pointing state, indexing and the repo-wide skill
-// walk at the user's entire home tree.
-func findRoot(start string) (string, error) {
-	home, _ := os.UserHomeDir()
-	dir := start
-	for {
-		if dir != home {
-			if info, err := os.Stat(filepath.Join(dir, DirName)); err == nil && info.IsDir() {
-				return dir, nil
-			}
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			return "", ErrNotInitialized
-		}
-		dir = parent
-	}
 }
 
 func write(path string, cfg Config) error {

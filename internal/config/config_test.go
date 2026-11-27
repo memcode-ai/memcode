@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -117,10 +118,21 @@ func TestInitAndLoad(t *testing.T) {
 	}
 }
 
+// Starting in a subfolder of a git repo loads the repo's project: the root is
+// the repository top, however deep you start.
 func TestLoadWalksUp(t *testing.T) {
 	dir := t.TempDir()
+	if out, err := exec.Command("git", "init", "-q", dir).CombinedOutput(); err != nil {
+		t.Skipf("git unavailable: %v %s", err, out)
+	}
+	if dir2, err := filepath.EvalSymlinks(dir); err == nil {
+		dir = dir2 // git reports the resolved path (macOS /var → /private/var)
+	}
 	if _, err := Init(dir, false); err != nil {
 		t.Fatalf("Init: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "a", "b", "c"), 0o755); err != nil {
+		t.Fatal(err)
 	}
 
 	nested := filepath.Join(dir, "a", "b", "c")
@@ -349,24 +361,28 @@ func TestResolveNeverAdoptsHomeAsRoot(t *testing.T) {
 	}
 }
 
-// A real project .memcode below home is still found by walking up.
-func TestResolveFindsProjectBelowHome(t *testing.T) {
+// Outside git, the root is exactly the folder memcode starts in. A .memcode in
+// an ancestor (a non-git project, or a workspace of unrelated repos) is not
+// adopted: it only proves memcode once ran there.
+func TestResolveOutsideGitIsTheStartFolder(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	proj := filepath.Join(home, "code", "proj")
-	if err := os.MkdirAll(filepath.Join(proj, DirName), 0o755); err != nil {
-		t.Fatal(err)
+	ws := filepath.Join(home, "code")
+	for _, p := range []string{DirName, "memcode/.git", "halo/.git", "moonlight"} {
+		if err := os.MkdirAll(filepath.Join(ws, p), 0o755); err != nil {
+			t.Fatal(err)
+		}
 	}
-	sub := filepath.Join(proj, "a", "b")
-	if err := os.MkdirAll(sub, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	root, src, err := Resolve(sub)
+	moon := filepath.Join(ws, "moonlight")
+	root, src, err := Resolve(moon)
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
-	if root != proj || src != SourceExisting {
-		t.Errorf("Resolve = %q (%s), want %q (%s)", root, src, proj, SourceExisting)
+	if root != moon || src != SourceCWD {
+		t.Errorf("Resolve = %q (%s), want %q (%s)", root, src, moon, SourceCWD)
+	}
+	if root, _, _ := Resolve(ws); root != ws {
+		t.Errorf("Resolve(workspace) = %q, want the workspace itself", root)
 	}
 }
 
