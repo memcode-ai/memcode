@@ -18,7 +18,7 @@ import (
 //
 // There is exactly one model per session and the pin resolver already settled
 // it (session -> workspace -> user -> default_model). What remains here is
-// routing internal plumbing to the catalog's utility_model, and refusing a turn
+// routing internal plumbing to the pinned vendor's small helper model, and refusing a turn
 // the pinned model physically cannot serve.
 //
 // The ladder this file used to hold — role/tier verdicts, BYOK steering, the $0
@@ -111,8 +111,9 @@ type resolved struct {
 
 // utilityPurposes are the internal-plumbing purposes that never ride the pin:
 // the structured classifiers (classify — authorize rides it, it has no purpose
-// of its own), compaction, and shrinkwrap. They run on the catalog's
-// utility_model so background jobs never spend the user's chosen model.
+// of its own), compaction, and shrinkwrap. They run on the pinned vendor's small
+// model (vendor_utility_models, falling back to utility_model) so background
+// jobs never spend the user's chosen model or leave its vendor.
 //
 // The rule that governs this set: utility inference may classify, authorize,
 // compact, shrinkwrap, or otherwise support execution, but it may NEVER select,
@@ -142,10 +143,18 @@ func resolveHosted(it wire.Intent, req wire.Request, info provider.ModelsInfo) r
 		// to the gateway's utility vendor instead leaked every classify/authorize/
 		// compact call to another provider — and failed outright when that
 		// provider or its fallback was down or out of credit.
-		if v := catalog.ModelVendor(it.Pin); v != "" && info.SubVendors[v] {
+		v := catalog.ModelVendor(it.Pin)
+		if v != "" && info.SubVendors[v] {
 			if u := catalog.SubscriptionUtilityModel(v); u != "" {
 				return resolved{label: u, subOnly: true}
 			}
+		}
+		// Otherwise plumbing stays with the pinned model's vendor, on its small
+		// model: a Gemini pin never sends its helper calls to Anthropic or
+		// Fireworks. A single global utility model meant a helper outage at a
+		// vendor the user never picked failed every turn (gpt-oss-120b, 2026-11-27).
+		if u := catalog.VendorUtilityModel(v); v != "" && u != "" {
+			return resolved{label: u}
 		}
 		if u := catalog.UtilityModel(); u != "" {
 			return resolved{label: u}

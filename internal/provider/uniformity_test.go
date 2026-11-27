@@ -65,7 +65,7 @@ func (cs *compatServer) handler() http.Handler {
 					{"role": "planner", "id": "glm-5p2", "label": "glm-5p2"},
 					{"role": "reviewer", "id": "luna", "label": "luna"},
 					{"role": "standard", "id": "glm-5p2", "label": "glm-5p2"},
-					{"role": "classify", "id": "gpt-oss-120b", "label": "gpt-oss-120b"},
+					{"role": "classify", "id": "haiku", "label": "haiku"},
 				},
 			}
 		}
@@ -172,7 +172,7 @@ func assertUniformWire(t *testing.T, cs *compatServer, wantAuth string) {
 func TestBackendUniformity(t *testing.T) {
 	// ── (a) the gateway-shaped backend: hosted policy over the control plane ──
 	gw := &compatServer{gateway: true,
-		models:   []string{"sol", "terra", "luna", "opus", "sonnet", "haiku", "glm-5p2", "kimi-k3", "gpt-oss-120b"},
+		models:   []string{"sol", "terra", "luna", "opus", "sonnet", "haiku", "glm-5p2", "kimi-k3"},
 		failOnce: map[string]bool{},
 	}
 	gwSrv := httptest.NewServer(gw.handler())
@@ -209,8 +209,8 @@ func TestBackendUniformity(t *testing.T) {
 	// Every REAL turn is the pin — the self_heal turn included. Risk hints used
 	// to escalate a turn to the frontier tier; with one pinned model there is
 	// nothing to escalate to, and the pin is not something a hint may override.
-	// Only the classifier rides elsewhere, on the utility model.
-	wantHosted := []string{"sonnet", "gpt-oss-120b", "sonnet", "sonnet", "terra"}
+	// Only the classifier rides elsewhere, on the pinned vendor's small model.
+	wantHosted := []string{"sonnet", "haiku", "sonnet", "sonnet", "terra"}
 	if got := gw.requestedModels(); !equalStrings(got, wantHosted) {
 		t.Fatalf("hosted decision sequence = %v, want %v", got, wantHosted)
 	}

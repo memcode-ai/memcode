@@ -99,15 +99,3 @@ func (s *appState) applyExtraMile(on bool) {
 		s.sysln("extra mile → off")
 	}
 }
-
-// applyEffort forces the per-turn thinking effort for THIS session (/effort). Session-scoped on
-// purpose — it resets to auto on restart, since silently forcing high on every future session
-// would inflate token cost. "auto" hands control back to the per-turn heuristic.
-func (s *appState) applyEffort(level string) {
-	s.w.sess.SetEffortOverride(level)
-	if level == "auto" {
-		s.sysln("thinking effort → auto   (memcode decides per turn)")
-	} else {
-		s.sysln("thinking effort → " + level + "   (forced every turn this session · higher = more tokens)")
-	}
-}

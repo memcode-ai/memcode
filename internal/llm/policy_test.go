@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/memcode-ai/memcode/catalog"
 	"github.com/memcode-ai/memcode/internal/provider"
 	"github.com/memcode-ai/memcode/internal/wire"
 	"google.golang.org/genai"
@@ -72,7 +73,7 @@ func userReq(text string) wire.Request {
 	return wire.Request{Messages: []wire.Message{{Role: "user", Blocks: []wire.Block{wire.TextBlock(text)}}}}
 }
 
-func TestPinServesEveryRealPurposeAndUtilityRidesTheUtilityModel(t *testing.T) {
+func TestPinServesEveryRealPurposeAndUtilityRidesTheVendorsSmallModel(t *testing.T) {
 	p := &scriptedProv{}
 	r := pinnedRunner(p, prodInfo(nil), "opus")
 
@@ -83,7 +84,8 @@ func TestPinServesEveryRealPurposeAndUtilityRidesTheUtilityModel(t *testing.T) {
 			t.Fatalf("%s: %v", purpose, err)
 		}
 	}
-	// Internal plumbing never rides the pin.
+	// Internal plumbing never rides the pin: it runs on the pinned vendor's
+	// small model (opus is Anthropic, so haiku).
 	for _, purpose := range []Purpose{Classify, Compact, Shrinkwrap} {
 		if _, err := r.Complete(context.Background(), purpose, userReq("hi")); err != nil {
 			t.Fatalf("%s: %v", purpose, err)
@@ -96,32 +98,39 @@ func TestPinServesEveryRealPurposeAndUtilityRidesTheUtilityModel(t *testing.T) {
 		}
 	}
 	for i := 7; i < 10; i++ {
-		if p.requested[i] != "gpt-oss-120b" {
-			t.Errorf("utility call %d requested %q, want the utility model; all: %v", i, p.requested[i], p.requested)
+		if p.requested[i] != "haiku" {
+			t.Errorf("utility call %d requested %q, want the vendor's small model (haiku); all: %v", i, p.requested[i], p.requested)
 		}
 	}
 }
 
-// On a subscription the user chose, plumbing stays on it: an opus pin served by
-// a Claude subscription runs utility calls on haiku (same lane), not on the
-// gateway's utility vendor. Without the subscription, or on a vendor with no
-// subscription utility model, the gateway utility model still serves.
-func TestUtilityRidesTheSubscriptionOfThePinnedVendor(t *testing.T) {
+// Helper calls stay with the vendor of the model the user set. On that vendor's
+// attached subscription they ride the subscription (subOnly); otherwise they run
+// hosted on the vendor's small model; a pin with no known vendor falls back to
+// the catalog utility_model. A Gemini pin must never send helpers to Anthropic
+// or Fireworks, even when a Claude subscription is attached.
+func TestHelperCallsStayWithThePinnedVendor(t *testing.T) {
 	sub := prodInfo(nil)
 	sub.SubVendors = map[string]bool{"anthropic": true}
 	for _, tc := range []struct {
-		name string
-		pin  string
-		info provider.ModelsInfo
-		want string
+		name    string
+		pin     string
+		info    provider.ModelsInfo
+		want    string
+		subOnly bool
 	}{
-		{"claude sub, claude pin", "opus", sub, "haiku"},
-		{"claude sub, foreign pin", "gpt-oss-120b", sub, "gpt-oss-120b"},
-		{"no sub", "opus", prodInfo(nil), "gpt-oss-120b"},
+		{"claude sub, claude pin", "opus", sub, "haiku", true},
+		{"claude sub, gemini pin", "gemini-pro", sub, "gemini-flash", false},
+		{"no sub, claude pin", "opus", prodInfo(nil), "haiku", false},
+		{"gemini pin", "gemini-pro", prodInfo(nil), "gemini-flash", false},
+		{"openai pin", "sol", prodInfo(nil), "luna", false},
+		{"fireworks pin", "glm-5p3", prodInfo(nil), "glm-5p3-flash", false},
+		{"grok pin", "grok-4.7", prodInfo(nil), "grok-4.7", false},
+		{"unknown vendor", "not-a-catalog-model", prodInfo(nil), catalog.UtilityModel(), false},
 	} {
 		res := resolveHosted(wire.Intent{Purpose: "classify", Pin: tc.pin}, userReq("hi"), tc.info)
-		if res.err != nil || res.label != tc.want {
-			t.Errorf("%s: got %q (%v), want %q", tc.name, res.label, res.err, tc.want)
+		if res.err != nil || res.label != tc.want || res.subOnly != tc.subOnly {
+			t.Errorf("%s: got %q subOnly=%v (%v), want %q subOnly=%v", tc.name, res.label, res.subOnly, res.err, tc.want, tc.subOnly)
 		}
 	}
 }

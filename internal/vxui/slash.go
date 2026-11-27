@@ -36,7 +36,7 @@ var slashCommands = []slashCmd{
 	{"/theme", "change display theme", true},
 	{"/personality", "set the agent's voice", true},
 	{"/extramile", "go above and beyond (edge cases + completeness)", true},
-	{"/effort", "force thinking effort: off / medium / high / auto", true},
+	{"/effort", "pick thinking effort: auto / off / medium / high", true},
 	{"/goal", "set an objective", false}, // objective intake runs a model call
 	{"/model", "pick the model for this session", false},
 	{"/policy", "how you've customized memcode, and where each setting came from", false},

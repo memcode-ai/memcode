@@ -1210,3 +1210,37 @@ func TestEscDisarmedByOtherKey(t *testing.T) {
 		t.Fatalf("an intervening key must disarm double-Esc; composer = %q, want %q", st.composer, "hx")
 	}
 }
+
+// TestEffortPickerOpensAndApplies verifies a bare /effort opens the level selector
+// (it used to just print the setting and demand an argument) and that choosing a
+// row applies it to the session.
+func TestEffortPickerOpensAndApplies(t *testing.T) {
+	theme.Set("aurora")
+	sess := newTestSession(t)
+	app := uitest.New(&appWidget{ctx: context.Background(), sess: sess, themeName: "aurora"})
+	app.Pump(80, 24)
+	for _, r := range "/effort" {
+		app.Key(string(r))
+	}
+	app.Pump(80, 24)
+	app.Enter()
+	app.Pump(80, 24)
+	if !app.Contains("Thinking effort") || !app.Contains("❯ ● Auto") {
+		t.Fatalf("/effort didn't open the selector on the current level (auto).\n%q", app.Text())
+	}
+	for i := 0; i < 3; i++ { // auto → off → medium → high
+		app.Send(vaxis.Key{Keycode: vaxis.KeyDown})
+		app.Pump(80, 24)
+	}
+	if !app.Contains("❯   High") {
+		t.Fatalf("Down didn't reach High.\n%q", app.Text())
+	}
+	app.Enter()
+	app.Pump(80, 24)
+	if got := sess.EffortOverride(); got != "high" {
+		t.Fatalf("effort = %q after choosing High, want high", got)
+	}
+	if app.Contains("Thinking effort") {
+		t.Fatalf("selector still open after Enter.\n%q", app.Text())
+	}
+}

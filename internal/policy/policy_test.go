@@ -141,7 +141,7 @@ func TestValidationRefusesBadValues(t *testing.T) {
 		raw    any
 	}{
 		{"unknown model", AgentDelegated, "model", "model-nobody-added"},
-		{"unpinnable model", AgentDelegated, "model", "gpt-oss-120b"},
+		{"unpinnable model", AgentDelegated, "model", "minimax-m3"},
 		{"empty model", AgentDelegated, "model", ""},
 		{"bad enum", PlanReview, "mode", "sometimes"},
 		{"bad strategy", StartupModel, "strategy", "vibes"},

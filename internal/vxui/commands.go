@@ -175,11 +175,12 @@ func (s *appState) runSlash(line string) (quit bool) {
 	case "/effort":
 		switch strings.ToLower(strings.TrimSpace(args)) {
 		case "":
-			s.sysln("thinking effort: " + s.w.sess.EffortOverride() + "   (set with /effort off | medium | high | auto)")
+			s.openEffort() // no arg → open the selector, like /model and /extramile
+			return false
 		case "off", "medium", "high", "auto":
 			s.applyEffort(strings.ToLower(strings.TrimSpace(args)))
 		default:
-			s.sysln("/effort takes off, medium, high, or auto (no arg shows the current setting)")
+			s.sysln("/effort takes off, medium, high, or auto (or no arg to pick)")
 		}
 	case "/clear":
 		s.clearChat()

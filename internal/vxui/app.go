@@ -174,6 +174,9 @@ type appState struct {
 	extraMileChoosing bool // the /extramile on/off selector is open
 	extraMileSel      int
 
+	effortChoosing bool // the /effort level selector is open
+	effortSel      int
+
 	// rewind picker overlay (modal, two-stage): list ↑↓ choose → Enter review →
 	// confirm Enter restore / Esc back. Destructive, so it always confirms.
 	rewindChoosing bool
@@ -1233,6 +1236,9 @@ func (s *appState) HandleEvent(ctx ui.EventContext, ev ui.Event) ui.EventResult 
 	if s.extraMileChoosing {
 		return s.handleExtraMileKey(key.String())
 	}
+	if s.effortChoosing {
+		return s.handleEffortKey(key.String())
+	}
 	if s.rewindChoosing {
 		return s.handleRewindKey(key.String())
 	}
@@ -1546,6 +1552,9 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 	}
 	if s.extraMileChoosing {
 		return s.extraMilePickerView()
+	}
+	if s.effortChoosing {
+		return s.effortPickerView()
 	}
 	if s.rewindChoosing {
 		return s.rewindPickerView()

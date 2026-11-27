@@ -254,9 +254,11 @@
       ],
       "aliases": [
         "claude-haiku-4-5-20251001",
-        "claude-haiku-4-5"
+        "claude-haiku-4-5",
+        "gpt-oss-120b",
+        "accounts/fireworks/models/gpt-oss-120b"
       ],
-      "_note": "Claude Haiku 5.5 (Anthropic, claude-haiku-5-5). Supersedes Haiku 4.5 (still served at $1/$5), whose ids are aliased so pins and the anthropic subscription utility model move to 5.5. 1M window, 128K out, adaptive thinking on by default: budget_tokens 400s, {type:disabled} is accepted and is what EffortOff sends, so plumbing calls stay unthinking like 4.5. Forced tool_choice WORKS, verified live 2026-11-18, so no no_forced_tool_choice flag. PRICING verified platform.claude.com/docs/en/about-claude/pricing 2026-11-18: $0.10/$0.50, cache read $0.01, for prompts up to 100K tokens; a prompt over 100K (cache reads and writes count toward it) bills every rate at 5x ($0.50/$2.50/$0.05), which is the price_tiers entry. The newer tokenizer counts the same text as about 30% more tokens than 4.5."
+      "_note": "Claude Haiku 5.5 (Anthropic, claude-haiku-5-5). Supersedes Haiku 4.5 (still served at $1/$5), whose ids are aliased so pins and the anthropic subscription utility model move to 5.5. gpt-oss-120b is aliased here too: Fireworks stopped serving it (404 'Model not found, inaccessible, and/or not deployed' while still listing it, verified 2026-11-27), and CLIs up to v0.50.0 send every helper call to it, so the alias keeps their helpers working until they upgrade. 1M window, 128K out, adaptive thinking on by default: budget_tokens 400s, {type:disabled} is accepted and is what EffortOff sends, so plumbing calls stay unthinking like 4.5. Forced tool_choice WORKS, verified live 2026-11-18, so no no_forced_tool_choice flag. PRICING verified platform.claude.com/docs/en/about-claude/pricing 2026-11-18: $0.10/$0.50, cache read $0.01, for prompts up to 100K tokens; a prompt over 100K (cache reads and writes count toward it) bills every rate at 5x ($0.50/$2.50/$0.05), which is the price_tiers entry. The newer tokenizer counts the same text as about 30% more tokens than 4.5."
     },
     {
       "id": "gpt-6.2-astra",
@@ -527,21 +529,6 @@
       "aliases": [
         "kimi-k3",
         "accounts/fireworks/models/kimi-k3"
-      ]
-    },
-    {
-      "id": "accounts/fireworks/models/gpt-oss-120b",
-      "label": "gpt-oss-120b",
-      "vendor": "fireworks",
-      "window": 131072,
-      "vision": false,
-      "reasoning": true,
-      "price_in": 0.15,
-      "price_out": 0.6,
-      "_note": "OpenAI gpt-oss-120b (open-weight, Fireworks serverless). CLASSIFY role 2026-06-21: the cheap structured-output classifier for the followup-fold queue + plan-intent + risk/authorize judges. LIVE-PROBED against glm-5p2 on a followup-fold battery: gpt-oss-120b 10/10 @1.6-2.6s; glm-5p2 only 7/10 (biased to 'false' \u2192 under-folds) at ~10x the token cost. Forces tools cleanly (tool_choice). price ~$0.15/$0.60 per M (approx). The cheap CODING lane stays glm-5p2; this is classify-only. Rollback: drop config.json roles.classify (falls back to the cheap lane) + redeploy.",
-      "fallback": [
-        "luna",
-        "glm-5p3"
       ]
     },
     {
@@ -980,9 +967,17 @@
     "price_out": 15,
     "_note": "unknown ids: a safe non-alarming window baseline + the sonnet rate card"
   },
-  "_selection_note": "default_model SEEDS the pin exactly once, when no session/workspace/user pin exists; it is then persisted and behaves like any other user choice. It is NOT a fallback, NOT consulted per turn, and NOT a substitution target. utility_model serves internal plumbing only (classify/authorize, compact, shrinkwrap) and may never select, substitute, escalate, downgrade, or steer the pinned model.",
+  "_selection_note": "default_model SEEDS the pin exactly once, when no session/workspace/user pin exists; it is then persisted and behaves like any other user choice. It is NOT a fallback, NOT consulted per turn, and NOT a substitution target. Helper calls (classify/authorize, compact, shrinkwrap) serve internal plumbing only and may never select, substitute, escalate, downgrade, or steer the pinned model. They resolve in order: utility_models[vendor] when the pin rides that vendor's attached subscription, else vendor_utility_models[the pin's vendor], else utility_model.",
   "default_model": "sonnet",
-  "utility_model": "gpt-oss-120b",
+  "_vendor_utility_models_note": "Tim 2026-11-27: helper calls stay with the vendor of the model the user set, on that vendor's small model, so nothing goes to a vendor the user didn't pick. Each entry verified live 2026-11-27 with a forced-tool classifier call through the gateway: haiku, gemini-flash and glm-5p3-flash about 2.4s, grok-4.7 about 5s (xAI has no small model in its latest line; we stay on the latest rather than older grok-4.20). luna is correct but unverified because the OpenAI org has no credits.",
+  "vendor_utility_models": {
+    "anthropic": "haiku",
+    "gemini": "gemini-flash",
+    "openai": "luna",
+    "fireworks": "glm-5p3-flash",
+    "grok": "grok-4.7"
+  },
+  "utility_model": "haiku",
   "_utility_models_note": "Per-vendor utility model used INSTEAD of utility_model when the session's pinned model is served by an attached SUBSCRIPTION lane of that vendor (e.g. a Claude Pro/Max login). Keeps background plumbing on the subscription the user chose rather than leaking to the gateway's utility vendor. Add a vendor only once its small model is verified to serve on that vendor's subscription transport.",
   "utility_models": {
     "anthropic": "haiku"

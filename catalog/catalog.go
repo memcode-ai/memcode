@@ -146,6 +146,11 @@ type catalogFile struct {
 	// served by an attached SUBSCRIPTION lane of that vendor, so plumbing rides the
 	// subscription the user chose instead of the gateway's utility vendor.
 	UtilityModels map[string]string `json:"utility_models"`
+	// VendorUtilityModels names each vendor's small model for helper calls when
+	// the session's pin is that vendor's (and no subscription entry applied), so
+	// plumbing stays with the vendor the user chose. UtilityModel covers vendors
+	// without an entry.
+	VendorUtilityModels map[string]string `json:"vendor_utility_models"`
 	// SearchFees is the vendor-level per-request web-search surcharge, USD per
 	// 1,000 searches, keyed by the serving vendor (Response.Backend: "anthropic" |
 	// "openai" | "grok"). Native in-turn search bills this upstream ON TOP of
@@ -239,6 +244,12 @@ func UtilityModel() string {
 // (callers then use UtilityModel).
 func SubscriptionUtilityModel(vendor string) string {
 	return modelCatalog.file.UtilityModels[vendor]
+}
+
+// VendorUtilityModel returns the label of vendor's small helper model, or ""
+// when the vendor has none (callers then use UtilityModel).
+func VendorUtilityModel(vendor string) string {
+	return modelCatalog.file.VendorUtilityModels[vendor]
 }
 
 // VendorTier / TierVendors / TierAltitude are DELETED along with the `tiers`
