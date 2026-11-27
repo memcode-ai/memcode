@@ -354,6 +354,18 @@ func NewFromEnvLazy(endpoints ...Endpoint) *Lazy {
 // credentials, a configured custom endpoint, or at least one family lane.
 func (l *Lazy) Connected() bool { return l.c.Load() != nil || len(l.laneSet()) > 0 }
 
+// SignedIn reports whether the memcode gateway itself is connected: a hosted
+// client, not a custom endpoint and not an attached subscription lane. A Claude
+// login keeps Connected true after /logout, so /login and /whoami ask this.
+func (l *Lazy) SignedIn() bool {
+	c := l.c.Load()
+	if c == nil {
+		return false
+	}
+	_, onEndpoint := c.Endpoint()
+	return !onEndpoint
+}
+
 // Endpoint reports the ACTIVE custom endpoint, ok=false when hosted or signed
 // out. This is the one backend-mode signal the runtime/TUI key on (via
 // Session.Endpoint) — capability gating, the /model picker, cost display.

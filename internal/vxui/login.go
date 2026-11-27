@@ -20,7 +20,10 @@ import (
 // mode counts as connected but NOT signed in — /login still works there and
 // switches the session onto the hosted gateway.
 func (s *appState) loginSlash() {
-	if _, onEndpoint := s.w.sess.Endpoint(); s.w.sess.Connected() && !onEndpoint {
+	// Signed in to memcode itself, not merely connected: an attached Claude
+	// subscription keeps the session connected after /logout, and that used to
+	// read as "already signed in".
+	if s.w.sess.SignedIn() {
 		s.sysln("already signed in — gateway " + provider.APIURL())
 		return
 	}
@@ -78,7 +81,7 @@ func (s *appState) logoutSlash() {
 // authflow.Whoami, the same memcode_ bearer every /api/cli/* call uses.
 // Local — works signed out too. Fetch runs off the UI thread (websitesSlash idiom).
 func (s *appState) whoamiSlash() {
-	if !s.w.sess.Connected() {
+	if !s.w.sess.SignedIn() {
 		s.sysln("○ signed out — run /login to connect to memcode.ai")
 		return
 	}

@@ -313,6 +313,17 @@ func (s *Session) Connected() bool {
 	return true
 }
 
+// SignedIn reports whether the session is signed in to memcode itself (the
+// hosted gateway), as opposed to Connected, which is also true on an attached
+// subscription lane or a custom endpoint. Providers without the seam (test
+// fakes) answer like Connected.
+func (s *Session) SignedIn() bool {
+	if c, ok := s.prov.(interface{ SignedIn() bool }); ok {
+		return c.SignedIn()
+	}
+	return s.Connected()
+}
+
 // Endpoint reports the ACTIVE custom endpoint when the session runs against an
 // arbitrary OpenAI-compat backend instead of the memcode gateway (one-wire
 // Phase C). ok=false on the hosted gateway, signed out, and providers without
