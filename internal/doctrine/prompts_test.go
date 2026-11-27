@@ -248,3 +248,25 @@ func TestLayoutRendered(t *testing.T) {
 		t.Error("reflect must not carry the layout")
 	}
 }
+
+// TestObstacleDoctrineInActingModes locks the general obstacle-resolution rule
+// into every mode that runs bash (chat/exec/apply), and keeps it out of the
+// read-only planner, which cannot install anything.
+func TestObstacleDoctrineInActingModes(t *testing.T) {
+	for _, mode := range []string{"chat", "exec", "apply"} {
+		stable, _, err := Compose(mode, factsFull(), "", "", false)
+		if err != nil {
+			t.Fatalf("Compose(%s): %v", mode, err)
+		}
+		if !strings.Contains(stable, obstacleDoctrine) {
+			t.Errorf("%s: obstacleDoctrine missing from the stable prefix", mode)
+		}
+	}
+	stable, _, err := Compose("plan", factsFull(), "", "", false)
+	if err != nil {
+		t.Fatalf("Compose(plan): %v", err)
+	}
+	if strings.Contains(stable, obstacleDoctrine) {
+		t.Error("plan: obstacleDoctrine must not ride the read-only planner")
+	}
+}

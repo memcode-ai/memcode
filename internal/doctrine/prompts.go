@@ -204,12 +204,26 @@ Only adopt widely-adopted, actively-maintained, reputable packages (broad usage,
 license), never an obscure or unvetted one — and a few lines of your own still beat a heavyweight dependency
 for something trivial.`
 
-const missingToolDoctrine = `Missing CLI tools are installable, not dead ends. When a command fails with "command not
-found" (or a tool you need — pdftotext, jq, rg, gh — isn't installed), do NOT hand-roll a workaround or give up:
-install it with the platform's package manager (brew on macOS, apt/dnf on Linux) via bash and continue — the
-permission gate covers the install, so the user approves it where their mode requires. Prefer the standard package
-for the job, say what you're installing and why in one line, and skip this for heavyweight or intrusive installs
-(services, daemons, system-wide language runtimes) — those you propose to the user instead.`
+// obstacleDoctrine is deliberately GENERAL. The failure it closes: a first attempt
+// to get something the task needs (a package install refused by the environment)
+// failed, and the agent silently swapped in a hand-rolled replacement instead of
+// finding the environment's sanctioned route. Do not grow it into a list of
+// per-tool / per-error recipes — the principle is diagnose, discover, continue.
+const obstacleDoctrine = `Obstacles are problems to solve, not reasons to change the plan. When a step fails or something the task
+needs (a tool, library, dataset, model, docs) isn't available yet:
+- Diagnose before deciding. Read the WHOLE error; don't pipe a probe through tail/head/grep, which hides the
+  message and the exit code. Errors often name the remedy. Find out why it failed, then inspect what this
+  environment offers (installed package managers, isolated-environment tooling, existing caches, official
+  install docs) and pick the sanctioned route: user- or project-scoped installs and isolated environments over
+  system-wide ones; the platform package manager for a missing CLI. The permission gate covers installs.
+- Continue the intended path. Never silently drop an appropriate dependency, hand-roll a replacement, shrink the
+  scope, or change the architecture because a first attempt failed. If you still choose a different route,
+  say so and why in one line.
+- Stop and ask only when, after real diagnosis, the path is truly blocked or needs something heavyweight or
+  intrusive (services, system runtimes, sudo): say what blocked it and the options.
+- Never get past a block by defeating its purpose: no overriding integrity protections or safety checks
+  (force/break-system flags, skipped verification), no privilege escalation, no retrying a denied permission
+  another way. A denial is an answer.`
 
 const planBody = `You are in PLAN MODE, the EXECUTIVE PLANNER for the repository at %s. Platform: %s.
 
@@ -408,7 +422,7 @@ func Compose(mode string, facts map[string]string, extra, model string, pinned b
 		header := fmt.Sprintf(`You are an agentic coding assistant in an interactive terminal session in the repository at %s.
 Platform: %s. The bash tool runs commands in %s. Do not introduce yourself or describe your role; just help.`, f("root"), f("platform"), f("shell"))
 		base = strings.Join([]string{
-			header, coreLaws, todoDoctrine, orchestrationDoctrine, steerDoctrine, responseStyle, automationDoctrine, sessionRecallDoctrine, webDoctrine, freshnessDoctrine, reuseDoctrine, missingToolDoctrine,
+			header, coreLaws, todoDoctrine, orchestrationDoctrine, steerDoctrine, responseStyle, automationDoctrine, sessionRecallDoctrine, webDoctrine, freshnessDoctrine, reuseDoctrine, obstacleDoctrine,
 			"Ground your answer in what you found.", f("overview"),
 		}, "\n\n")
 	case "exec":
@@ -420,7 +434,7 @@ permission policy. You have been pre-oriented with a structured ContextPack (bel
 read before acting, but do NOT assume it is complete or current — verify with tools before relying on a detail.`,
 			f("root"), f("platform"), f("shell"))
 		base = strings.Join([]string{
-			header, coreLaws, todoDoctrine, orchestrationDoctrine, steerDoctrine, sessionRecallDoctrine, freshnessDoctrine, reuseDoctrine, missingToolDoctrine,
+			header, coreLaws, todoDoctrine, orchestrationDoctrine, steerDoctrine, sessionRecallDoctrine, freshnessDoctrine, reuseDoctrine, obstacleDoctrine,
 			"When finished, give a brief summary of what you changed and how you verified it. Then stop.",
 			"ContextPack:\n" + f("pack"),
 		}, "\n\n")
@@ -452,7 +466,7 @@ Rules you must follow:
 			steerDoctrine,
 			freshnessDoctrine,
 			reuseDoctrine,
-			missingToolDoctrine,
+			obstacleDoctrine,
 			"APPROVED PLAN:\n" + f("plan"),
 		}, "\n\n")
 	case "admin":

@@ -36,6 +36,14 @@ import "testing"
 // rule the new cross-source memory — package observe, Claude Code/Codex
 // adapters — depends on). chat's ceiling raised 18_100 -> 18_600, exec's
 // 16_000 -> 16_400, both consciously, in this same commit.
+//
+// 2026-11-27: missingToolDoctrine (CLI-only "command not found" rule) replaced
+// by the general obstacleDoctrine (~760B net, chat/exec/apply): diagnose a
+// failure, discover the environment's sanctioned route, continue the intended
+// path, never silently substitute or bypass a safeguard. An agent hit a refused
+// package install and hand-rolled a replacement without saying so. Ceilings
+// raised consciously: chat 18_600 -> 19_400, exec 16_400 -> 17_200, apply
+// 13_100 -> 13_900.
 func TestDoctrineBudgets(t *testing.T) {
 	facts := map[string]string{
 		"root": "/x", "platform": "darwin/arm64", "shell": "zsh",
@@ -58,7 +66,7 @@ func TestDoctrineBudgets(t *testing.T) {
 		// after review, a model that PASTES the block. Its labels and run ids
 		// are internal plumbing; shown to a user they are unreadable noise, and
 		// nothing but this rule stops "mention it" being read as "print it".
-		"chat": 18_600, "exec": 16_400, "plan": 11_100, "apply": 13_100,
+		"chat": 19_400, "exec": 17_200, "plan": 11_100, "apply": 13_900,
 		"review": 2_400, "compact": 1_700, "distill": 1_600,
 		// task_shape is the largest judge on purpose: it makes THREE independent
 		// judgements (is this automatable, is there a causal reason it will
