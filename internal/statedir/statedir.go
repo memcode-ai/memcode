@@ -73,7 +73,17 @@ func Key(root string) string {
 	return r.Replace(abs)
 }
 
-var migrated sync.Map // Key(root) -> struct{}: Migrate has run for it in this process
+var (
+	migrated sync.Map // Key(root) -> struct{}: Migrate has run for it in this process
+	secured  sync.Map // Home() -> struct{}: made private (0700) in this process
+)
+
+// grantsCapability names old state files that let something run or be sent
+// somewhere without asking: approved command rules, hooks, MCP servers, and
+// config (custom endpoints and the key each one is sent). They are moved only
+// out of a git repo, where git says the repo itself did not supply them; from
+// a folder git can't vouch for (a downloaded archive) they stay inert.
+var grantsCapability = map[string]bool{"permissions": true, "hooks.json": true, "mcp.json": true, "config.json": true}
 
 // realPath resolves symlinks on the longest existing prefix of p and re-appends
 // the rest, so a project has one key whether or not its folder exists yet
@@ -99,7 +109,16 @@ func realPath(p string) string {
 // every reader and writer sees the global directory, whatever the entry point.
 func For(root string) string {
 	key := Key(root)
-	dir := filepath.Join(Home(), "projects", key)
+	home := Home()
+	if _, done := secured.LoadOrStore(home, struct{}{}); !done {
+		// Transcripts, checkpoints and memory can hold anything the agent saw:
+		// the whole tree is private to the user, whatever the umask or the
+		// permissions of the files inside.
+		if os.MkdirAll(home, 0o700) == nil {
+			_ = os.Chmod(home, 0o700)
+		}
+	}
+	dir := filepath.Join(home, "projects", key)
 	if _, done := migrated.LoadOrStore(key, struct{}{}); !done {
 		migrate(root, dir)
 	}
@@ -119,13 +138,13 @@ func migrate(root, dst string) {
 	if err != nil {
 		return // nothing in the project — the normal case
 	}
-	if err := os.MkdirAll(dst, 0o755); err != nil {
+	if err := os.MkdirAll(dst, 0o700); err != nil {
 		return
 	}
-	tracked := trackedUnder(root, LegacyName)
+	tracked, inGit := trackedUnder(root, LegacyName)
 	for _, e := range entries {
 		name := e.Name()
-		if name == "tasks" || name == ".gitignore" || tracked[name] {
+		if name == "tasks" || name == ".gitignore" || tracked[name] || (!inGit && grantsCapability[name]) {
 			// tasks/ belongs with the code; anything the repo itself tracks is the
 			// repo's content, not memcode state: never move it (that would show up
 			// as deletions, and would turn repo-supplied files into trusted state).
@@ -197,13 +216,13 @@ func repairWorktrees(root, dir string) {
 	}
 }
 
-// trackedUnder returns the top-level names under root/dir that git tracks. Not
-// a git repo, or git missing: nothing is tracked.
-func trackedUnder(root, dir string) map[string]bool {
+// trackedUnder returns the top-level names under root/dir that git tracks, and
+// whether git could answer at all (false: not a git repo, or git missing).
+func trackedUnder(root, dir string) (map[string]bool, bool) {
 	out, err := exec.Command("git", "-C", root, "ls-files", "-z", "--", dir).Output()
 	names := map[string]bool{}
 	if err != nil {
-		return names
+		return names, false
 	}
 	for _, p := range strings.Split(string(out), "\x00") {
 		rel := strings.TrimPrefix(filepath.ToSlash(p), dir+"/")
@@ -212,5 +231,5 @@ func trackedUnder(root, dir string) map[string]bool {
 		}
 		names[strings.SplitN(rel, "/", 2)[0]] = true
 	}
-	return names
+	return names, true
 }

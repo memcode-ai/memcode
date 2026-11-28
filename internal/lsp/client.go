@@ -17,12 +17,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
 	"os/exec"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/memcode-ai/memcode/internal/agent/secrets"
 )
 
 // Client is a JSON-RPC 2.0 client over one language server's stdio. It is created by the
@@ -79,9 +80,7 @@ func (e *rpcError) Error() string { return fmt.Sprintf("lsp error %d: %s", e.Cod
 func newClient(ctx context.Context, dir string, extraEnv []string, name string, args ...string) (*Client, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = dir
-	if len(extraEnv) > 0 {
-		cmd.Env = append(os.Environ(), extraEnv...)
-	}
+	cmd.Env = append(secrets.ChildEnv(nil), extraEnv...)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err

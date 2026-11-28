@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/memcode-ai/memcode/internal/agent/permissions"
+	"github.com/memcode-ai/memcode/internal/agent/secrets"
 	"github.com/memcode-ai/memcode/internal/agent/tools"
 	"github.com/memcode-ai/memcode/internal/artifacts"
 	"github.com/memcode-ai/memcode/internal/provider"
@@ -71,10 +72,15 @@ func (s *Session) artifactTool(ctx context.Context, input json.RawMessage) toolR
 		if err != nil {
 			return errResult("artifact: path escapes the workspace: " + in.Path)
 		}
+		if secrets.IsSecretPath(in.Path) || secrets.IsSecretPath(abs) {
+			return errResult("artifact: " + in.Path + " is a credentials file — it can't be published")
+		}
 		raw, err := os.ReadFile(abs)
 		if err != nil {
 			return errResult("artifact: can't read " + in.Path + ": " + err.Error())
 		}
+		// A page goes to a public link: no known secret value or key shape leaves with it.
+		raw = []byte(s.redactor.Redact(string(raw)))
 		if len(raw) == 0 {
 			return errResult("artifact: " + in.Path + " is empty")
 		}

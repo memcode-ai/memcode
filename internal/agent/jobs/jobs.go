@@ -18,6 +18,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/memcode-ai/memcode/internal/agent/secrets"
 )
 
 type Status string
@@ -221,6 +223,7 @@ func shellCommand(command string) *exec.Cmd {
 		c = exec.Command("sh", "-c", command)
 	}
 	c.WaitDelay = pipeGrace
+	c.Env = secrets.ChildEnv(nil) // background commands never get memcode's own credentials
 	return c
 }
 

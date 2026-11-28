@@ -15,6 +15,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -23,6 +24,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/memcode-ai/memcode/internal/atomicfile"
 	"github.com/memcode-ai/memcode/internal/provider"
 )
 
@@ -183,6 +185,9 @@ func Run(ctx context.Context, status func(string)) (Result, error) {
 
 		// Determine the gateway URL: callback override > env > default.
 		gatewayURL := res.apiURL
+		if gatewayURL != "" && !trustedGatewayURL(gatewayURL) {
+			gatewayURL = "" // every later request carries the token there: only memcode's own hosts
+		}
 		if gatewayURL == "" {
 			gatewayURL = envOr(provider.EnvAPIURL, DefaultGatewayURL)
 		}
@@ -233,8 +238,25 @@ func WriteGlobalEnvToken(token, apiURL string) error {
 	lines = append(lines, fmt.Sprintf("%s=%s", provider.EnvAPIToken, token))
 	lines = append(lines, fmt.Sprintf("%s=%s", provider.EnvAPIURL, apiURL))
 
-	content := strings.Join(lines, "\n") + "\n"
-	return os.WriteFile(path, []byte(content), 0600)
+	if strings.ContainsAny(token+apiURL, "\r\n") {
+		return fmt.Errorf("refusing to save a credential that contains a line break")
+	}
+	return writeEnvFile(path, lines)
+}
+
+// writeEnvFile saves the global env file atomically and private (0600 even
+// when an older copy was readable by others): a crash mid-write must not wipe
+// every saved credential. Trailing blank lines are collapsed so repeated
+// logins don't grow the file.
+func writeEnvFile(path string, lines []string) error {
+	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
+		lines = lines[:len(lines)-1]
+	}
+	content := ""
+	if len(lines) > 0 {
+		content = strings.Join(lines, "\n") + "\n"
+	}
+	return atomicfile.WriteFile(path, []byte(content), 0o600)
 }
 
 // StripGlobalEnvToken removes the token/url lines from the global env file
@@ -272,8 +294,7 @@ func StripGlobalEnvToken() (bool, error) {
 	if !removed {
 		return false, nil
 	}
-	content := strings.Join(lines, "\n")
-	if err := os.WriteFile(path, []byte(content), 0600); err != nil {
+	if err := writeEnvFile(path, lines); err != nil {
 		return false, fmt.Errorf("failed to write config: %w", err)
 	}
 	return true, nil
@@ -497,7 +518,25 @@ func SetGlobalEnv(kv map[string]string) error {
 		}
 	}
 	for k, v := range kv {
+		if strings.ContainsAny(k+v, "\r\n") || strings.ContainsRune(k, '=') {
+			return fmt.Errorf("refusing to save %q: keys and values must be single-line", k)
+		}
 		lines = append(lines, fmt.Sprintf("%s=%s", k, v))
 	}
-	return os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0600)
+	return writeEnvFile(path, lines)
+}
+
+// trustedGatewayURL accepts a gateway the login callback names only when it is
+// https on memcode.ai (or a subdomain), or exactly the gateway the user set in
+// MEMCODE_API_URL. The token is sent to that host on every turn from then on.
+func trustedGatewayURL(raw string) bool {
+	if env := os.Getenv(provider.EnvAPIURL); env != "" && strings.TrimRight(raw, "/") == strings.TrimRight(env, "/") {
+		return true
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "https" || u.User != nil {
+		return false
+	}
+	h := strings.ToLower(u.Hostname())
+	return h == "memcode.ai" || strings.HasSuffix(h, ".memcode.ai")
 }

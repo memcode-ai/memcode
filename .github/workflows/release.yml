@@ -21,6 +21,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: "1.26"
+          check-latest: true # newest 1.26.x patch: shipped binaries carry the stdlib security fixes
           cache-dependency-path: go.sum
 
       # Never publish a release from a commit whose tests don't pass.

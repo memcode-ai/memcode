@@ -8,11 +8,12 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"os"
 	"os/exec"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/memcode-ai/memcode/internal/agent/secrets"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -214,7 +215,7 @@ func transportFor(sc ServerConfig, opts Options) (mcpsdk.Transport, func(), erro
 			return nil, nil, fmt.Errorf("stdio server has no command")
 		}
 		cmd := exec.Command(sc.Command, sc.Args...)
-		cmd.Env = os.Environ()
+		cmd.Env = secrets.ChildEnv(nil) // a third-party server never gets memcode's own credentials
 		for k, v := range sc.Env {
 			cmd.Env = append(cmd.Env, k+"="+v)
 		}

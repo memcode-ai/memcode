@@ -79,11 +79,40 @@ func TestMigrateMovesStateKeepsTasks(t *testing.T) {
 
 	// A project with nothing but state ends with no .memcode at all.
 	other := t.TempDir()
-	write(filepath.Join(other, LegacyName, "config.json"), "{}")
+	write(filepath.Join(other, LegacyName, "state.db"), "db")
 	write(filepath.Join(other, LegacyName, ".gitignore"), "*\n")
 	For(other)
 	if _, err := os.Stat(filepath.Join(other, LegacyName)); !os.IsNotExist(err) {
 		t.Fatalf("emptied .memcode should be gone: %v", err)
+	}
+	if fi, err := os.Stat(Home()); err != nil || fi.Mode().Perm() != 0o700 {
+		t.Fatalf("state home must be private (0700): %v %v", err, fi.Mode())
+	}
+}
+
+// Outside git, nothing says a .memcode came from memcode rather than from a
+// downloaded archive, so files that grant capabilities (approved commands,
+// hooks, MCP servers, endpoints) are never promoted into trusted state.
+func TestMigrateOutsideGitLeavesCapabilityFiles(t *testing.T) {
+	t.Setenv(EnvHome, t.TempDir())
+	root := t.TempDir()
+	for _, name := range []string{"permissions", "hooks.json", "mcp.json", "config.json", "state.db"} {
+		p := filepath.Join(root, LegacyName, name)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	dir := For(root)
+	for _, name := range []string{"permissions", "hooks.json", "mcp.json", "config.json"} {
+		if _, err := os.Stat(filepath.Join(dir, name)); !os.IsNotExist(err) {
+			t.Fatalf("%s from a non-git folder became trusted state", name)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, "state.db")); err != nil {
+		t.Fatalf("plain state should still move: %v", err)
 	}
 }
 

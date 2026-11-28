@@ -1301,10 +1301,14 @@ func newSessionID() string {
 // jobs.RunForeground, which kills the whole process GROUP (exec.CommandContext only
 // kills the direct child, leaving grandchildren to hold the pipe and hang Wait).
 func shellCmd(command string) *exec.Cmd {
+	var c *exec.Cmd
 	if stdruntime.GOOS == "windows" {
-		return exec.Command("powershell", "-NoProfile", "-Command", command)
+		c = exec.Command("powershell", "-NoProfile", "-Command", command)
+	} else {
+		c = exec.Command("sh", "-c", command)
 	}
-	return exec.Command("sh", "-c", command)
+	c.Env = secrets.ChildEnv(nil) // the agent's commands never get memcode's own credentials
+	return c
 }
 
 // shellName reports the shell the agent's bash tool uses on this platform.
@@ -1433,10 +1437,12 @@ func safeJoin(root, rel string) (string, error) {
 	}
 	// The target may not exist yet (a new file), so resolve symlinks on its longest
 	// existing prefix and re-append the tail, then confirm the REAL path stays in root.
-	if real, err := resolveExisting(p); err == nil {
-		if real != rootAbs && !strings.HasPrefix(real, rootAbs+string(os.PathSeparator)) {
-			return "", fmt.Errorf("path escapes the repo root via a symlink: %s", rel)
-		}
+	real, err := resolveExisting(p)
+	if err != nil {
+		return "", fmt.Errorf("can't resolve %s: %w", rel, err) // fail closed: an unresolvable path is never written
+	}
+	if real != rootAbs && !strings.HasPrefix(real, rootAbs+string(os.PathSeparator)) {
+		return "", fmt.Errorf("path escapes the repo root via a symlink: %s", rel)
 	}
 	return p, nil
 }
@@ -1466,7 +1472,9 @@ func (s *Session) repoRel(p string) (string, error) {
 
 // resolveExisting resolves symlinks on the longest existing prefix of p and re-appends the
 // not-yet-existent tail, so a new file is still validated against its real parent directory.
-func resolveExisting(p string) (string, error) {
+func resolveExisting(p string) (string, error) { return resolveExistingHops(p, 0) }
+
+func resolveExistingHops(p string, hops int) (string, error) {
 	cur := p
 	var tail []string // deepest-first
 	for {
@@ -1476,6 +1484,26 @@ func resolveExisting(p string) (string, error) {
 				out = filepath.Join(out, tail[i])
 			}
 			return out, nil
+		}
+		// A DANGLING symlink fails EvalSymlinks like a missing file, yet a write
+		// through it lands wherever it points. Follow it by hand (bounded) so the
+		// real destination is what gets checked, not the link's own location.
+		if fi, err := os.Lstat(cur); err == nil && fi.Mode()&os.ModeSymlink != 0 {
+			if hops >= 40 {
+				return "", fmt.Errorf("too many symlinks resolving %s", p)
+			}
+			target, err := os.Readlink(cur)
+			if err != nil {
+				return "", err
+			}
+			if !filepath.IsAbs(target) {
+				target = filepath.Join(filepath.Dir(cur), target)
+			}
+			rest := make([]string, 0, len(tail))
+			for i := len(tail) - 1; i >= 0; i-- {
+				rest = append(rest, tail[i])
+			}
+			return resolveExistingHops(filepath.Join(append([]string{filepath.Clean(target)}, rest...)...), hops+1)
 		}
 		parent := filepath.Dir(cur)
 		if parent == cur {

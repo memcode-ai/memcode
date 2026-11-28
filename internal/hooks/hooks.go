@@ -34,6 +34,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/memcode-ai/memcode/internal/agent/secrets"
+
 	"github.com/memcode-ai/memcode/internal/statedir"
 )
 
@@ -180,7 +182,7 @@ func (s *Set) runOne(ctx context.Context, h Hook, event, toolName string, stdin 
 	}
 	cmd.Dir = s.root
 	cmd.Stdin = bytes.NewReader(stdin)
-	cmd.Env = append(os.Environ(),
+	cmd.Env = append(secrets.ChildEnv(nil),
 		"MEMCODE_HOOK_EVENT="+event,
 		"MEMCODE_TOOL_NAME="+toolName,
 		"MEMCODE_SESSION_ID="+s.sessionID,

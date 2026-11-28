@@ -1225,6 +1225,11 @@ func nonEmptyAssistant(blocks []wire.Block) []wire.Block {
 // shape or the model, instead of guessing. Local file (.memcode/diagnostics/) so it's always
 // findable with no cloud/log-size limits; best-effort, never blocks a turn.
 func (s *Session) captureToolCallLeak(ctx context.Context, purpose llm.Purpose, req wire.Request, resp wire.Response) {
+	// A full copy of the conversation is written only when wire tracing is on:
+	// by default memcode doesn't keep extra copies of what it sent.
+	if os.Getenv("MEMCODE_TRACE") == "" {
+		return
+	}
 	text := resp.Text()
 	if !leaksToolCallText(text) {
 		return
@@ -1242,7 +1247,7 @@ func (s *Session) captureToolCallLeak(ctx context.Context, purpose llm.Purpose, 
 		"leaked_output": text,
 	}
 	dir := filepath.Join(statedir.For(s.root), "diagnostics")
-	if os.MkdirAll(dir, 0o755) != nil {
+	if os.MkdirAll(dir, 0o700) != nil {
 		return
 	}
 	b, err := json.MarshalIndent(rec, "", "  ")
@@ -1250,7 +1255,7 @@ func (s *Session) captureToolCallLeak(ctx context.Context, purpose llm.Purpose, 
 		return
 	}
 	path := filepath.Join(dir, fmt.Sprintf("toolcall-leak-%d.json", time.Now().UnixNano()))
-	if os.WriteFile(path, b, 0o644) != nil {
+	if os.WriteFile(path, []byte(s.redactor.Redact(string(b))), 0o600) != nil {
 		return
 	}
 	s.emit(ctx, events.KindNote, map[string]any{"note": "toolcall_leak_captured", "path": path})

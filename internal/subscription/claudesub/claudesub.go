@@ -10,8 +10,10 @@
 // impersonation lives — this package only resolves the credential.
 //
 // Consent-gated upstream: it activates only when the user explicitly selects the
-// claude source. It reuses Claude Code's file; refreshed tokens are written back
-// there (never the Keychain), atomically at 0600.
+// claude source. A refreshed token is written back to wherever the login came
+// from: Claude Code's file (atomically, 0600), or on macOS its Keychain item.
+// Refresh tokens are single-use, so writing anywhere else would sign Claude
+// Code out.
 package claudesub
 
 import (
@@ -28,6 +30,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/memcode-ai/memcode/internal/atomicfile"
 )
 
 // resolveMu serializes Resolve's read→refresh→write: refresh tokens are single-use and
@@ -48,6 +52,7 @@ type creds struct {
 	RefreshToken string
 	ExpiresAt    int64 // epoch milliseconds
 	Scopes       []string
+	fromKeychain bool // read from the macOS Keychain (Claude Code ≥2.1.114), not the file
 }
 
 // Resolve returns a usable Claude access token, refreshing it if expired. The
@@ -79,7 +84,11 @@ func resolve(rejected string) (creds, error) {
 	if err != nil {
 		return creds{}, err
 	}
-	writeBackFile(refreshed)
+	if err := writeBack(c, refreshed); err != nil {
+		// The old refresh token is spent; the new one exists only in memory. Use
+		// it for this session and say plainly what the user may need to do.
+		return refreshed, fmt.Errorf("refreshed the Claude login but couldn't save it (%v) — if Claude Code asks you to sign in again, that is why", err)
+	}
 	return refreshed, nil
 }
 
@@ -162,12 +171,14 @@ func readCreds() (creds, error) {
 	switch {
 	case fileOK && kcOK:
 		if kc.ExpiresAt > file.ExpiresAt {
+			kc.fromKeychain = true
 			return kc, nil
 		}
 		return file, nil
 	case fileOK:
 		return file, nil
 	case kcOK:
+		kc.fromKeychain = true
 		return kc, nil
 	}
 	return creds{}, fmt.Errorf("no Claude login found — sign in with Claude Code first")
@@ -278,41 +289,103 @@ func refresh(c creds) (creds, error) {
 	return nc, nil
 }
 
-// writeBackFile persists a refreshed token into Claude Code's own file so the
-// single-use refresh token stays in sync for both tools. Best-effort, atomic,
-// 0600. The Keychain is never written.
-func writeBackFile(c creds) {
-	p := credFilePath()
-	if p == "" {
-		return
+// writeBack saves a refreshed login where it was read from, so the rotated,
+// single-use refresh token stays valid for Claude Code too. A Keychain login
+// is never copied into a plaintext file; the file is updated only when the
+// login came from it or it already exists.
+func writeBack(old, c creds) error {
+	if old.fromKeychain {
+		if err := writeBackKeychain(c); err != nil {
+			return err
+		}
+		if p := credFilePath(); p != "" {
+			if _, err := os.Stat(p); err == nil {
+				return writeBackFile(c)
+			}
+		}
+		return nil
 	}
-	// Merge into the existing JSON so unrelated fields are preserved.
+	return writeBackFile(c)
+}
+
+// oauthJSON merges the refreshed fields into an existing credential document,
+// leaving unrelated fields (other logins, MCP tokens) untouched.
+func oauthJSON(existing []byte, c creds) ([]byte, error) {
 	m := map[string]any{}
-	if b, err := os.ReadFile(p); err == nil {
-		_ = json.Unmarshal(b, &m)
+	if len(existing) > 0 {
+		_ = json.Unmarshal(existing, &m)
 	}
 	scopes := c.Scopes
 	if len(scopes) == 0 {
 		scopes = []string{"user:inference", "user:profile"}
 	}
-	m["claudeAiOauth"] = map[string]any{
-		"accessToken":  c.AccessToken,
-		"refreshToken": c.RefreshToken,
-		"expiresAt":    c.ExpiresAt,
-		"scopes":       scopes,
+	o, _ := m["claudeAiOauth"].(map[string]any)
+	if o == nil {
+		o = map[string]any{}
 	}
-	b, err := json.MarshalIndent(m, "", "  ")
+	o["accessToken"], o["refreshToken"], o["expiresAt"], o["scopes"] = c.AccessToken, c.RefreshToken, c.ExpiresAt, scopes
+	m["claudeAiOauth"] = o
+	return json.Marshal(m)
+}
+
+// writeBackFile persists a refreshed token into Claude Code's own file,
+// atomically at 0600.
+func writeBackFile(c creds) error {
+	p := credFilePath()
+	if p == "" {
+		return fmt.Errorf("no home directory")
+	}
+	existing, _ := os.ReadFile(p)
+	b, err := oauthJSON(existing, c)
 	if err != nil {
-		return
+		return err
 	}
 	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
-		return
+		return err
 	}
-	tmp := p + ".tmp"
-	if os.WriteFile(tmp, b, 0o600) != nil {
-		return
+	return atomicfile.WriteFile(p, b, 0o600)
+}
+
+const keychainService = "Claude Code-credentials"
+
+// writeBackKeychain updates Claude Code's Keychain item in place. The secret
+// goes to `security` on stdin (hex-encoded, in its interactive mode), never on
+// the command line where other processes could read it.
+func writeBackKeychain(c creds) error {
+	if !keychainEnabled || runtime.GOOS != "darwin" {
+		return nil
 	}
-	_ = os.Rename(tmp, p)
+	existing, _ := exec.Command("security", "find-generic-password", "-s", keychainService, "-w").Output()
+	b, err := oauthJSON(bytes.TrimSpace(existing), c)
+	if err != nil {
+		return err
+	}
+	attrs, err := exec.Command("security", "find-generic-password", "-s", keychainService).Output()
+	if err != nil {
+		return fmt.Errorf("keychain item not found: %w", err)
+	}
+	acct := keychainAccount(string(attrs))
+	if acct == "" || strings.ContainsAny(acct, "\"\n\\") {
+		return fmt.Errorf("keychain item has no usable account name")
+	}
+	cmd := exec.Command("security", "-i")
+	cmd.Stdin = strings.NewReader(fmt.Sprintf("add-generic-password -U -a \"%s\" -s \"%s\" -X %x\n", acct, keychainService, b))
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("keychain update failed: %v %s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// keychainAccount pulls the account attribute out of `security
+// find-generic-password` output: a line like `    "acct"<blob>="name"`.
+func keychainAccount(attrs string) string {
+	for _, ln := range strings.Split(attrs, "\n") {
+		ln = strings.TrimSpace(ln)
+		if rest, ok := strings.CutPrefix(ln, `"acct"<blob>="`); ok {
+			return strings.TrimSuffix(rest, `"`)
+		}
+	}
+	return ""
 }
 
 // Available reports whether a Claude Code login is present (file, or the macOS

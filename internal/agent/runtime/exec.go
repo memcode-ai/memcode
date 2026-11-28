@@ -1138,7 +1138,10 @@ func (s *Session) readFile(ctx context.Context, raw json.RawMessage) toolResult 
 	}
 	abs := resolveReadPath(s.root, in.Path) // reads may reach outside the repo (mirrors cat); writes stay scoped
 	s.markRead()
-	secret := secrets.IsSecretPath(in.Path)
+	secret := secrets.IsSecretPath(in.Path) || secrets.IsSecretPath(abs)
+	if real, err := filepath.EvalSymlinks(abs); err == nil && secrets.IsSecretPath(real) {
+		secret = true // a link named notes.txt pointing at ~/.aws/credentials is still credentials
+	}
 	data, err := os.ReadFile(abs)
 	if err != nil {
 		s.toolLine(false, "Read", in.Path, "not found", true)
@@ -1429,7 +1432,9 @@ func (s *Session) ripgrep(ctx context.Context, input json.RawMessage) toolResult
 	}
 	matches := lineCount(strings.TrimRight(string(out), "\n")) // one rg/grep line per match
 	s.toolLine(false, "Search", in.Query, countNoun(matches, "match", "matches"), false)
-	return textResult(truncate(string(out), maxToolOutput))
+	// rg searches an explicitly named path even when it is gitignored, so a
+	// search can reach .env: mask credential files exactly as read_file does.
+	return textResult(truncate(secrets.RedactSecretGrep(string(out), path), maxToolOutput))
 }
 
 func hasExec(name string) bool { _, err := exec.LookPath(name); return err == nil }
@@ -1465,7 +1470,7 @@ func (s *Session) gitDiff(ctx context.Context, input json.RawMessage) toolResult
 	if len(out) == 0 {
 		return textResult("(no changes)")
 	}
-	return textResult(truncate(string(out), maxToolOutput))
+	return textResult(truncate(secrets.RedactSecretDiff(string(out)), maxToolOutput))
 }
 
 func (s *Session) editFile(ctx context.Context, input json.RawMessage) toolResult {
@@ -1656,10 +1661,16 @@ func (s *Session) applyPatch(ctx context.Context, input json.RawMessage) toolRes
 		if err != nil {
 			return errResult("apply_patch: bad path " + p + ": " + err.Error())
 		}
-		if b, err := os.ReadFile(abs); err == nil {
+		b, err := os.ReadFile(abs)
+		switch {
+		case err == nil:
 			snaps[p] = snap{data: b, existed: true}
-		} else {
+		case os.IsNotExist(err):
 			snaps[p] = snap{existed: false}
+		default:
+			// Exists but unreadable: a rollback could neither restore it nor safely
+			// delete it, so don't start the patch at all.
+			return errResult("apply_patch: can't read " + p + ": " + err.Error())
 		}
 	}
 	rollback := func() []string {
@@ -1887,6 +1898,9 @@ func (s *Session) runGatedCommand(ctx context.Context, command, cwd string, back
 	// Claude-Code-style marker: ⏺ Bash(cmd) with a status-colored bullet, then a short
 	// output preview as ONE muted ⎿ block (glyph on the first line, continuations aligned).
 	o, e := strings.TrimSpace(s.redactor.Redact(oc.Stdout)), strings.TrimSpace(s.redactor.Redact(oc.Stderr))
+	if permissions.ReadsSecretPath(command) {
+		o = secrets.RedactSecretFile(o) // `cat .env` shows its keys, never their values — same as read_file
+	}
 	exitReason := "" // "interrupted"/"could not run" instead of a bare "exit -1"
 	switch {
 	case oc.Killed:

@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/memcode-ai/memcode/internal/agent/secrets"
 	"github.com/memcode-ai/memcode/internal/agent/tools"
 )
 
@@ -117,7 +118,7 @@ func CodeQuery(ctx context.Context, root, query, scope string) (string, bool) {
 		return "code_query timed out — narrow the query or pass a `scope`.", false
 	}
 
-	files := cqRank(string(out), terms)
+	files := cqRank(secrets.RedactSecretGrep(string(out), sc), terms)
 	if len(files) == 0 {
 		return fmt.Sprintf("code_query: no matches for terms %v — try ripgrep with a precise string, or widen the scope.", terms), true
 	}

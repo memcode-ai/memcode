@@ -13,7 +13,7 @@ import (
 // updated installs right back on the kimi-k3-404 bug.
 func TestSubscriptionEndpointArtifactPruned(t *testing.T) {
 	root := t.TempDir()
-	dir := filepath.Join(root, DirName)
+	dir := StateDir(root) // where project config lives
 	if err := os.MkdirAll(filepath.Join(dir), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +67,7 @@ func stringContains(s, sub string) bool {
 
 func TestArtifactOnlyConfigResolvesNothing(t *testing.T) {
 	root := t.TempDir()
-	dir := filepath.Join(root, DirName)
+	dir := StateDir(root) // where project config lives
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}

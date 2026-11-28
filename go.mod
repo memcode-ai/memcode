@@ -2,6 +2,8 @@ module github.com/memcode-ai/memcode
 
 go 1.26.0
 
+toolchain go1.26.11
+
 require (
 	charm.land/lipgloss/v2 v2.0.6
 	cloud.google.com/go/auth v0.24.2
@@ -16,7 +18,7 @@ require (
 	github.com/chromedp/chromedp v0.21.0
 	github.com/emersion/go-imap/v2 v2.0.0-beta.8
 	github.com/golang-jwt/jwt/v5 v5.3.1
-	github.com/gorilla/websocket v1.5.3
+	github.com/gorilla/websocket v1.5.4-0.20240701034025-d67f41855da4
 	github.com/mattn/go-runewidth v0.0.31
 	github.com/memcode-ai/vaxis v0.0.0-20261014014917-4b376797c4f8
 	github.com/modelcontextprotocol/go-sdk v1.8.0
@@ -43,7 +45,6 @@ require (
 	github.com/charmbracelet/ultraviolet v0.0.0-20261023060817-a45b7c86333f // indirect
 	github.com/charmbracelet/x/termios v0.1.1 // indirect
 	github.com/charmbracelet/x/windows v0.2.2 // indirect
-	github.com/chromedp/sysutil v1.1.0 // indirect
 	github.com/clipperhouse/displaywidth v0.11.0 // indirect
 	github.com/clipperhouse/uax29/v2 v2.7.0 // indirect
 	github.com/coder/websocket v1.8.15 // indirect
@@ -55,9 +56,6 @@ require (
 	github.com/go-json-experiment/json v0.0.0-20260820222146-c27c302e5fc3 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
-	github.com/gobwas/httphead v0.1.0 // indirect
-	github.com/gobwas/pool v0.2.1 // indirect
-	github.com/gobwas/ws v1.4.0 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/google/jsonschema-go v0.4.3 // indirect
 	github.com/google/s2a-go v0.1.11 // indirect
