@@ -56,6 +56,27 @@ func (s *Stat) add(r wire.Response, usd float64) {
 	s.USD += usd
 }
 
+// TotalInput returns the total input tokens seen by the model across all
+// disjoint categories: uncached input + cache reads + cache writes.
+func (s Stat) TotalInput() int {
+	return s.In + s.CacheRead + s.CacheWrite
+}
+
+// CacheUtilization returns the percentage (0-100) of TotalInput served from cache.
+func (s Stat) CacheUtilization() float64 {
+	return CacheUtilization(s.In, s.CacheRead, s.CacheWrite)
+}
+
+// CacheUtilization computes CacheRead / (In + CacheRead + CacheWrite) as a
+// percentage (0-100), returning 0 when total input is zero.
+func CacheUtilization(in, cacheRead, cacheWrite int) float64 {
+	tot := in + cacheRead + cacheWrite
+	if tot <= 0 {
+		return 0
+	}
+	return float64(cacheRead) * 100 / float64(tot)
+}
+
 // BackendStat aggregates per serving backend (cheap | anthropic | openai |
 // …) — where the tokens actually ran and what they cost. USD is the real token
 // bill at the served model's rates: every backend is token-billed (the cheap
@@ -72,6 +93,16 @@ type BackendStat struct {
 	// per-component USD (so /cost can PROVE where the money went — input vs
 	// cache-write vs cache-read vs output — instead of hand-waving).
 	InUSD, OutUSD, CacheReadUSD, CacheWriteUSD float64
+}
+
+// TotalInput returns the total input tokens for this backend: uncached + cache reads + cache writes.
+func (b BackendStat) TotalInput() int {
+	return b.In + b.CacheRead + b.CacheWrite
+}
+
+// CacheUtilization returns the percentage (0-100) of TotalInput served from cache.
+func (b BackendStat) CacheUtilization() float64 {
+	return CacheUtilization(b.In, b.CacheRead, b.CacheWrite)
 }
 
 // Ledger is the single, concurrency-safe record of all model usage for a run.

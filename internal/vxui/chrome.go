@@ -11,6 +11,7 @@ import (
 
 	"github.com/memcode-ai/memcode/internal/agent/runtime"
 	"github.com/memcode-ai/memcode/internal/buildinfo"
+	"github.com/memcode-ai/memcode/internal/llm"
 	"github.com/memcode-ai/memcode/internal/provider"
 )
 
@@ -204,9 +205,8 @@ func (s *appState) footerRow() ui.Widget {
 		add(fmt.Sprintf("↑%s ↓%s", fmtTokens(in), fmtTokens(out)), s.sty.muted)
 		// Cache-hit pulse: glyph + % of prompt tokens served from cache. Conditional (only when
 		// caching is actually happening) and muted, so it's a quiet signal, not a fixture.
-		if cr, _ := s.w.sess.CacheStats(); cr > 0 {
-			uncachedIn, _, _, _, _ := s.w.sess.Spend()
-			add(fmt.Sprintf("%s %d%%", cacheGlyph, cacheHitRate(uncachedIn, cr)), s.sty.muted)
+		if uncachedIn, _, cr, cw, _ := s.w.sess.Spend(); cr > 0 {
+			add(fmt.Sprintf("%s %.1f%%", cacheGlyph, cacheHitRate(uncachedIn, cr, cw)), s.sty.muted)
 		}
 	}
 	// Context-window fill of the latest MAIN call. Hidden until the first main call
@@ -284,14 +284,11 @@ func pluralS(n int) string {
 	return "s"
 }
 
-// cacheHitRate is the percent of prompt tokens served from cache: read/(input+read). The input
-// here is the UNCACHED prompt (the gateway splits cached out), so input+read is the full prompt.
+// cacheHitRate is the percent of total prompt tokens served from cache:
+// read/(input+read+write), delegating to llm.CacheUtilization.
 // 0 when nothing's been cached — callers gate the display on read>0.
-func cacheHitRate(input, read int) int {
-	if input+read == 0 {
-		return 0
-	}
-	return read * 100 / (input + read)
+func cacheHitRate(input, read, write int) float64 {
+	return llm.CacheUtilization(input, read, write)
 }
 
 // ctxPercent is the context-window fill percent — tokens*100/window, div-by-zero-safe.

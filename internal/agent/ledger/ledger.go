@@ -35,12 +35,28 @@ type BackendSpend struct {
 	Reasons                                    map[string]int
 }
 
+// TotalInput returns total input tokens for this backend (In + CacheRead + CacheWrite).
+func (b BackendSpend) TotalInput() int { return b.In + b.CacheRead + b.CacheWrite }
+
+// CacheUtilization returns the percentage (0-100) of TotalInput served from cache.
+func (b BackendSpend) CacheUtilization() float64 {
+	return llm.CacheUtilization(b.In, b.CacheRead, b.CacheWrite)
+}
+
 // PurposeSpend is one purpose's slice of the session ledger (for /cost --by-purpose).
 type PurposeSpend struct {
 	Purpose                        string
 	Calls                          int
 	In, Out, CacheRead, CacheWrite int
 	USD                            float64
+}
+
+// TotalInput returns total input tokens for this purpose (In + CacheRead + CacheWrite).
+func (p PurposeSpend) TotalInput() int { return p.In + p.CacheRead + p.CacheWrite }
+
+// CacheUtilization returns the percentage (0-100) of TotalInput served from cache.
+func (p PurposeSpend) CacheUtilization() float64 {
+	return llm.CacheUtilization(p.In, p.CacheRead, p.CacheWrite)
 }
 
 // CacheStats returns cumulative prompt-cache token counts (read ≈ 10% cost; write =
@@ -50,11 +66,17 @@ func CacheStats(r Reader) (read, write int) {
 	return t.CacheRead, t.CacheWrite
 }
 
+// CacheUtilization returns the session-wide cache hit percentage (0-100):
+// CacheRead / (In + CacheRead + CacheWrite).
+func CacheUtilization(r Reader) float64 {
+	return r.Total().CacheUtilization()
+}
+
 // Tokens returns cumulative session token flow: total input the model saw (uncached
-// + cache reads) and total output. Footer "↑in ↓out".
+// + cache reads + cache writes) and total output. Footer "↑in ↓out".
 func Tokens(r Reader) (in, out int) {
 	t := r.Total()
-	return t.In + t.CacheRead, t.Out
+	return t.TotalInput(), t.Out
 }
 
 // Spend returns the session's token breakdown and estimated cost in USD (priced per

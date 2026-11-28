@@ -335,6 +335,21 @@ func (r Response) ToolUses() []Block {
 	return out
 }
 
+// TotalInput returns the full prompt size seen by the model: uncached input
+// plus cache reads and cache writes (disjoint across all providers).
+func (r Response) TotalInput() int {
+	return r.InputTokens + r.CacheReadTokens + r.CacheWriteTokens
+}
+
+// CacheUtilization returns the percentage (0-100) of TotalInput served from cache.
+func (r Response) CacheUtilization() float64 {
+	tot := r.TotalInput()
+	if tot <= 0 {
+		return 0
+	}
+	return float64(r.CacheReadTokens) * 100 / float64(tot)
+}
+
 // StreamHandler receives incremental events during a streamed completion. Both
 // callbacks are optional. Text fires for each chunk of assistant text as it arrives;
 // Usage fires when the API reports token counts (input at the start, authoritative

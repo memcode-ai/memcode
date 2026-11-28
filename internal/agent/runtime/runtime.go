@@ -630,16 +630,11 @@ func (s *Session) Run(ctx context.Context, task string) (Result, error) {
 
 	diffStat := gitDiffStat(ctx, s.root, changed)
 	usage := s.runner.Ledger().Total()
-	s.emit(ctx, events.KindAgentSessionFinished, map[string]any{
+	s.emitSessionFinished(ctx, map[string]any{
 		"iterations":             iterations,
 		"head_sha":               headSHA,
 		"files_changed_by_agent": changed,
 		"diff_summary":           diffStat,
-		"input_tokens":           usage.In,
-		"output_tokens":          usage.Out,
-		"cache_read_tokens":      usage.CacheRead,
-		"cache_write_tokens":     usage.CacheWrite,
-		"est_cost_usd":           usage.USD,
 		"verified":               verified,
 		"hit_limit":              !completed,
 	})
@@ -1165,6 +1160,36 @@ func (s *Session) logApproval(req ApprovalRequest, d ApprovalDecision) {
 
 // emit records an event tagged with this session's id. Telemetry must never take down a
 // call path: a session without a store (bare test fixtures) just drops the event.
+// emitSessionFinished persists KindAgentSessionFinished with cumulative and
+// per-backend token/cache accounting merged into extra.
+func (s *Session) emitSessionFinished(ctx context.Context, extra map[string]any) {
+	payload := map[string]any{}
+	for k, v := range extra {
+		payload[k] = v
+	}
+	usage := s.runner.Ledger().Total()
+	payload["input_tokens"] = usage.In
+	payload["output_tokens"] = usage.Out
+	payload["cache_read_tokens"] = usage.CacheRead
+	payload["cache_write_tokens"] = usage.CacheWrite
+	payload["est_cost_usd"] = usage.USD
+	if byB := s.runner.Ledger().ByBackend(); len(byB) > 0 {
+		backends := make(map[string]map[string]any, len(byB))
+		for name, st := range byB {
+			backends[name] = map[string]any{
+				"calls":       st.Calls,
+				"in":          st.In,
+				"out":         st.Out,
+				"cache_read":  st.CacheRead,
+				"cache_write": st.CacheWrite,
+				"usd":         st.USD,
+			}
+		}
+		payload["by_backend"] = backends
+	}
+	s.emit(ctx, events.KindAgentSessionFinished, payload)
+}
+
 func (s *Session) emit(ctx context.Context, kind events.Kind, payload map[string]any) {
 	if s.store == nil {
 		return

@@ -156,6 +156,6 @@ func (s *Session) RunPlan(ctx context.Context, task string) (string, error) {
 		return "", err
 	}
 	s.notePlanTurn(ctx) // records plan_proposed
-	s.emit(ctx, events.KindAgentSessionFinished, map[string]any{"mode": "plan"})
+	s.emitSessionFinished(ctx, map[string]any{"mode": "plan"})
 	return s.lastText, nil
 }

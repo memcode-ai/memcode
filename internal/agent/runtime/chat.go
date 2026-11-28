@@ -564,7 +564,7 @@ func (s *Session) EndChat(ctx context.Context) {
 	s.KillAllJobs()                          // reap background jobs so nothing (dev servers, watchers) orphans
 	s.closeMCP()                             // tear down MCP server connections (subprocesses / HTTP sessions)
 	s.lspMgr.Close()                         // shut down resident language servers (nil-safe)
-	s.emit(ctx, events.KindAgentSessionFinished, map[string]any{"interactive": true})
+	s.emitSessionFinished(ctx, map[string]any{"interactive": true})
 	s.endSessionLog()
 }
 

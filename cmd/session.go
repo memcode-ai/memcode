@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/memcode-ai/memcode/internal/agent/ledger"
 	"github.com/memcode-ai/memcode/internal/sessionlog"
 	"github.com/memcode-ai/memcode/internal/sessionprune"
 	"github.com/memcode-ai/memcode/internal/store"
@@ -387,8 +388,43 @@ func clipCLI(s string, max int) string {
 	return textutil.ClipRunesEllipsis(s, max) // rune-safe: never splits UTF-8
 }
 
+var sessionCacheCmd = &cobra.Command{
+	Use:   "cache",
+	Short: "Show cumulative and per-provider cache utilization from persisted sessions",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		ctx := cmd.Context()
+		st, _, err := openProject(ctx)
+		if err != nil {
+			return err
+		}
+		defer st.Close()
+
+		evs, err := st.ListEvents(ctx, store.EventFilter{})
+		if err != nil {
+			return err
+		}
+		sum := ledger.SummarizePersistedCache(evs)
+		if sum.Sessions == 0 {
+			fmt.Println("No persisted session usage records yet.")
+			return nil
+		}
+		fmt.Printf("cumulative (%d session(s)):\n", sum.Sessions)
+		fmt.Printf("  total input: %d (uncached %d · cache read %d · cache write %d) · %.1f%% hit\n",
+			sum.Total.TotalInput(), sum.Total.In, sum.Total.CacheRead, sum.Total.CacheWrite, sum.Total.CacheUtilization())
+		fmt.Printf("  output:      %d · cost: $%.2f\n", sum.Total.Out, sum.Total.USD)
+		if rows := sum.ProviderRows(); len(rows) > 0 {
+			fmt.Println("\nby provider:")
+			for _, r := range rows {
+				fmt.Printf("  %-12s total input %d (uncached %d · read %d · write %d) · %.1f%% hit · $%.2f\n",
+					r.Backend, r.TotalInput(), r.In, r.CacheRead, r.CacheWrite, r.CacheUtilization(), r.USD)
+			}
+		}
+		return nil
+	},
+}
+
 func init() {
 	sessionCmd.AddCommand(sessionListCmd, sessionShowCmd, sessionRecapCmd,
-		sessionRecentCmd, sessionSearchCmd, sessionCommitsCmd, sessionSidequestsCmd)
+		sessionRecentCmd, sessionSearchCmd, sessionCommitsCmd, sessionSidequestsCmd, sessionCacheCmd)
 	rootCmd.AddCommand(sessionCmd)
 }

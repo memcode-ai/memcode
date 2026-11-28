@@ -25,18 +25,24 @@ func TestStatusStripHiddenWhilePrompting(t *testing.T) {
 	}
 }
 
-// cacheHitRate is the footer/status cache-hit % — read/(input+read), div-by-zero-safe.
+// cacheHitRate is the footer/status cache-hit % — read/(input+read+write), div-by-zero-safe.
 func TestCacheHitRate(t *testing.T) {
-	cases := []struct{ in, read, want int }{
-		{0, 0, 0},      // nothing cached → 0, no divide-by-zero
-		{50, 0, 0},     // no cache reads → 0%
-		{1, 2421, 99},  // the live-probe shape: 2421 of 2422 cached
-		{0, 100, 100},  // fully cached
-		{100, 100, 50}, // half
+	cases := []struct {
+		in, read, write int
+		want            float64
+	}{
+		{0, 0, 0, 0},             // nothing cached → 0, no divide-by-zero
+		{50, 0, 0, 0},            // no cache reads → 0%
+		{100, 0, 10000, 0},       // Anthropic cold-cache write → 0%
+		{1, 2421, 0, 99.9587},    // Gemini/OpenAI warm cache
+		{12, 93571, 15693, 85.6}, // Anthropic warm cache with cache_write in denominator
+		{0, 100, 0, 100},         // fully cached
+		{100, 100, 0, 50},        // half
 	}
 	for _, c := range cases {
-		if got := cacheHitRate(c.in, c.read); got != c.want {
-			t.Errorf("cacheHitRate(in=%d, read=%d) = %d, want %d", c.in, c.read, got, c.want)
+		got := cacheHitRate(c.in, c.read, c.write)
+		if got < c.want-0.05 || got > c.want+0.05 {
+			t.Errorf("cacheHitRate(in=%d, read=%d, write=%d) = %.4f, want ~%.4f", c.in, c.read, c.write, got, c.want)
 		}
 	}
 }

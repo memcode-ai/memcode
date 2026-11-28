@@ -31,7 +31,7 @@ func (s *Session) Answer(ctx context.Context, scope, question string) (string, e
 	if _, _, err := s.runLoop(ctx, sys, &messages); err != nil {
 		return "", err
 	}
-	s.emit(ctx, events.KindAgentSessionFinished, map[string]any{
+	s.emitSessionFinished(ctx, map[string]any{
 		"explorer": true, "scope": scope, "tool_calls": s.metrics.toolCalls})
 	return s.lastText, nil
 }

@@ -1,9 +1,12 @@
 package ledger
 
 import (
+	"encoding/json"
+	"math"
 	"testing"
 
 	"github.com/memcode-ai/memcode/internal/llm"
+	"github.com/memcode-ai/memcode/internal/store"
 )
 
 // fakeReader is a test stand-in for *llm.Ledger. It returns hardcoded values so the
@@ -132,16 +135,16 @@ func TestCacheStats(t *testing.T) {
 	}
 }
 
-// TestTokens verifies the total token flow: input includes cache reads (total input
-// the model saw), output is straight from Total().
+// TestTokens verifies the total token flow: input includes uncached + cache
+// reads + cache writes (total input the model saw), output is straight from Total().
 func TestTokens(t *testing.T) {
 	r := &fakeReader{
 		total: llm.Stat{In: 8000, Out: 1500, CacheRead: 4000, CacheWrite: 1000},
 	}
 	in, out := Tokens(r)
-	// in = In + CacheRead (total tokens the model saw as input).
-	if in != 12000 {
-		t.Errorf("total in = %d, want 12000 (In 8000 + CacheRead 4000)", in)
+	// in = In + CacheRead + CacheWrite (total tokens the model saw as input).
+	if in != 13000 {
+		t.Errorf("total in = %d, want 13000 (In 8000 + CacheRead 4000 + CacheWrite 1000)", in)
 	}
 	if out != 1500 {
 		t.Errorf("total out = %d, want 1500", out)
@@ -156,5 +159,54 @@ func TestSpend(t *testing.T) {
 	in, out, cr, cw, usd := Spend(r)
 	if in != 100 || out != 50 || cr != 20 || cw != 10 || usd != 0.42 {
 		t.Errorf("Spend = (in=%d out=%d cr=%d cw=%d usd=%v), want (100, 50, 20, 10, 0.42)", in, out, cr, cw, usd)
+	}
+}
+
+func TestSummarizePersistedCache(t *testing.T) {
+	evs := []store.Event{
+		{
+			Kind:    "agent_session_started",
+			Payload: json.RawMessage(`{"session_id":"s1","model":"claude-sonnet-5-5"}`),
+		},
+		{
+			// Legacy event without by_backend: attributed to anthropic via session_started model.
+			Kind:    "agent_session_finished",
+			Payload: json.RawMessage(`{"session_id":"s1","input_tokens":12,"output_tokens":100,"cache_read_tokens":93571,"cache_write_tokens":15693,"est_cost_usd":0.18}`),
+		},
+		{
+			// New event with explicit by_backend (mixed gemini + openai).
+			Kind:    "agent_session_finished",
+			Payload: json.RawMessage(`{"session_id":"s2","input_tokens":1000,"output_tokens":200,"cache_read_tokens":9000,"cache_write_tokens":0,"est_cost_usd":0.05,"by_backend":{"gemini":{"calls":1,"in":500,"out":100,"cache_read":4500,"cache_write":0,"usd":0.02},"openai":{"calls":1,"in":500,"out":100,"cache_read":4500,"cache_write":0,"usd":0.03}}}`),
+		},
+		{
+			// Zero-token event must be ignored.
+			Kind:    "agent_session_finished",
+			Payload: json.RawMessage(`{"session_id":"s3","input_tokens":0,"output_tokens":0,"cache_read_tokens":0,"cache_write_tokens":0}`),
+		},
+	}
+
+	sum := SummarizePersistedCache(evs)
+	if sum.Sessions != 2 {
+		t.Fatalf("Sessions = %d, want 2", sum.Sessions)
+	}
+	wantTotalIn := 12 + 93571 + 15693 + 1000 + 9000
+	if got := sum.Total.TotalInput(); got != wantTotalIn {
+		t.Fatalf("TotalInput = %d, want %d", got, wantTotalIn)
+	}
+	wantHit := float64(93571+9000) * 100 / float64(wantTotalIn)
+	if math.Abs(sum.Total.CacheUtilization()-wantHit) > 1e-6 {
+		t.Fatalf("CacheUtilization = %.4f, want %.4f", sum.Total.CacheUtilization(), wantHit)
+	}
+	anth := sum.ByProvider["anthropic"]
+	if anth.TotalInput() != 109276 || math.Abs(anth.CacheUtilization()-85.6281) > 0.01 {
+		t.Fatalf("anthropic = %+v (hit=%.4f)", anth, anth.CacheUtilization())
+	}
+	gem := sum.ByProvider["gemini"]
+	if gem.TotalInput() != 5000 || math.Abs(gem.CacheUtilization()-90.0) > 1e-6 {
+		t.Fatalf("gemini = %+v (hit=%.4f)", gem, gem.CacheUtilization())
+	}
+	oai := sum.ByProvider["openai"]
+	if oai.TotalInput() != 5000 || math.Abs(oai.CacheUtilization()-90.0) > 1e-6 {
+		t.Fatalf("openai = %+v (hit=%.4f)", oai, oai.CacheUtilization())
 	}
 }

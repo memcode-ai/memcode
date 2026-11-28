@@ -126,9 +126,8 @@ func (s *appState) runSlash(line string) (quit bool) {
 		}
 		line := fmt.Sprintf("model %s · mode %s · branch %s · ↑%d/↓%d tokens",
 			provider.ShortModel(model), s.w.sess.Mode(), s.branch, in, out)
-		if cr, _ := s.w.sess.CacheStats(); cr > 0 {
-			uncachedIn, _, _, _, _ := s.w.sess.Spend()
-			line += fmt.Sprintf(" · %s %d%%", cacheGlyph, cacheHitRate(uncachedIn, cr))
+		if uncachedIn, _, cr, cw, _ := s.w.sess.Spend(); cr > 0 {
+			line += fmt.Sprintf(" · %s %.1f%%", cacheGlyph, cacheHitRate(uncachedIn, cr, cw))
 		}
 		if theme.Chosen() == "random" { // only when the roll is the ONE unknowable: name what it picked
 			line += " · theme " + theme.Active().Name + " (random roll)"
@@ -253,8 +252,8 @@ func (s *appState) runSlash(line string) (quit bool) {
 			lanes += fmt.Sprintf("\n  lane %s → %s models", label, ln.Vendor)
 		}
 		uncachedIn, _, _, _, _ := s.w.sess.Spend()
-		s.sysln(fmt.Sprintf("session %s\n  model %s (serving %s, backend %s)\n  pin %s\n  mode %s%s\n  ↑%d ↓%d tokens · cache %d read / %d write (%d%% hit)\n  context %d/%d (%d%%)\n  wire trace %s",
-			s.w.sess.SessionID(), model, serving, servedBy, pin, s.w.sess.Mode(), lanes, in, out, cr, cw, cacheHitRate(uncachedIn, cr), ctxTokens, win, pct, trace))
+		s.sysln(fmt.Sprintf("session %s\n  model %s (serving %s, backend %s)\n  pin %s\n  mode %s%s\n  ↑%d ↓%d tokens · cache %d read / %d write (%.1f%% hit)\n  context %d/%d (%d%%)\n  wire trace %s",
+			s.w.sess.SessionID(), model, serving, servedBy, pin, s.w.sess.Mode(), lanes, in, out, cr, cw, cacheHitRate(uncachedIn, cr, cw), ctxTokens, win, pct, trace))
 	default:
 		s.sysln("unknown command " + cmd + " — try /help")
 	}
@@ -287,7 +286,7 @@ func (s *appState) costDetail(byPurpose bool) string {
 	}
 	var b strings.Builder
 	b.WriteString("session spend (estimate):\n")
-	fmt.Fprintf(&b, "  ↑ input    %-8s  cache: %s read · %s write (%d%% hit)\n", fmtTokens(in), fmtTokens(cr), fmtTokens(cw), cacheHitRate(in, cr))
+	fmt.Fprintf(&b, "  ↑ input    %-8s  cache: %s read · %s write (%.1f%% hit)\n", fmtTokens(in), fmtTokens(cr), fmtTokens(cw), cacheHitRate(in, cr, cw))
 	fmt.Fprintf(&b, "  ↓ output   %-8s\n", fmtTokens(out))
 	if onSub {
 		fmt.Fprintf(&b, "  ~ cost     $0 · %s subscription (≈$%.2f API value)", provider.ServingLabel(ep.Name), usd)
@@ -307,7 +306,7 @@ func (s *appState) costDetail(byPurpose bool) string {
 	if byPurpose {
 		b.WriteString("\n\n  by purpose:\n")
 		for _, ps := range s.w.sess.SpendByPurpose() {
-			fmt.Fprintf(&b, "  %-9s %2d call  ↑%-7s ↓%-7s", ps.Purpose, ps.Calls, fmtTokens(ps.In+ps.CacheRead), fmtTokens(ps.Out))
+			fmt.Fprintf(&b, "  %-9s %2d call  ↑%-7s ↓%-7s", ps.Purpose, ps.Calls, fmtTokens(ps.TotalInput()), fmtTokens(ps.Out))
 			if showUSD {
 				fmt.Fprintf(&b, "  $%.2f", ps.USD)
 			}

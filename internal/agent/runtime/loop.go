@@ -321,7 +321,7 @@ func (s *Session) runLoop(ctx context.Context, sys promptSpec, messages *[]wire.
 		// is the current context fill, which the footer's "ctx N%" meter reads. Only
 		// set it here, not on classify/reflect calls (their tiny prompts would make the
 		// meter flicker).
-		s.recordServed(func(v *servedState) { v.ctxTokens = resp.InputTokens + resp.CacheReadTokens })
+		s.recordServed(func(v *servedState) { v.ctxTokens = resp.TotalInput() })
 		committedOut += resp.OutputTokens
 		if txt := strings.TrimSpace(resp.Text()); txt != "" {
 			s.lastText = txt
