@@ -1,7 +1,6 @@
 package vxui
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -55,16 +54,16 @@ func (s *appState) agentsSlash(args string) {
 			s.sysln("usage: /agents stop <id>")
 			return
 		}
-		s.runAsync(func(context.Context) string {
-			if err := jobs.Stop(s.w.sess.Root(), id); err != nil {
-				return "couldn't stop agent: " + err.Error()
-			}
-			s.rt.Dispatch(func() { s.refreshFooter() }) // count may drop
-			return "◆ stopped agent " + id
-		})
+		// Local job files only: no busy spinner, no network.
+		if err := jobs.Stop(s.w.sess.Root(), id); err != nil {
+			s.sysln("couldn't stop agent: " + err.Error())
+			return
+		}
+		s.refreshFooter() // count may drop
+		s.sysln("◆ stopped agent " + id)
 		return
 	}
-	s.runAsync(func(context.Context) string {
+	s.sysln(func() string {
 		list, err := jobs.List(s.w.sess.Root())
 		if err != nil {
 			return "couldn't list agents: " + err.Error()
@@ -90,7 +89,7 @@ func (s *appState) agentsSlash(args string) {
 		}
 		b.WriteString("\n  follow logs with `memcode jobs logs <id>`")
 		return strings.TrimRight(b.String(), "\n")
-	})
+	}())
 }
 
 // agentCount returns the number of currently-running dispatched agents (for the

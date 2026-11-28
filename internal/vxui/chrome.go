@@ -36,6 +36,13 @@ func (s *appState) modalUp() bool {
 func (s *appState) statusRow() ui.Widget {
 	if s.busy() {
 		frame := string(spinFrames[s.spin%len(spinFrames)])
+		if s.busyOwner == runtime.OwnerAsync && s.asyncLabel != "" {
+			// Not model work: name it, and leave out tokens and effort.
+			return ui.RichText{Spans: []ui.TextSpan{
+				{Text: frame + " " + s.asyncLabel + "… ", Style: s.sty.brand},
+				{Text: fmt.Sprintf("(%s · esc to cancel)", s.turnElapsed().Round(time.Second)), Style: s.sty.muted},
+			}}
+		}
 		meta := fmt.Sprintf("(%s", s.turnElapsed().Round(time.Second)) // LLM time, NOT time spent waiting on a HITL card
 		// Per-turn tokens: the delta since this turn began (the footer carries the session total).
 		if in, out := s.w.sess.Tokens(); in-s.turnIn0 > 0 || out-s.turnOut0 > 0 {
@@ -66,7 +73,7 @@ func (s *appState) statusRow() ui.Widget {
 // clipped to one row under the status line. nil when idle or when the serving
 // vendor streams no summary.
 func (s *appState) reasoningRow() ui.Widget {
-	if !s.busy() {
+	if !s.busy() || (s.busyOwner == runtime.OwnerAsync && s.asyncLabel != "") {
 		return nil
 	}
 	line := s.w.sess.ReasoningSnippet()

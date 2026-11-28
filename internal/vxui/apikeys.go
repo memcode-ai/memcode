@@ -54,7 +54,7 @@ func providerDisplay(id string) string {
 
 // apikeysSlash opens the picker (async roster fetch first).
 func (s *appState) apikeysSlash() {
-	s.runAsync(func(ctx context.Context) string {
+	s.runAsyncAs("loading key settings", func(ctx context.Context) string {
 		list, err := provider.ByokList(ctx)
 		if err != nil {
 			return "✗ couldn't load key settings: " + err.Error()
@@ -121,7 +121,7 @@ func (s *appState) handleApikeysKey(key vaxis.Key) ui.EventResult {
 			// Never let the key surface anywhere downstream.
 			s.w.sess.AddRedactSecrets(keyVal)
 			prov := row.provider
-			s.runAsync(func(ctx context.Context) string {
+			s.runAsyncAs("saving key", func(ctx context.Context) string {
 				res, err := provider.ByokPut(ctx, prov, keyVal)
 				if err != nil {
 					return "✗ " + providerDisplay(prov) + ": " + err.Error()
@@ -165,7 +165,7 @@ func (s *appState) handleApikeysKey(key vaxis.Key) ui.EventResult {
 				s.apikeysConfirmDel = false
 				s.apikeysPicking = false
 			})
-			s.runAsync(func(ctx context.Context) string {
+			s.runAsyncAs("removing key", func(ctx context.Context) string {
 				if err := provider.ByokDelete(ctx, prov); err != nil {
 					return "✗ " + providerDisplay(prov) + ": " + err.Error()
 				}
@@ -203,7 +203,7 @@ func (s *appState) handleApikeysKey(key vaxis.Key) ui.EventResult {
 		if row.tail != "" {
 			prov := row.provider
 			s.SetState(func() { s.apikeysPicking = false })
-			s.runAsync(func(ctx context.Context) string {
+			s.runAsyncAs("checking key", func(ctx context.Context) string {
 				ok, msg, err := provider.ByokValidate(ctx, prov)
 				if err != nil {
 					return "✗ " + providerDisplay(prov) + ": " + err.Error()

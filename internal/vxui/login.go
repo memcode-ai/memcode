@@ -27,7 +27,7 @@ func (s *appState) loginSlash() {
 		s.sysln("already signed in — gateway " + provider.APIURL())
 		return
 	}
-	s.runAsync(func(ctx context.Context) string {
+	s.runAsyncAs("signing in", func(ctx context.Context) string {
 		res, err := authflow.Run(ctx, func(msg string) {
 			s.rt.Dispatch(func() { s.sysln("  " + msg) })
 		})

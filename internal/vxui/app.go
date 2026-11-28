@@ -209,6 +209,7 @@ type appState struct {
 	turnOut0    int
 	spin        int
 	queued      []string
+	asyncLabel  string             // what a non-model runAsyncAs op is doing ("signing in"); "" while the model is working
 	asyncCancel context.CancelFunc // cancels the in-flight runAsync op (Ctrl+C during /compact//models/advisor)
 
 	// footer cockpit (refreshed off the render path)
@@ -1768,14 +1769,26 @@ func (s *appState) startSpinner() {
 // receives a CANCELABLE context so Ctrl+C can interrupt the op (see HandleEvent) — without it a
 // hung /compact or /models against a dead gateway left the user with no working interrupt.
 func (s *appState) runAsync(fn func(context.Context) string) {
+	s.runAsyncAs("", fn)
+}
+
+// runAsyncAs is runAsync for work that is NOT a model call (a network fetch, the
+// sign-in flow): the status line names the work ("⠋ signing in…") instead of
+// "Thinking…", with no effort level or reasoning line, so a plain request never
+// looks like the model thinking. label "" means model work.
+func (s *appState) runAsyncAs(label string, fn func(context.Context) string) {
 	if s.busy() {
 		s.sysln("busy — wait for the current task to finish")
 		return
 	}
 	actx, cancel := context.WithCancel(s.w.ctx)
 	in0, out0 := s.w.sess.Tokens()
+	if label == "" {
+		s.w.sess.ClearReasoning() // the last turn's thought must not reappear under this op
+	}
 	s.SetState(func() {
 		s.setBusy(runtime.OwnerAsync)
+		s.asyncLabel = label
 		s.asyncCancel = cancel
 		s.turnStart = time.Now()
 		s.hitlWait, s.hitlWaitAt = 0, time.Time{} // fresh clock; exclude HITL waits this turn
@@ -1791,6 +1804,7 @@ func (s *appState) runAsync(fn func(context.Context) string) {
 			s.flushAppend()
 			s.SetState(func() {
 				s.setBusy(runtime.OwnerNone)
+				s.asyncLabel = ""
 				s.asyncCancel = nil
 			})
 			s.refreshFooter()

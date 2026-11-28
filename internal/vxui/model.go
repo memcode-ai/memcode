@@ -42,22 +42,65 @@ func (s *appState) modelSlash(args string) {
 		s.applyModelChoice(arg, "", 0)
 		return
 	}
-	// No arg → open the picker. Fetch the pinnable list from the gateway (async,
-	// bounded), then open the modal on the UI thread.
+	s.openPinPicker("")
+}
+
+// openPinPicker opens the hosted model picker at once from the cached list
+// (the boot fetch fills it; the embedded catalog stands in before that), then
+// refreshes from the gateway behind the open picker. Opening a menu is not a
+// network round trip, and it never shows the busy "Thinking…" line.
+func (s *appState) openPinPicker(purpose string) {
 	cur := s.w.sess.Pin()
-	s.runAsync(func(ctx context.Context) string {
-		pins := provider.AvailablePins(ctx)
-		entries := make([]modelEntry, 0, len(pins))
-		for _, p := range pins {
-			name := p.Name
-			if name == "" {
-				name = p.Label
+	s.SetState(func() { s.modelPickPurpose = purpose })
+	s.openModelPicker(pinEntries(provider.CachedPins()), cur)
+	go func() {
+		ctx, cancel := context.WithTimeout(s.w.ctx, 10*time.Second)
+		defer cancel()
+		fresh := pinEntries(provider.AvailablePins(ctx))
+		s.rt.Dispatch(func() {
+			if !s.modelPicking || s.modelTyping || s.modelPickPurpose != purpose || sameEntries(fresh, s.modelEntries) {
+				return
 			}
-			entries = append(entries, modelEntry{label: p.Label, name: name, desc: p.Desc, window: p.Window, byok: p.Byok})
+			s.SetState(func() {
+				// Keep the highlighted row on the same model when the list changes.
+				label := ""
+				if s.modelSel < len(s.modelEntries) {
+					label = s.modelEntries[s.modelSel].label
+				}
+				s.modelEntries, s.modelSel = fresh, 0
+				for i, e := range fresh {
+					if e.label == label {
+						s.modelSel = i
+					}
+				}
+			})
+		})
+	}()
+}
+
+// pinEntries turns the gateway's pinnable models into picker rows.
+func pinEntries(pins []provider.PinnableModel) []modelEntry {
+	entries := make([]modelEntry, 0, len(pins))
+	for _, p := range pins {
+		name := p.Name
+		if name == "" {
+			name = p.Label
 		}
-		s.openModelPicker(entries, cur)
-		return "" // the picker is the output; nothing to print
-	})
+		entries = append(entries, modelEntry{label: p.Label, name: name, desc: p.Desc, window: p.Window, byok: p.Byok})
+	}
+	return entries
+}
+
+func sameEntries(a, b []modelEntry) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // endpointModelSlash is /model against a custom endpoint. There is no
@@ -77,7 +120,7 @@ func (s *appState) endpointModelSlash(ep provider.Endpoint, arg string) {
 		return
 	}
 	cur := s.w.sess.Pin()
-	s.runAsync(func(ctx context.Context) string {
+	s.runAsyncAs("loading models", func(ctx context.Context) string {
 		ids := ep.Models // the user's curated list is authoritative when present
 		if len(ids) == 0 {
 			ids = provider.EndpointModels(ctx, ep)
@@ -312,21 +355,7 @@ func (s *appState) applyPickedModel(label, display string, window int) {
 // pinning — currently only "review". The rows are identical; only what the
 // selection means differs.
 func (s *appState) openModelPickerFor(purpose string) {
-	cur := s.w.sess.Pin()
-	s.SetState(func() { s.modelPickPurpose = purpose })
-	s.runAsync(func(ctx context.Context) string {
-		pins := provider.AvailablePins(ctx)
-		entries := make([]modelEntry, 0, len(pins))
-		for _, p := range pins {
-			name := p.Name
-			if name == "" {
-				name = p.Label
-			}
-			entries = append(entries, modelEntry{label: p.Label, name: name, desc: p.Desc, window: p.Window, byok: p.Byok})
-		}
-		s.openModelPicker(entries, cur)
-		return ""
-	})
+	s.openPinPicker(purpose)
 }
 
 // modelPickerView renders the flat model picker: Automatic first (hosted),

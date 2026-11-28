@@ -114,6 +114,10 @@ func (s *Session) endCall() {
 	s.inflightIn, s.inflightOut = 0, 0
 }
 
+// ClearReasoning empties the reasoning line before a UI-started model op
+// (/compact, /advisor, …), the same way a user turn does.
+func (s *Session) ClearReasoning() { s.clearReasoning() }
+
 // clearReasoning empties the reasoning line at the start of a user turn, so the
 // last turn's summary never shows on the next one.
 func (s *Session) clearReasoning() {
