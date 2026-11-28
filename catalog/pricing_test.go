@@ -24,9 +24,12 @@ func TestModelPricingRealIDs(t *testing.T) {
 		{"gpt-5.6-luna", 0.1, 0.5},          // alias -> GPT-6 Luna
 		{"gpt-6-astra", 8, 40},              // alias -> GPT-6.2 Astra
 		{"gemini-4-carbon", 4, 20},          // standing card from 2026-12-01
+		{"gemini-4-argon", 4, 20},           // fast frontier reasoning
+		{"gemini-4-neon", 3, 15},            // fast end-to-end frontier
 		{"gemini-3.1-pro-preview", 4, 20},   // alias -> Gemini 4 Carbon
 		{"gemini-4-hydrogen", 1.5, 7.5},     // the Gemini everyday model
-		{"gemini-3.8-flash", 1.5, 7.5},      // alias -> Gemini 4 Hydrogen
+		{"gemini-3.8-flash", 1.5, 7.5},      // standalone standing card
+		{"gemini-3.6-flash", 1.5, 7.5},      // alias -> Gemini 4 Hydrogen
 		{"gemini-3.5-flash-lite", 0.3, 2.5}, // was billed 6x high → 1.5/9
 		{"grok-4.7", 2, 6},
 		{"grok-4.6", 2, 6},                                // alias -> 4.7, same card
@@ -327,7 +330,7 @@ func TestRetiredModelAliases(t *testing.T) {
 		{"claude-haiku-4-5-20251001", "claude-haiku-5-5"},
 		{"claude-haiku-4-5", "claude-haiku-5-5"},
 		{"gemini-3.1-pro-preview", "gemini-4-carbon"},
-		{"gemini-3.8-flash", "gemini-4-hydrogen"},
+		{"gemini-3.6-flash", "gemini-4-hydrogen"},
 		{"gpt-6-sol", "gpt-6.2-sol"},
 		{"gpt-5.6-sol", "gpt-6.2-sol"},
 		{"gpt-5.6-terra", "gpt-6.1-terra"},
