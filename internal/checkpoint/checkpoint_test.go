@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/memcode-ai/memcode/internal/statedir"
 )
 
 func write(t *testing.T, root, rel, content string) {
@@ -97,9 +99,9 @@ func TestEmptyTurnWritesNothing(t *testing.T) {
 	if got := l.List(); len(got) != 0 {
 		t.Fatalf("empty turn must not appear: %+v", got)
 	}
-	if _, err := os.Stat(filepath.Join(root, ".memcode", "checkpoints", "s")); err == nil {
+	if _, err := os.Stat(filepath.Join(statedir.For(root), "checkpoints", "s")); err == nil {
 		// The dir may exist only if something was written — an empty Begin must not create it.
-		entries, _ := os.ReadDir(filepath.Join(root, ".memcode", "checkpoints", "s"))
+		entries, _ := os.ReadDir(filepath.Join(statedir.For(root), "checkpoints", "s"))
 		if len(entries) != 0 {
 			t.Fatalf("empty turn left files: %v", entries)
 		}

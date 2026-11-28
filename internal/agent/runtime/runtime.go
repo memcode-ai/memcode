@@ -914,7 +914,7 @@ func (s *Session) rememberApproval(ctx context.Context, command string, trusted 
 		return
 	}
 	s.approvals = s.loadApprovals(ctx)
-	s.printf("  ✓ won't ask again for %s (saved to .memcode/permissions)\n", pat)
+	s.printf("  ✓ won't ask again for %s\n", pat)
 }
 
 // firstWord returns a command's binary — its leading token, SKIPPING leading inline

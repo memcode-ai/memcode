@@ -18,6 +18,7 @@ import (
 	gwstate "github.com/memcode-ai/memcode/internal/gateway/state"
 	"github.com/memcode-ai/memcode/internal/llm"
 	"github.com/memcode-ai/memcode/internal/provider"
+	"github.com/memcode-ai/memcode/internal/statedir"
 	"github.com/memcode-ai/memcode/internal/store"
 	"github.com/memcode-ai/memcode/internal/vxui"
 )
@@ -49,13 +50,9 @@ credentials stays in ` + "`memcode gateway setup`" + `.`,
 }
 
 func runAdmin(ctx context.Context) error {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return err
-	}
 	// The admin session's working root is the memcode home (agent homes,
 	// user-global memory) — never the current repo.
-	root := filepath.Join(home, ".memcode")
+	root := statedir.Home()
 	if err := os.MkdirAll(root, 0o700); err != nil {
 		return err
 	}

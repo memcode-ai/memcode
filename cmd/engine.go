@@ -16,6 +16,7 @@ import (
 	"github.com/memcode-ai/memcode/internal/llm"
 	"github.com/memcode-ai/memcode/internal/provider"
 	"github.com/memcode-ai/memcode/internal/sources"
+	"github.com/memcode-ai/memcode/internal/statedir"
 	"github.com/memcode-ai/memcode/internal/store"
 	"github.com/memcode-ai/memcode/internal/structure"
 )
@@ -27,7 +28,7 @@ const indexHeadScope, indexHeadLayer = "repo", "index_head"
 
 // storePath returns the SQLite path for a project rooted at root.
 func storePath(root string) string {
-	return filepath.Join(root, config.DirName, "state.db")
+	return filepath.Join(statedir.For(root), "state.db")
 }
 
 // openProject locates the project root, loads its config and opens the state
@@ -107,8 +108,8 @@ func ensureInitialized(ctx context.Context) (*config.Config, error) {
 	}
 	defer st.Close()
 
-	// Notices go to stderr so they never pollute machine-readable (--json) stdout.
-	fmt.Fprintf(os.Stderr, "● first run here — setting up memcode for %s …\n", root)
+	// First-run setup is silent: it is memcode's own bookkeeping, nothing the user
+	// has to know about or act on. Only failures speak (stderr, never stdout).
 	res, err := structure.Scan(ctx, st, root)
 	if err != nil {
 		return nil, err
@@ -120,9 +121,6 @@ func ensureInitialized(ctx context.Context) (*config.Config, error) {
 	_, _ = events.Append(ctx, st, events.KindNote, "init", map[string]any{
 		"subsystems": len(res.Subsystems), "sources": len(srcs), "auto": true})
 	recordIndexHead(ctx, st, currentHead(ctx, root)) // baseline so we don't immediately re-scan
-	fmt.Fprintf(os.Stderr, "  ✓ %d subsystem(s), %d doc source(s) · state at %s\n",
-		len(res.Subsystems), len(srcs), storePath(root))
-	fmt.Fprintln(os.Stderr, "  (run `memcode learn` later to adjudicate doctrine claims)")
 
 	return config.Load(".")
 }

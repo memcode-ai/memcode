@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/memcode-ai/memcode/internal/events"
+	"github.com/memcode-ai/memcode/internal/statedir"
 	"github.com/memcode-ai/memcode/internal/store"
 )
 
@@ -92,7 +93,7 @@ func TestUnprocessedOutcomes(t *testing.T) {
 // since the session ran.
 func TestRuleLines(t *testing.T) {
 	s, _ := outcomesSession(t)
-	prefDir := filepath.Join(s.root, ".memcode", "prefs")
+	prefDir := filepath.Join(statedir.For(s.root), "prefs")
 	if err := os.MkdirAll(prefDir, 0o755); err != nil {
 		t.Fatal(err)
 	}

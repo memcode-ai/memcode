@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	"github.com/memcode-ai/memcode/internal/provider"
+	"github.com/memcode-ai/memcode/internal/statedir"
 	"github.com/memcode-ai/memcode/internal/websites"
 )
 
@@ -238,7 +239,7 @@ func TestResolveDevWorkspace_ExplicitDirStaysOutOfGitAndBundle(t *testing.T) {
 	clonedElsewhere := filepath.Join(t.TempDir(), "clone")
 	runGitT(t, "", "clone", "-q", bundlePath, clonedElsewhere)
 
-	if _, err := os.Stat(filepath.Join(clonedElsewhere, ".memcode")); !os.IsNotExist(err) {
+	if _, err := os.Stat(statedir.For(clonedElsewhere)); !os.IsNotExist(err) {
 		t.Fatalf(".memcode leaked into the push bundle: stat err=%v", err)
 	}
 }

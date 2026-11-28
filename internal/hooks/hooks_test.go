@@ -9,15 +9,20 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/memcode-ai/memcode/internal/statedir"
 )
 
 func writeHooks(t *testing.T, dir string, cfg string) string {
 	t.Helper()
 	root := filepath.Join(dir, "project")
-	if err := os.MkdirAll(filepath.Join(root, ".memcode"), 0o755); err != nil {
+	if err := os.MkdirAll(root, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, ".memcode", "hooks.json"), []byte(cfg), 0o644); err != nil {
+	if err := os.MkdirAll(statedir.For(root), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(statedir.For(root), "hooks.json"), []byte(cfg), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	return root

@@ -14,6 +14,7 @@ import (
 	"github.com/memcode-ai/memcode/internal/events"
 	"github.com/memcode-ai/memcode/internal/prefs"
 	"github.com/memcode-ai/memcode/internal/sessionlog"
+	"github.com/memcode-ai/memcode/internal/statedir"
 	"github.com/memcode-ai/memcode/internal/store"
 )
 
@@ -223,7 +224,7 @@ func mustJSON(v any) []byte {
 // Returns the absolute path so the caller can persist it via
 // UpdatePreferenceCandidateStatus.
 func (s *Session) writeConfirmedPref(ctx context.Context, c prefs.Candidate) (string, error) {
-	dir := filepath.Join(s.root, ".memcode", "prefs")
+	dir := filepath.Join(statedir.For(s.root), "prefs")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", fmt.Errorf("create prefs dir: %w", err)
 	}
@@ -295,7 +296,7 @@ func (s *Session) inlinePrefs(ctx context.Context) string {
 // surfaced — recorded as context_inlined so the adherence judge only scores
 // rules the model really saw.
 func (s *Session) inlinePrefsTop(ctx context.Context) (string, []string) {
-	dir := filepath.Join(s.root, ".memcode", "prefs")
+	dir := filepath.Join(statedir.For(s.root), "prefs")
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return "", nil // no prefs dir yet — normal

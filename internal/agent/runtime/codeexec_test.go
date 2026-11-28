@@ -17,6 +17,7 @@ import (
 	"github.com/memcode-ai/memcode/internal/agent/permissions"
 	"github.com/memcode-ai/memcode/internal/agent/plan"
 	"github.com/memcode-ai/memcode/internal/sandbox"
+	"github.com/memcode-ai/memcode/internal/statedir"
 	"github.com/memcode-ai/memcode/internal/store"
 )
 
@@ -177,7 +178,7 @@ func TestCodeExecPersistentWorkspace(t *testing.T) {
 	if tr.isError {
 		t.Fatalf("first run failed: %s", tr.text())
 	}
-	if _, err := os.Stat(filepath.Join(s.root, ".memcode", "codeexec", "stash.txt")); err != nil {
+	if _, err := os.Stat(filepath.Join(statedir.For(s.root), "codeexec", "stash.txt")); err != nil {
 		t.Fatalf("workspace file not persisted: %v", err)
 	}
 	tr = s.codeExec(context.Background(), codeExecInput(t, map[string]any{
@@ -350,7 +351,7 @@ func TestCodeExecSaveSkill(t *testing.T) {
 	if !strings.Contains(tr.text(), "saved as skill `count-needles`") {
 		t.Errorf("result should note the save, got: %s", tr.text())
 	}
-	body, err := os.ReadFile(filepath.Join(s.root, ".memcode", "skills", "count-needles", "SKILL.md"))
+	body, err := os.ReadFile(filepath.Join(statedir.For(s.root), "skills", "count-needles", "SKILL.md"))
 	if err != nil {
 		t.Fatalf("SKILL.md not written: %v", err)
 	}
@@ -376,7 +377,7 @@ func TestCodeExecSaveSkillRejectsBadSlug(t *testing.T) {
 	if !strings.Contains(tr.text(), "lowercase-hyphen") {
 		t.Errorf("expected slug rejection note, got: %s", tr.text())
 	}
-	if _, err := os.Stat(filepath.Join(s.root, ".memcode", "skills", "Bad_Name")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(statedir.For(s.root), "skills", "Bad_Name")); !os.IsNotExist(err) {
 		t.Error("bad-slug skill dir must not be created")
 	}
 }

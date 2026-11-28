@@ -20,15 +20,13 @@ package websites
 import (
 	"os"
 	"path/filepath"
+
+	"github.com/memcode-ai/memcode/internal/statedir"
 )
 
 // ManagedDir returns ~/.memcode/websites/<site_id>, creating no directories.
 func ManagedDir(siteID string) (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(home, ".memcode", "websites", siteID), nil
+	return filepath.Join(statedir.Home(), "websites", siteID), nil
 }
 
 // Workspace is the resolved {source, assets, runtime} layout `dev` works
@@ -66,7 +64,7 @@ func ManagedWorkspace(siteID string) (Workspace, error) {
 // for) the workspace rooted at an existing checkout dir. Callers MUST call
 // config.EnsureGitignore(dir) first — see the package doc comment.
 func ExplicitWorkspace(dir string) (Workspace, error) {
-	base := filepath.Join(dir, ".memcode")
+	base := statedir.For(dir)
 	ws := Workspace{
 		Root:       dir,
 		Managed:    false,

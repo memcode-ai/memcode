@@ -12,6 +12,7 @@ import (
 	"github.com/memcode-ai/memcode/internal/agent/tools"
 	"github.com/memcode-ai/memcode/internal/artifacts"
 	"github.com/memcode-ai/memcode/internal/provider"
+	"github.com/memcode-ai/memcode/internal/statedir"
 )
 
 // artifactTool publishes/updates/lists/deletes agent-built HTML pages hosted at
@@ -162,7 +163,7 @@ func (s *Session) gateArtifact(ctx context.Context, verb, title, path string, si
 // artifactApprovalsPath remembers the repo-scoped "don't ask again" for artifact
 // publishing — same shape as skill-approvals (one marker line).
 func artifactApprovalsPath(root string) string {
-	return filepath.Join(root, ".memcode", "artifact-approvals")
+	return filepath.Join(statedir.For(root), "artifact-approvals")
 }
 
 // loadArtifactApproval reports whether this repo already approved artifact publishing.

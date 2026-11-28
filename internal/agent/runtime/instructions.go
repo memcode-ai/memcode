@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/memcode-ai/memcode/internal/statedir"
 )
 
 // memcodeMdName is memcode's project/user instruction file — the equivalent of CLAUDE.md.
@@ -35,7 +37,7 @@ func loadInstructions(root, home string) string {
 	}
 	if home != "" {
 		addFirst(
-			[2]string{filepath.Join(home, ".memcode", memcodeMdName), "User instructions (~/.memcode/" + memcodeMdName + ")"},
+			[2]string{filepath.Join(home, statedir.LegacyName, memcodeMdName), "User instructions (~/.memcode/" + memcodeMdName + ")"},
 			[2]string{filepath.Join(home, ".claude", claudeMdName), "User instructions (~/.claude/" + claudeMdName + ")"},
 		)
 	}
@@ -80,9 +82,9 @@ func loadMemory(root, home string) string {
 		}
 	}
 	if home != "" {
-		add(filepath.Join(home, ".memcode", memoryMdName), "Global memory (~/.memcode/"+memoryMdName+")")
+		add(filepath.Join(home, statedir.LegacyName, memoryMdName), "Global memory (~/.memcode/"+memoryMdName+")")
 	}
-	add(filepath.Join(root, ".memcode", memoryMdName), "Project memory (./.memcode/"+memoryMdName+")")
+	add(filepath.Join(statedir.For(root), memoryMdName), "Project memory ("+memoryMdName+")")
 	if len(parts) == 0 {
 		return ""
 	}

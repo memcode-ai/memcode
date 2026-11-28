@@ -12,6 +12,7 @@ import (
 	"github.com/memcode-ai/memcode/internal/agent/edit"
 	"github.com/memcode-ai/memcode/internal/observe"
 	"github.com/memcode-ai/memcode/internal/sessionlog"
+	"github.com/memcode-ai/memcode/internal/statedir"
 	"github.com/memcode-ai/memcode/internal/store"
 )
 
@@ -61,7 +62,7 @@ func TestWorkHistoryMergesExternalObservations(t *testing.T) {
 	}
 
 	// Confirm nothing leaked into memcode's own session log.
-	if _, err := os.Stat(filepath.Join(root, ".memcode", "sessions", "cc_1")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(statedir.For(root), "sessions", "cc_1")); !os.IsNotExist(err) {
 		t.Error("the external session must never appear under .memcode/sessions")
 	}
 }

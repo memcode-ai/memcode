@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/memcode-ai/memcode/internal/statedir"
 )
 
 // TestSpillReportOverThreshold: an oversized sub-agent report is written whole
@@ -25,7 +27,7 @@ func TestSpillReportOverThreshold(t *testing.T) {
 		t.Fatalf("digest must carry a read_file pointer to the full report: %q", tail(got, 200))
 	}
 	// The full text is on disk, byte for byte.
-	path := filepath.Join(root, ".memcode", "sessions", "sess_spill", "reports", "001-explore-api.md")
+	path := filepath.Join(statedir.For(root), "sessions", "sess_spill", "reports", "001-explore-api.md")
 	b, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("full report not persisted: %v", err)
@@ -35,7 +37,7 @@ func TestSpillReportOverThreshold(t *testing.T) {
 	}
 	// A second spill gets its own sequence number.
 	_ = s.spillReport("agent-fast", long)
-	if _, err := os.Stat(filepath.Join(root, ".memcode", "sessions", "sess_spill", "reports", "002-agent-fast.md")); err != nil {
+	if _, err := os.Stat(filepath.Join(statedir.For(root), "sessions", "sess_spill", "reports", "002-agent-fast.md")); err != nil {
 		t.Fatalf("second report not sequenced: %v", err)
 	}
 }

@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/memcode-ai/memcode/internal/atomicfile"
+	"github.com/memcode-ai/memcode/internal/statedir"
 	"github.com/memcode-ai/memcode/internal/wire"
 )
 
@@ -52,7 +53,7 @@ type Suspension struct {
 
 // SessionDir is where an interactive session's continuations live.
 func SessionDir(root, sessionID string) string {
-	return filepath.Join(root, ".memcode", "sessions", sessionID, "continuations")
+	return filepath.Join(statedir.For(root), "sessions", sessionID, "continuations")
 }
 
 func path(dir, interactionID string) string {

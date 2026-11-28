@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/memcode-ai/memcode/internal/sources"
+	"github.com/memcode-ai/memcode/internal/statedir"
 	"github.com/memcode-ai/memcode/internal/store"
 )
 
@@ -162,7 +163,7 @@ func Corpus(ctx context.Context, st store.Store, root string) ([]Chunk, error) {
 	// The long-term memory the user actually taught the agent must be
 	// recallable ("what are my preferences about X?"), not only inlined.
 	for _, sub := range []string{"prefs", "lessons"} {
-		dir := filepath.Join(root, ".memcode", sub)
+		dir := filepath.Join(statedir.For(root), sub)
 		entries, err := os.ReadDir(dir)
 		if err != nil {
 			continue // dir absent — normal

@@ -24,6 +24,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/memcode-ai/memcode/internal/statedir"
 )
 
 // LocalSite is a site with a managed working copy on this machine.
@@ -64,11 +66,7 @@ func (l LocalSite) Label() string {
 }
 
 func managedBase() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(home, ".memcode", "websites"), nil
+	return filepath.Join(statedir.Home(), "websites"), nil
 }
 
 // ListLocal returns every site with a managed working copy.
@@ -180,9 +178,6 @@ func (c *Client) InitLocal(ctx context.Context, name string) (LocalSite, error) 
 	if err := removeKitHistory(ws.SourceDir); err != nil {
 		return LocalSite{}, err
 	}
-	if err := ensureIgnored(ws.SourceDir, ".memcode/"); err != nil {
-		return LocalSite{}, err
-	}
 	m := Meta{LocalID: id, Name: name}
 	if err := writeMeta(ws.SourceDir, m); err != nil {
 		return LocalSite{}, err
@@ -242,28 +237,6 @@ func isManaged(dir string) bool {
 		return false
 	}
 	return strings.HasPrefix(abs, base+string(os.PathSeparator))
-}
-
-// ensureIgnored adds a line to dir/.gitignore unless already present.
-func ensureIgnored(dir, line string) error {
-	p := filepath.Join(dir, ".gitignore")
-	raw, _ := os.ReadFile(p)
-	for _, l := range strings.Split(string(raw), "\n") {
-		if strings.TrimSpace(l) == line {
-			return nil
-		}
-	}
-	prefix := ""
-	if len(raw) > 0 && !strings.HasSuffix(string(raw), "\n") {
-		prefix = "\n"
-	}
-	f, err := os.OpenFile(p, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	_, err = f.WriteString(prefix + line + "\n")
-	return err
 }
 
 // extractTarGz unpacks a .tar.gz into dir. Only regular files and

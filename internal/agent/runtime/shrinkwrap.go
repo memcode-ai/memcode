@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/memcode-ai/memcode/internal/llm"
+	"github.com/memcode-ai/memcode/internal/statedir"
 	"github.com/memcode-ai/memcode/internal/wire"
 )
 
@@ -56,7 +57,7 @@ func instructionTier(n int) tier {
 // never touched or renamed; only this derived artifact carries the hash.
 func shrinkwrapCachePath(root, raw string) string {
 	sum := sha256.Sum256([]byte(raw))
-	return filepath.Join(root, ".memcode", "instructions", "MEMCODE."+hex.EncodeToString(sum[:])[:16]+".md")
+	return filepath.Join(statedir.For(root), "instructions", "MEMCODE."+hex.EncodeToString(sum[:])[:16]+".md")
 }
 
 // shrinkwrap returns a compressed form of large instruction text, cached on disk by the
@@ -76,7 +77,7 @@ func (s *Session) shrinkwrap(ctx context.Context, raw string) string {
 	}
 	_ = os.MkdirAll(filepath.Dir(cachePath), 0o755)
 	_ = os.WriteFile(cachePath, []byte(compressed), 0o644)
-	s.printf("  ⊙ shrinkwrapped %s (%d KB → %d KB; cached under .memcode/instructions).\n",
+	s.printf("  ⊙ shrinkwrapped %s (%d KB → %d KB).\n",
 		memcodeMdName, len(raw)/1024, len(compressed)/1024)
 	return compressed
 }

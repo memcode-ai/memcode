@@ -50,8 +50,8 @@ import (
 	"time"
 
 	"github.com/memcode-ai/memcode/internal/agent/focus"
-	"github.com/memcode-ai/memcode/internal/config"
 	"github.com/memcode-ai/memcode/internal/sessionlog"
+	"github.com/memcode-ai/memcode/internal/statedir"
 )
 
 // maxText bounds a Record's Text at WRITE time — belt-and-suspenders with
@@ -124,7 +124,7 @@ type Writer struct {
 }
 
 func observeDir(root string) string {
-	return filepath.Join(root, config.DirName, "observe")
+	return filepath.Join(statedir.For(root), "observe")
 }
 
 // Open creates (or reopens, append-only) the on-disk log for one external

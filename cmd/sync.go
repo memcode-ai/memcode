@@ -14,7 +14,7 @@ var syncCmd = &cobra.Command{
 	Use:   "sync",
 	Short: "Write project memory to AI-editor context files (CLAUDE.md, Copilot, Cursor, Windsurf)",
 	Long: `Refreshes the AI-editor context files you selected with /sync, using a freshly
-synthesized project overview. Targets are remembered in .memcode/config.json.
+synthesized project overview. Targets are remembered per project.
 
 This is the command the post-commit hook runs (` + "`memcode sync --auto`" + `), so the
 files stay current as the project moves. Run it by hand any time to refresh now.

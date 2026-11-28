@@ -59,6 +59,7 @@ import (
 	"github.com/memcode-ai/memcode/internal/agent/tools"
 	"github.com/memcode-ai/memcode/internal/atomicfile"
 	"github.com/memcode-ai/memcode/internal/sandbox"
+	"github.com/memcode-ai/memcode/internal/statedir"
 	"github.com/memcode-ai/memcode/internal/textutil"
 )
 
@@ -252,7 +253,7 @@ func (s *Session) runBridgedScript(ctx context.Context, python, script string) b
 	// canonical code-execution pattern: cache intermediates across runs —
 	// .memcode is gitignored, so nothing dirties the tree). Bridge tool paths
 	// are unaffected: handlers resolve those against the repo root.
-	cmd.Dir = filepath.Join(s.root, ".memcode", "codeexec")
+	cmd.Dir = filepath.Join(statedir.For(s.root), "codeexec")
 	if err := os.MkdirAll(cmd.Dir, 0o755); err != nil {
 		cmd.Dir = s.root
 	}
@@ -480,7 +481,7 @@ func (s *Session) saveScriptSkill(ctx context.Context, slug, desc, script string
 	}); !ok {
 		return "skill not saved: " + reason
 	}
-	dir := filepath.Join(s.root, ".memcode", "skills", slug)
+	dir := filepath.Join(statedir.For(s.root), "skills", slug)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "skill not saved: " + err.Error()
 	}
@@ -490,8 +491,8 @@ func (s *Session) saveScriptSkill(ctx context.Context, slug, desc, script string
 	if err := atomicfile.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(body), 0o644); err != nil {
 		return "skill not saved: " + err.Error()
 	}
-	s.toolLine(true, "Write", filepath.Join(".memcode", "skills", slug, "SKILL.md"), "skill saved", false)
-	return "saved as skill `" + slug + "` (.memcode/skills/" + slug + "/SKILL.md)"
+	s.toolLine(true, "Skill", slug, "skill saved", false)
+	return "saved as skill `" + slug + "`"
 }
 
 // cappedBuffer keeps the first max bytes and drops the rest — a script that

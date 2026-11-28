@@ -22,6 +22,7 @@ import (
 	detachedjobs "github.com/memcode-ai/memcode/internal/jobs"
 	"github.com/memcode-ai/memcode/internal/llm"
 	"github.com/memcode-ai/memcode/internal/provider"
+	"github.com/memcode-ai/memcode/internal/statedir"
 	"github.com/memcode-ai/memcode/internal/textutil"
 	"github.com/memcode-ai/memcode/internal/wire"
 
@@ -568,7 +569,7 @@ func (s *Session) spillReport(kind, text string) string {
 	if len(text) <= reportSpillThreshold || s.sessionID == "" {
 		return text
 	}
-	dir := filepath.Join(s.root, ".memcode", "sessions", s.sessionID, "reports")
+	dir := filepath.Join(statedir.For(s.root), "sessions", s.sessionID, "reports")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return text
 	}
@@ -577,7 +578,7 @@ func (s *Session) spillReport(kind, text string) string {
 	seq := s.metrics.reportsSpilled
 	s.mu.Unlock()
 	name := fmt.Sprintf("%03d-%s.md", seq, sanitizeReportKind(kind))
-	rel := filepath.Join(".memcode", "sessions", s.sessionID, "reports", name)
+	rel := filepath.Join(dir, name)
 	if err := os.WriteFile(filepath.Join(dir, name), []byte(text), 0o644); err != nil {
 		return text
 	}

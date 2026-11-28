@@ -12,7 +12,7 @@
 
 ## Memcode
 
-Most coding agents start every session from zero. memcode keeps a persistent model of your repo in `.memcode`: the subsystems, what you worked on last week, which approaches failed and why, and the preferences you have corrected it on. The longer you use it, the less you have to explain.
+Most coding agents start every session from zero. memcode keeps a persistent model of your repo in `~/.memcode`, outside the repo itself: the subsystems, what you worked on last week, which approaches failed and why, and the preferences you have corrected it on. The longer you use it, the less you have to explain.
 
 One Go binary, two ways to run it. **Code** is the interactive agent in your terminal. **Agents** is the same binary as a self-hosted gateway, answering on the chat surfaces you already use — and running agents you have given a standing objective and permission to work on it unattended. Both run against whatever models you have: your own API keys, a local endpoint like Ollama, or a hosted memcode account.
 

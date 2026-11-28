@@ -63,9 +63,9 @@ func (s *Session) commitGateOK(ctx context.Context) bool {
 			"(keeps the plan's edits as a separate, reviewable diff)",
 		Options: []AskOption{
 			{Label: optCommit, Description: "I commit everything currently in the tree as a checkpoint, then execute the plan."},
-			{Label: optAlways, Description: "Same as above, every time — checkpoint silently before large work (saved to .memcode/config.json)."},
+			{Label: optAlways, Description: "Same as above, every time — checkpoint silently before large work."},
 			{Label: optGo, Description: "Start now; the plan's edits mix with your current changes."},
-			{Label: optNever, Description: "Proceed now and never ask this again (saved to .memcode/config.json)."},
+			{Label: optNever, Description: "Proceed now and never ask this again."},
 		},
 	})
 

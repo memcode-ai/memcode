@@ -29,7 +29,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/memcode-ai/memcode/internal/authflow"
-	"github.com/memcode-ai/memcode/internal/config"
 	"github.com/memcode-ai/memcode/internal/websites"
 )
 
@@ -45,8 +44,8 @@ on later runs. That reuse is NOT automatic refresh — if the remote site has
 moved on, pull again yourself (or pass an explicit directory instead).
 
 With a directory (or no argument, inside one you already ` + "`pull`" + `ed): runs
-there directly; its .memcode/ stays untracked (gitignored) the same way a
-regular pulled checkout's is.
+there directly; memcode keeps the site's metadata in its own state, never in
+the folder.
 
 Either way, uploaded assets are synced into an untracked local cache and
 served at the same /assets/<name> urls as the live site and preview,
@@ -120,7 +119,6 @@ func resolveDevWorkspace(ctx context.Context, c *websites.Client, args []string)
 			if err != nil {
 				return websites.Workspace{}, websites.Meta{}, err
 			}
-			config.EnsureGitignore(abs) // .memcode/{assets,runtime} must stay untracked
 			ws, err := websites.ExplicitWorkspace(abs)
 			return ws, meta, err
 		}

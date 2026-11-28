@@ -11,6 +11,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/memcode-ai/memcode/internal/statedir"
 )
 
 // bigWordmark is the startup "MEMCODE" — 7 rows of chunky 2-thick block letters.
@@ -90,22 +91,14 @@ func MatrixFrames() int { return matrixAnimFrames }
 // machine. The animation is a first-boot moment, not a per-launch toll:
 // every later launch rests on the static settled wordmark immediately.
 func IntroSeen() bool {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return false
-	}
-	_, err = os.Stat(filepath.Join(home, ".memcode", "intro-seen"))
+	_, err := os.Stat(filepath.Join(statedir.Home(), "intro-seen"))
 	return err == nil
 }
 
 // MarkIntroSeen records that the intro played (called when the animation
 // starts, so even a skipped or interrupted first run counts as seen).
 func MarkIntroSeen() {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return
-	}
-	dir := filepath.Join(home, ".memcode")
+	dir := statedir.Home()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return
 	}

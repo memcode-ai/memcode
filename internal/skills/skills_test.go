@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/memcode-ai/memcode/internal/statedir"
 )
 
 func writeSkill(t *testing.T, dir, name, frontmatterBody string) {
@@ -91,7 +93,7 @@ func TestLoadReturnsBodyAfterFrontmatter(t *testing.T) {
 func TestDiscoverLocalOverridesAndDedup(t *testing.T) {
 	repo := t.TempDir()
 	// Two skills with the same name in the SAME root: newest mtime wins.
-	skdir := filepath.Join(repo, ".memcode", "skills")
+	skdir := filepath.Join(statedir.For(repo), "skills")
 	writeSkill(t, skdir, "dup-v1", "---\nname: dup\ndescription: old version\n---\nold\n")
 	writeSkill(t, skdir, "dup-v2", "---\nname: dup\ndescription: new version\n---\nnew\n")
 	// Make v2 newer.
@@ -216,7 +218,7 @@ func TestRootsExistingOnly(t *testing.T) {
 		t.Errorf("no skill dirs should mean no roots, got %v", got)
 	}
 	// Create the project-local skills dir → it shows up.
-	skdir := filepath.Join(repo, ".memcode", "skills")
+	skdir := filepath.Join(statedir.For(repo), "skills")
 	if err := os.MkdirAll(skdir, 0o755); err != nil {
 		t.Fatal(err)
 	}

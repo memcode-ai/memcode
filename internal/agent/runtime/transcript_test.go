@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/memcode-ai/memcode/internal/statedir"
 	"github.com/memcode-ai/memcode/internal/wire"
 )
 
@@ -102,7 +103,7 @@ func TestPersistTranscriptSurfacesError(t *testing.T) {
 
 	// Create the session dir and make it read-only so atomicfile.WriteFile
 	// cannot create the transcript file inside it.
-	sessDir := filepath.Join(root, ".memcode", "sessions", "sess_readonly")
+	sessDir := filepath.Join(statedir.For(root), "sessions", "sess_readonly")
 	if err := os.MkdirAll(sessDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -134,11 +135,11 @@ func TestForkSession(t *testing.T) {
 	}
 	persistFor(t, root, "sess_src11111", msgs)
 	// An episodic log + a checkpoint on the source session.
-	srcDir := filepath.Join(root, ".memcode", "sessions", "sess_src11111")
+	srcDir := filepath.Join(statedir.For(root), "sessions", "sess_src11111")
 	if err := os.WriteFile(filepath.Join(srcDir, "events.jsonl"), []byte("{}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	ckDir := filepath.Join(root, ".memcode", "checkpoints", "sess_src11111", "1")
+	ckDir := filepath.Join(statedir.For(root), "checkpoints", "sess_src11111", "1")
 	if err := os.MkdirAll(filepath.Join(ckDir, "files"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -172,10 +173,10 @@ func TestForkSession(t *testing.T) {
 		t.Fatal("fork mutated the original transcript")
 	}
 	// Checkpoints ride along; the episodic log does NOT.
-	if _, err := os.Stat(filepath.Join(root, ".memcode", "checkpoints", newID, "1", "manifest.json")); err != nil {
+	if _, err := os.Stat(filepath.Join(statedir.For(root), "checkpoints", newID, "1", "manifest.json")); err != nil {
 		t.Errorf("checkpoints should be copied to the fork: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(root, ".memcode", "sessions", newID, "events.jsonl")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(statedir.For(root), "sessions", newID, "events.jsonl")); !os.IsNotExist(err) {
 		t.Error("the episodic log must NOT be duplicated into the fork")
 	}
 

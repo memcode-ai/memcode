@@ -11,6 +11,7 @@ import (
 
 	"github.com/memcode-ai/memcode/internal/agent/permissions"
 	"github.com/memcode-ai/memcode/internal/agent/tools"
+	"github.com/memcode-ai/memcode/internal/statedir"
 	"github.com/memcode-ai/memcode/internal/store"
 	"github.com/memcode-ai/memcode/internal/wire"
 )
@@ -310,7 +311,7 @@ func TestDispatchDeniedInAskMode(t *testing.T) {
 		t.Fatalf("error should mention denial + reason, got %q", out)
 	}
 	// No job dir should have been created (Spawn never ran).
-	matches, _ := filepath.Glob(filepath.Join(s.root, ".memcode", "jobs", "*"))
+	matches, _ := filepath.Glob(filepath.Join(statedir.For(s.root), "jobs", "*"))
 	if len(matches) > 0 {
 		t.Fatalf("denied dispatch should not have spawned a job, found %v", matches)
 	}

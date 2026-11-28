@@ -9,13 +9,14 @@ const Site = "site"
 
 // SiteInput drives the site tool.
 type SiteInput struct {
-	Action   string `json:"action"`             // look | inspect | add_package | check
+	Action   string `json:"action"`             // look | inspect | add_package | check | plan
 	URL      string `json:"url,omitempty"`      // look/inspect: a reference page (http/https)
 	Path     string `json:"path,omitempty"`     // look/inspect: a route of the site being built ("/", "/about")
 	Viewport string `json:"viewport,omitempty"` // desktop (default) | laptop | tablet | mobile
 	From     int    `json:"from,omitempty"`     // look: page offset in px to start at
 	Screens  int    `json:"screens,omitempty"`  // look: how many viewport-high screens (default 4, max 8)
 	Package  string `json:"package,omitempty"`  // add_package: npm name, optionally name@version
+	Plan     string `json:"plan,omitempty"`     // plan: the full design plan (replaces the saved one)
 }
 
 // SiteDef is the site tool's schema.
@@ -26,15 +27,17 @@ func SiteDef() wire.ToolDef {
 			"look: render a page in a real browser and return screenshots, one per viewport-high screen, scrolling between them so scroll animations play (url for a reference site, path for this site's own pages). " +
 			"inspect: measure a rendered page's design system (fonts, type scale with sizes/weights/tracking, palette by area, content width, gutters, section spacing, sections top to bottom, buttons, radii, motion libraries). " +
 			"add_package: install an npm package (kit packages always; anything else only if it passes the safety policy). " +
-			"check: run the production build memcode.ai runs and report anything that would break or be blocked when published.",
+			"check: run the production build memcode.ai runs and report anything that would break or be blocked when published. " +
+			"plan: save the site's design plan (the whole plan; it replaces the saved one) so later passes and sessions build on it.",
 		InputSchema: obj(map[string]any{
-			"action":   enum("what to do", []string{"look", "inspect", "add_package", "check"}),
+			"action":   enum("what to do", []string{"look", "inspect", "add_package", "check", "plan"}),
 			"url":      str("look/inspect: a reference page, http(s)"),
 			"path":     str("look/inspect: a route of the site you're building, like / or /about"),
 			"viewport": enum("look/inspect: device size (default desktop 1440x900)", []string{"desktop", "laptop", "tablet", "mobile"}),
 			"from":     integer("look: page offset in px to start at (default 0)"),
 			"screens":  integer("look: how many screens to capture (default 4, max 8)"),
 			"package":  str("add_package: npm package name, optionally name@version"),
+			"plan":     str("plan: the complete design plan, markdown"),
 		}, "action"),
 	}
 }

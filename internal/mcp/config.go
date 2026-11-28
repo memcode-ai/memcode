@@ -18,6 +18,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/memcode-ai/memcode/internal/statedir"
 )
 
 // Scope is where a server is configured, mirroring Claude Code's three scopes.
@@ -105,7 +107,7 @@ func UserStoreFile() string {
 	if err != nil || home == "" {
 		return ""
 	}
-	return filepath.Join(home, ".memcode", "mcp.json")
+	return filepath.Join(statedir.Home(), "mcp.json")
 }
 
 // Resolve returns every configured server merged across scopes with Claude Code's precedence

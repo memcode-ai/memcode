@@ -2,19 +2,21 @@ package websites
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/memcode-ai/memcode/internal/atomicfile"
+	"github.com/memcode-ai/memcode/internal/statedir"
 )
 
 // Brief is what a site has been asked to be: the references it should look
 // like and the requests made of it, kept with the site (in its gitignored
 // .memcode/) so a later session that says "pick up where we left off" or
 // "make sure it's like the reference" still knows what that was. The
-// worker's design plan sits beside it in .memcode/design.md.
+// worker's design plan sits beside it (site plan saves it).
 type Brief struct {
 	References []string  `json:"references,omitempty"`
 	Requests   []Request `json:"requests,omitempty"`
@@ -27,15 +29,15 @@ type Request struct {
 }
 
 const (
-	briefRelPath  = ".memcode/brief.json"
-	designRelPath = ".memcode/design.md"
+	briefRelPath  = "brief.json"
+	designRelPath = "design.md"
 	maxRequests   = 12
 )
 
 // ReadBrief loads a site's brief (empty when it has none).
 func ReadBrief(dir string) Brief {
 	var b Brief
-	if raw, err := os.ReadFile(filepath.Join(dir, briefRelPath)); err == nil {
+	if raw, err := os.ReadFile(filepath.Join(statedir.For(dir), briefRelPath)); err == nil {
 		_ = json.Unmarshal(raw, &b)
 	}
 	return b
@@ -67,15 +69,15 @@ func Remember(dir, request string, refs []string) (Brief, error) {
 	if err != nil {
 		return b, err
 	}
-	if err := os.MkdirAll(filepath.Join(dir, ".memcode"), 0o755); err != nil {
+	if err := os.MkdirAll(statedir.For(dir), 0o755); err != nil {
 		return b, err
 	}
-	return b, atomicfile.WriteFile(filepath.Join(dir, briefRelPath), append(raw, '\n'), 0o644)
+	return b, atomicfile.WriteFile(filepath.Join(statedir.For(dir), briefRelPath), append(raw, '\n'), 0o644)
 }
 
 // DesignPlan is the worker's saved design plan for the site ("" if none).
 func DesignPlan(dir string) string {
-	raw, err := os.ReadFile(filepath.Join(dir, designRelPath))
+	raw, err := os.ReadFile(filepath.Join(statedir.For(dir), designRelPath))
 	if err != nil {
 		return ""
 	}
@@ -88,4 +90,17 @@ func normRef(r string) string {
 		r = strings.TrimPrefix(r, p)
 	}
 	return strings.TrimRight(r, "/")
+}
+
+// SaveDesignPlan records the worker's design plan for the site, replacing the
+// previous one. It lives with memcode's state for the site, not in the site.
+func SaveDesignPlan(dir, plan string) error {
+	plan = strings.TrimSpace(plan)
+	if plan == "" {
+		return errors.New("empty design plan")
+	}
+	if err := os.MkdirAll(statedir.For(dir), 0o755); err != nil {
+		return err
+	}
+	return atomicfile.WriteFile(filepath.Join(statedir.For(dir), designRelPath), []byte(plan+"\n"), 0o644)
 }

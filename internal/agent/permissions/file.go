@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/memcode-ai/memcode/internal/statedir"
 )
 
 // Remembered approvals live in a plaintext file the user owns and can edit
@@ -33,7 +35,7 @@ const fileHeader = `# memcode permissions — commands the agent may run without
 
 // FilePath is the permissions file for a repo rooted at root.
 func FilePath(root string) string {
-	return filepath.Join(root, ".memcode", fileName)
+	return filepath.Join(statedir.For(root), fileName)
 }
 
 // Load parses the permissions file into approval rules. A missing file means no

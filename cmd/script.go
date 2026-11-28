@@ -13,7 +13,7 @@ var scriptCmd = &cobra.Command{
 	Use:   "script",
 	Short: "Inspect saved reusable command sequences (read-only)",
 	Long: `Scripts are reusable multi-step command sequences the agent saves after a proven run
-(.memcode/scripts/<slug>.sh) — a recipe like "rebuild the cli" or "commit, push, deploy" replayed
+— a recipe like "rebuild the cli" or "commit, push, deploy" replayed
 by name instead of re-derived every time. Save/run/delete them from the agent via the ` + "`script`" + `
 tool; these commands are for a human to inspect what's saved.`,
 }

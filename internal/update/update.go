@@ -29,6 +29,7 @@ import (
 
 	"github.com/memcode-ai/memcode/internal/atomicfile"
 	"github.com/memcode-ai/memcode/internal/buildinfo"
+	"github.com/memcode-ai/memcode/internal/statedir"
 )
 
 // ReleaseRepo is the public binary repo (goreleaser's release target).
@@ -506,11 +507,7 @@ type checkCache struct {
 const checkTTL = 6 * time.Hour
 
 func cachePath() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ""
-	}
-	return filepath.Join(home, ".memcode", "update-check.json")
+	return filepath.Join(statedir.Home(), "update-check.json")
 }
 
 func readCache() (checkCache, bool) {

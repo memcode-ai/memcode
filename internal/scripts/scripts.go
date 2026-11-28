@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/memcode-ai/memcode/internal/atomicfile"
+	"github.com/memcode-ai/memcode/internal/statedir"
 )
 
 // Script is one saved command sequence.
@@ -45,7 +46,7 @@ func ValidSlug(slug string) bool {
 
 // Dir returns the repo-local scripts directory (.memcode/scripts). It may not exist yet.
 func Dir(root string) string {
-	return filepath.Join(root, ".memcode", "scripts")
+	return filepath.Join(statedir.For(root), "scripts")
 }
 
 // trashDir is where Delete parks a removed script instead of hard-deleting it.

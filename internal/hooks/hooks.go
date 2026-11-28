@@ -33,6 +33,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/memcode-ai/memcode/internal/statedir"
 )
 
 // Events.
@@ -87,10 +89,8 @@ func (s *Set) SetSessionID(id string) {
 func Load(root string) *Set {
 	s := &Set{hooks: map[string][]Hook{}, root: root}
 	var paths []string
-	if home, err := os.UserHomeDir(); err == nil {
-		paths = append(paths, filepath.Join(home, ".memcode", "hooks.json"))
-	}
-	paths = append(paths, filepath.Join(root, ".memcode", "hooks.json"))
+	paths = append(paths, filepath.Join(statedir.Home(), "hooks.json"))
+	paths = append(paths, filepath.Join(statedir.For(root), "hooks.json"))
 	for _, p := range paths {
 		b, err := os.ReadFile(p)
 		if err != nil {

@@ -14,6 +14,7 @@ import (
 	"github.com/memcode-ai/memcode/internal/agent/permissions"
 	"github.com/memcode-ai/memcode/internal/events"
 	"github.com/memcode-ai/memcode/internal/prefs"
+	"github.com/memcode-ai/memcode/internal/statedir"
 	"github.com/memcode-ai/memcode/internal/store"
 )
 
@@ -114,7 +115,7 @@ func TestPreferenceSignalToolDoesNotWritePrefs(t *testing.T) {
 	})
 	_ = s.preferenceSignalTool(ctx, input)
 	// The capture tool must NOT create .memcode/prefs/ — only applyPreferencePromotions does.
-	prefsDir := filepath.Join(s.root, ".memcode", "prefs")
+	prefsDir := filepath.Join(statedir.For(s.root), "prefs")
 	if _, err := os.Stat(prefsDir); !os.IsNotExist(err) {
 		t.Errorf("prefs dir should NOT exist after capture-only; stat err = %v", err)
 	}
@@ -133,7 +134,7 @@ func TestApplyPreferencePromotionsWritesFileAndPersistsPath(t *testing.T) {
 	s.applyPreferencePromotions(ctx)
 
 	// The .memcode/prefs/ file exists.
-	entries, err := os.ReadDir(filepath.Join(s.root, ".memcode", "prefs"))
+	entries, err := os.ReadDir(filepath.Join(statedir.For(s.root), "prefs"))
 	if err != nil {
 		t.Fatalf("prefs dir should exist: %v", err)
 	}
@@ -169,7 +170,7 @@ func TestApplyPreferencePromotionsNoThreshold(t *testing.T) {
 	s.applyPreferencePromotions(ctx)
 
 	// No file written.
-	prefsDir := filepath.Join(s.root, ".memcode", "prefs")
+	prefsDir := filepath.Join(statedir.For(s.root), "prefs")
 	entries, _ := os.ReadDir(prefsDir)
 	if len(entries) != 0 {
 		t.Errorf("expected 0 pref files, got %d", len(entries))
@@ -216,7 +217,7 @@ func TestApplyPreferenceDemotionDeletesFileAndClearsPath(t *testing.T) {
 	}
 
 	// Write the confirmed pref file so demotion can delete it.
-	prefFile := filepath.Join(s.root, ".memcode", "prefs", "prefcand_confirmed-always-commit-before-deploy.md")
+	prefFile := filepath.Join(statedir.For(s.root), "prefs", "prefcand_confirmed-always-commit-before-deploy.md")
 	os.MkdirAll(filepath.Dir(prefFile), 0o755)
 	os.WriteFile(prefFile, []byte("# Standing preference: always commit before deploy\n"), 0o644)
 
@@ -275,7 +276,7 @@ func TestApplyPreferenceDemotionDeletesFileAndClearsPath(t *testing.T) {
 func TestInlinePrefsRespectsBudget(t *testing.T) {
 	s := newPrefSession(t)
 	ctx := context.Background()
-	dir := filepath.Join(s.root, ".memcode", "prefs")
+	dir := filepath.Join(statedir.For(s.root), "prefs")
 	os.MkdirAll(dir, 0o755)
 	// Write 7 confirmed pref files with varying weights.
 	for i := 0; i < 7; i++ {

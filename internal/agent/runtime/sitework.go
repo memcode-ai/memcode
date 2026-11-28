@@ -14,6 +14,7 @@ import (
 	"github.com/memcode-ai/memcode/internal/agent/permissions"
 	"github.com/memcode-ai/memcode/internal/agent/tools"
 	"github.com/memcode-ai/memcode/internal/sitelook"
+	"github.com/memcode-ai/memcode/internal/statedir"
 	"github.com/memcode-ai/memcode/internal/websites"
 	"github.com/memcode-ai/memcode/internal/wire"
 )
@@ -39,7 +40,7 @@ type siteWork struct {
 
 func newSiteWork(dir, preview string, client *websites.Client) *siteWork {
 	return &siteWork{dir: dir, preview: preview, client: client, reg: websites.NewRegistry(),
-		lookDir: filepath.Join(dir, ".memcode", "looks")}
+		lookDir: filepath.Join(statedir.For(dir), "looks")}
 }
 
 // siteWorkerDeny: package managers are reached only through site
@@ -82,8 +83,14 @@ func (s *Session) siteTool(ctx context.Context, input json.RawMessage) toolResul
 		return s.siteAddPackage(ctx, in.Package)
 	case "check":
 		return s.siteCheck(ctx)
+	case "plan":
+		if err := websites.SaveDesignPlan(s.site.dir, in.Plan); err != nil {
+			return errResult("site plan: " + err.Error())
+		}
+		s.toolLine(true, "Site", "design plan", "saved", false)
+		return textResult("design plan saved; later passes and sessions start from it.")
 	}
-	return errResult("site: unknown action " + in.Action + " (look | inspect | add_package | check)")
+	return errResult("site: unknown action " + in.Action + " (look | inspect | add_package | check | plan)")
 }
 
 // siteTarget resolves what to render: a public reference URL, or a route of

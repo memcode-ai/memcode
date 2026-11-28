@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/memcode-ai/memcode/internal/atomicfile"
+	"github.com/memcode-ai/memcode/internal/statedir"
 )
 
 // Status values for a job.
@@ -136,7 +137,7 @@ func processMatches(job Job) bool {
 }
 
 // dir returns the jobs directory for a project root.
-func dir(root string) string { return filepath.Join(root, ".memcode", "jobs") }
+func dir(root string) string { return filepath.Join(statedir.For(root), "jobs") }
 
 func jobDir(root, id string) string   { return filepath.Join(dir(root), id) }
 func metaPath(root, id string) string { return filepath.Join(jobDir(root, id), "meta.json") }

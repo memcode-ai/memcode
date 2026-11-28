@@ -17,15 +17,12 @@ import (
 	"time"
 
 	"github.com/memcode-ai/memcode/internal/atomicfile"
+	"github.com/memcode-ai/memcode/internal/statedir"
 )
 
 // Dir is the user-level plans directory (~/.memcode/plans). Created on demand by Save.
 func Dir() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(home, ".memcode", "plans"), nil
+	return filepath.Join(statedir.Home(), "plans"), nil
 }
 
 // Ref is one saved plan's metadata, for listing.

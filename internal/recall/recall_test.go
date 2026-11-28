@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/memcode-ai/memcode/internal/statedir"
 	"github.com/memcode-ai/memcode/internal/store"
 )
 
@@ -148,7 +149,7 @@ func allIDs(hits []Hit) []string {
 func TestRecallSurfacesPromotedRules(t *testing.T) {
 	st := seedStore(t)
 	root := t.TempDir()
-	prefDir := filepath.Join(root, ".memcode", "prefs")
+	prefDir := filepath.Join(statedir.For(root), "prefs")
 	if err := os.MkdirAll(prefDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -156,7 +157,7 @@ func TestRecallSurfacesPromotedRules(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(prefDir, "prefcand_ab12-never-em-dashes.md"), []byte(pref), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	lessonDir := filepath.Join(root, ".memcode", "lessons")
+	lessonDir := filepath.Join(statedir.For(root), "lessons")
 	if err := os.MkdirAll(lessonDir, 0o755); err != nil {
 		t.Fatal(err)
 	}

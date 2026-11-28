@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/memcode-ai/memcode/internal/statedir"
 	"github.com/memcode-ai/memcode/internal/wire"
 )
 
@@ -104,7 +105,7 @@ func TestMarkResolvedBlocksReload(t *testing.T) {
 
 func TestSessionDirLayout(t *testing.T) {
 	got := SessionDir("/repo", "sess_abc")
-	want := filepath.Join("/repo", ".memcode", "sessions", "sess_abc", "continuations")
+	want := filepath.Join(statedir.For("/repo"), "sessions", "sess_abc", "continuations")
 	if got != want {
 		t.Fatalf("got %q want %q", got, want)
 	}

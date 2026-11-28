@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/memcode-ai/memcode/internal/atomicfile"
+	"github.com/memcode-ai/memcode/internal/statedir"
 	"github.com/memcode-ai/memcode/internal/wire"
 )
 
@@ -30,7 +31,7 @@ type transcript struct {
 }
 
 func transcriptPath(root, id string) string {
-	return filepath.Join(root, ".memcode", "sessions", id, transcriptFile)
+	return filepath.Join(statedir.For(root), "sessions", id, transcriptFile)
 }
 
 // persistTranscript snapshots the chat history for resume (atomic tmp+rename).
@@ -74,9 +75,9 @@ func loadTranscript(root, id string) ([]wire.Message, error) {
 // ("sess_" optional). Only sessions WITH a saved transcript qualify — older
 // sessions predating transcript persistence are recall-only.
 func ResolveSession(root, ref string) (string, error) {
-	entries, err := os.ReadDir(filepath.Join(root, ".memcode", "sessions"))
+	entries, err := os.ReadDir(filepath.Join(statedir.For(root), "sessions"))
 	if err != nil {
-		return "", fmt.Errorf("no saved sessions under .memcode/sessions")
+		return "", fmt.Errorf("no saved sessions for this project yet")
 	}
 	type cand struct {
 		id  string
@@ -122,7 +123,7 @@ func ResolveSession(root, ref string) (string, error) {
 
 // ResumableSessions lists resumable session ids, newest first (for pickers).
 func ResumableSessions(root string) []string {
-	entries, err := os.ReadDir(filepath.Join(root, ".memcode", "sessions"))
+	entries, err := os.ReadDir(filepath.Join(statedir.For(root), "sessions"))
 	if err != nil {
 		return nil
 	}
@@ -178,9 +179,9 @@ func ForkSession(root, srcID string) (string, error) {
 	if err := atomicfile.WriteFile(p, b, 0o644); err != nil {
 		return "", err
 	}
-	src := filepath.Join(root, ".memcode", "checkpoints", srcID)
+	src := filepath.Join(statedir.For(root), "checkpoints", srcID)
 	if fi, err := os.Stat(src); err == nil && fi.IsDir() {
-		_ = os.CopyFS(filepath.Join(root, ".memcode", "checkpoints", newID), os.DirFS(src))
+		_ = os.CopyFS(filepath.Join(statedir.For(root), "checkpoints", newID), os.DirFS(src))
 	}
 	return newID, nil
 }

@@ -11,25 +11,22 @@ import (
 	"github.com/memcode-ai/memcode/internal/provider"
 )
 
-// Init makes .memcode self-ignoring via an in-dir `*` .gitignore (no `!.gitignore`
-// exception — that would leave the dir visible in git status), without touching the
-// user's root .gitignore.
-func TestInitWritesSelfGitignore(t *testing.T) {
+// Init keeps the project's state in its state directory and creates nothing
+// inside the project itself — no .memcode, no .gitignore.
+func TestInitCreatesNothingInProject(t *testing.T) {
 	dir := t.TempDir()
 	if _, err := Init(dir, false); err != nil {
 		t.Fatalf("Init: %v", err)
 	}
-	gi := filepath.Join(dir, DirName, ".gitignore")
-	body, err := os.ReadFile(gi)
+	if _, err := os.Stat(filepath.Join(StateDir(dir), ConfigFile)); err != nil {
+		t.Fatalf("config not in the state dir: %v", err)
+	}
+	entries, err := os.ReadDir(dir)
 	if err != nil {
-		t.Fatalf("expected %s: %v", gi, err)
+		t.Fatal(err)
 	}
-	if !strings.Contains(string(body), "*") || strings.Contains(string(body), "!.gitignore") {
-		t.Errorf("self-ignore must be bare `*` so .memcode fully disappears from git status; got:\n%s", body)
-	}
-	// The user's ROOT .gitignore must NOT be created/modified.
-	if _, err := os.Stat(filepath.Join(dir, ".gitignore")); !os.IsNotExist(err) {
-		t.Error("must not touch the user's root .gitignore")
+	if len(entries) != 0 {
+		t.Fatalf("Init wrote into the project: %v", entries)
 	}
 }
 
@@ -51,7 +48,8 @@ func TestEnsureGitignoreWithoutInit(t *testing.T) {
 	}
 }
 
-// The earlier `*`+`!.gitignore` template (which didn't hide the dir) is migrated.
+// Where a project does keep a .memcode (tasks/), the earlier `*`+`!.gitignore`
+// template (which didn't hide the dir) is migrated.
 func TestInitMigratesOldGitignore(t *testing.T) {
 	dir := t.TempDir()
 	md := filepath.Join(dir, DirName)
@@ -62,9 +60,7 @@ func TestInitMigratesOldGitignore(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(md, ".gitignore"), []byte(old), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Init(dir, false); err != nil {
-		t.Fatal(err)
-	}
+	EnsureGitignore(dir)
 	body, _ := os.ReadFile(filepath.Join(md, ".gitignore"))
 	if strings.Contains(string(body), "!.gitignore") {
 		t.Errorf("the old template should have been migrated to bare `*`, got:\n%s", body)
@@ -75,9 +71,7 @@ func TestInitMigratesOldGitignore(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(md, ".gitignore"), []byte(custom), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Init(dir, false); err != nil {
-		t.Fatal(err)
-	}
+	EnsureGitignore(dir)
 	if body, _ := os.ReadFile(filepath.Join(md, ".gitignore")); string(body) != custom {
 		t.Errorf("must not clobber a user-edited .gitignore; got:\n%s", body)
 	}

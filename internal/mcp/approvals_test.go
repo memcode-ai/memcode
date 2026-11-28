@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/memcode-ai/memcode/internal/statedir"
 	"github.com/modelcontextprotocol/go-sdk/auth"
 )
 
@@ -31,10 +32,10 @@ func TestRepoCommittedApprovalsGrantNothing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(root, ".memcode"), 0o755); err != nil {
+	if err := os.MkdirAll(statedir.For(root), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, ".memcode", "mcp-approvals.json"), b, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(statedir.For(root), "mcp-approvals.json"), b, 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -67,7 +68,7 @@ func TestApprovalsLiveOutsideRepo(t *testing.T) {
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("approval not persisted at %s: %v", path, err)
 	}
-	if _, err := os.Stat(filepath.Join(root, ".memcode", "mcp-approvals.json")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(statedir.For(root), "mcp-approvals.json")); !os.IsNotExist(err) {
 		t.Fatalf("nothing may be written into the repo: %v", err)
 	}
 }

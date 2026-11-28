@@ -12,7 +12,7 @@ Two plain-JSON files you own, merged in order (user first, then project):
 | File | Scope |
 | --- | --- |
 | `~/.memcode/hooks.json` | every project |
-| `<repo>/.memcode/hooks.json` | this project (runs after user hooks) |
+| `~/.memcode/projects/<project>/hooks.json` | this project (runs after user hooks); `memcode doctor` shows the folder |
 
 Missing files are fine. Malformed JSON or a bad matcher becomes a one-time session
 warning — a broken hooks.json never takes the agent down.

@@ -13,6 +13,7 @@ import (
 	"github.com/memcode-ai/memcode/internal/agent/permissions"
 	"github.com/memcode-ai/memcode/internal/agent/tools"
 	"github.com/memcode-ai/memcode/internal/sitelook"
+	"github.com/memcode-ai/memcode/internal/statedir"
 	"github.com/memcode-ai/memcode/internal/store"
 	"github.com/memcode-ai/memcode/internal/websites"
 	"github.com/memcode-ai/memcode/internal/wire"
@@ -183,7 +184,7 @@ func TestDevelopIsVisibleSeesAndBuilds(t *testing.T) {
 	if !strings.Contains(string(log), "Change made with memcode: An AI consulting site") {
 		t.Errorf("the change wasn't recorded as a commit:\n%s", log)
 	}
-	shots, _ := filepath.Glob(filepath.Join(l.Source, ".memcode", "looks", "*", "*.png"))
+	shots, _ := filepath.Glob(filepath.Join(statedir.For(l.Source), "looks", "*", "*.png"))
 	if len(shots) < 2 {
 		t.Errorf("screenshots weren't saved for the user: %v", shots)
 	}

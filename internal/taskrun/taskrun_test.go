@@ -13,6 +13,7 @@ import (
 
 	"github.com/memcode-ai/memcode/internal/agent/permissions"
 	"github.com/memcode-ai/memcode/internal/runtimes"
+	"github.com/memcode-ai/memcode/internal/statedir"
 	"github.com/memcode-ai/memcode/internal/task"
 )
 
@@ -525,13 +526,13 @@ func TestSpawnRequestCarriesFrozenInputs(t *testing.T) {
 	if !contains(seen.DenyCommands, "git push") {
 		t.Errorf("the executor must receive the command ceiling, got %v", seen.DenyCommands)
 	}
-	// The run WORKS in an isolated worktree, never the user's checkout — but its
-	// bookkeeping stays with the project, so a log survives the worktree.
+	// The run WORKS in an isolated worktree, never the user's checkout — kept with
+	// the project's memcode state, so nothing is created inside the project.
 	if seen.WorkDir == run.Project {
 		t.Error("the run must not execute in the project's own checkout")
 	}
-	if !strings.HasPrefix(seen.WorkDir, filepath.Join(run.Project, ".memcode", "worktrees")) {
-		t.Errorf("working dir = %q, want a worktree under the project", seen.WorkDir)
+	if !strings.HasPrefix(seen.WorkDir, filepath.Join(statedir.For(run.Project), "worktrees")) {
+		t.Errorf("working dir = %q, want a worktree in the project's state dir", seen.WorkDir)
 	}
 	if seen.Project != run.Project {
 		t.Errorf("bookkeeping root = %q, want the project %q", seen.Project, run.Project)

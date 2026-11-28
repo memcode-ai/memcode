@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/memcode-ai/memcode/internal/atomicfile"
+	"github.com/memcode-ai/memcode/internal/statedir"
 )
 
 // store.go — where policy lives on disk.
@@ -22,7 +23,7 @@ type file struct {
 }
 
 // WorkspacePath is <root>/.memcode/policy.json.
-func WorkspacePath(root string) string { return filepath.Join(root, ".memcode", fileName) }
+func WorkspacePath(root string) string { return filepath.Join(statedir.For(root), fileName) }
 
 // UserPath is $XDG_CONFIG_HOME/memcode/policy.json, else
 // ~/.config/memcode/policy.json. "" when no home directory can be determined.

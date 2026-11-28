@@ -14,8 +14,8 @@ import (
 
 	"github.com/memcode-ai/memcode/internal/agent/jobs"
 	"github.com/memcode-ai/memcode/internal/agent/permissions"
-	"github.com/memcode-ai/memcode/internal/config"
 	"github.com/memcode-ai/memcode/internal/llm"
+	"github.com/memcode-ai/memcode/internal/statedir"
 	"github.com/memcode-ai/memcode/internal/store"
 	"github.com/memcode-ai/memcode/internal/websites"
 	"github.com/memcode-ai/memcode/internal/wire"
@@ -264,7 +264,7 @@ func (s *Session) runSiteWorker(ctx context.Context, client *websites.Client, l 
 	// The worker is oriented by the site's own memory, not this session's
 	// project. Without a store it falls back to the parent's.
 	var st store.Store
-	if opened, err := store.Open(ctx, filepath.Join(l.Source, config.DirName, "state.db")); err == nil {
+	if opened, err := store.Open(ctx, filepath.Join(statedir.For(l.Source), "state.db")); err == nil {
 		st = opened
 		defer opened.Close()
 	}
@@ -397,7 +397,7 @@ func siteContext(dir, prompt string, brief websites.Brief, preview string) strin
 		}
 	}
 	if plan := websites.DesignPlan(dir); plan != "" {
-		b.WriteString("\nThe design plan from earlier work (.memcode/design.md; keep it current):\n\n" + clip(plan, 6000) + "\n")
+		b.WriteString("\nThe design plan from earlier work (keep it current with `site plan`):\n\n" + clip(plan, 6000) + "\n")
 	}
 	fmt.Fprintf(&b, "\nThe site's local preview is running at %s; look at its pages with `site look` and a path.\n", preview)
 	return b.String()

@@ -35,7 +35,7 @@ design rejects.
 
 ## Cold-layer recall (the post-compaction "where did that go?" question)
 
-Compaction NEVER touches the cold layer: `.memcode/sessions/<id>/events.jsonl`
+Compaction NEVER touches the cold layer: `sessions/<id>/events.jsonl` in the project's state folder
 keeps growing append-only, so the full history survives on disk. The synthetic
 summary turn signposts this — it tells the agent that raw older turns are
 retrievable via `memcode{command:"session", target:"search", query:"…"}` (the
@@ -84,7 +84,7 @@ Anthropic-only session also dies at its window limit without it).
 ```
 hot    recent raw turns + current task + active file/tool context  (kept verbatim)
 warm   structured session summary (compacted older turns)          (BUILD THIS)
-cold   episodic session log (.memcode/sessions) — durable recall    (exists)
+cold   episodic session log (sessions/ in project state) — durable recall (exists)
 ```
 
 The model sees: doctrine + current objective + warm summary + retrieved memories

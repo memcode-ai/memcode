@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+
+	"github.com/memcode-ai/memcode/internal/statedir"
 )
 
 // Project-scoped servers come from a checked-in .mcp.json — repo content memcode must not
@@ -61,13 +63,13 @@ func ApprovalsPath(root string) string {
 		abs = root
 	}
 	sum := sha256.Sum256([]byte(abs))
-	return filepath.Join(home, ".memcode", "mcp-approvals", hex.EncodeToString(sum[:8])+".json")
+	return filepath.Join(statedir.Home(), "mcp-approvals", hex.EncodeToString(sum[:8])+".json")
 }
 
 // legacyApprovalsPath is the pre-move, repo-resident location. It is never read as a trust
 // source (repo content could pre-approve a malicious server); ResetApprovals removes it.
 func legacyApprovalsPath(root string) string {
-	return filepath.Join(root, ".memcode", "mcp-approvals.json")
+	return filepath.Join(root, statedir.LegacyName, "mcp-approvals.json")
 }
 
 // LoadApprovals reads the remembered choices (absent file → empty, not an error). Only the

@@ -34,8 +34,8 @@ var doctorCmd = &cobra.Command{
 	Use:   "doctor",
 	Short: "Show the active project root, state path and engine status",
 	Long: `Reports exactly which root memcode resolved and where its state lives,
-so you can confirm every command operates on the same .memcode regardless of the
-directory you run from.`,
+so you can confirm every command operates on the same project state regardless
+of the directory you run from.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
 
@@ -44,13 +44,12 @@ directory you run from.`,
 			return err
 		}
 		fmt.Printf("repo root:  %s  (%s)\n", root, src)
+		fmt.Printf("state:      %s\n", config.StateDir(root))
 		fmt.Printf("branch:     %s\n\n", gitBranch(root))
 
 		// A health check must report the reality the app runs in — so go through the
-		// SAME project-open path every other command uses (init if needed, ensure the
-		// .memcode self-ignore, freshen the index), not a parallel store.Open that can
-		// diverge. The self-ignore check then verifies the real invariant: after the
-		// app's EnsureGitignore runs, does git actually ignore .memcode?
+		// SAME project-open path every other command uses (init if needed, freshen
+		// the index), not a parallel store.Open that can diverge.
 		st, cfg, err := openProject(ctx)
 		if err != nil {
 			// Can't open the project (e.g. not in a git repo) — report what we can,

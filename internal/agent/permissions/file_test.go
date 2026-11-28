@@ -2,14 +2,15 @@ package permissions
 
 import (
 	"os"
-	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/memcode-ai/memcode/internal/statedir"
 )
 
 func TestFileStoreRoundTrip(t *testing.T) {
 	root := t.TempDir()
-	if err := os.Mkdir(filepath.Join(root, ".memcode"), 0o755); err != nil {
+	if err := os.MkdirAll(statedir.For(root), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -78,7 +79,7 @@ func TestParseLineTrustedMarkerVsWord(t *testing.T) {
 	}
 	// Round-trip through Append: a spaced-"trusted" pattern stays untrusted.
 	root := t.TempDir()
-	_ = os.Mkdir(filepath.Join(root, ".memcode"), 0o755)
+	_ = os.MkdirAll(statedir.For(root), 0o755)
 	if err := Append(root, "rm -rf trusted", false); err != nil {
 		t.Fatal(err)
 	}

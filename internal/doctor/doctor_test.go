@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/memcode-ai/memcode/internal/config"
+	"github.com/memcode-ai/memcode/internal/statedir"
 )
 
 func status(rs []Result, name string) Status {
@@ -35,21 +35,12 @@ func TestDoctorChecks(t *testing.T) {
 	if status(rs, "initialized") != Fail {
 		t.Errorf("uninitialized repo should fail 'initialized'; got %v", status(rs, "initialized"))
 	}
-	if status(rs, ".memcode self-ignored") != Fail {
-		t.Errorf("no self-ignore yet → should fail; got %v", status(rs, ".memcode self-ignored"))
-	}
 	// A diagnostic must not create state: the writability probe must not make .memcode.
-	if _, err := os.Stat(filepath.Join(root, config.DirName)); !os.IsNotExist(err) {
-		t.Error("doctor must not create .memcode (a health check shouldn't mutate state)")
+	if _, err := os.Stat(statedir.For(root)); !os.IsNotExist(err) {
+		t.Error("doctor must not create project state (a health check shouldn't mutate state)")
 	}
-
-	// Add the bare-`*` self-ignore → the check must pass (probing a content path).
-	md := filepath.Join(root, config.DirName)
-	_ = os.MkdirAll(md, 0o755)
-	_ = os.WriteFile(filepath.Join(md, ".gitignore"), []byte("*\n"), 0o644)
-	rs = Check(context.Background(), nil, root, nil)
-	if status(rs, ".memcode self-ignored") != OK {
-		t.Errorf("bare-* self-ignore should PASS the check; got %v", status(rs, ".memcode self-ignored"))
+	if _, err := os.Stat(filepath.Join(root, statedir.LegacyName)); !os.IsNotExist(err) {
+		t.Error("doctor must not create anything inside the project")
 	}
 
 	if out := Render(rs); !strings.Contains(out, "fix") && !strings.Contains(out, "healthy") {

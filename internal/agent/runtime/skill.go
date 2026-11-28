@@ -10,6 +10,7 @@ import (
 
 	"github.com/memcode-ai/memcode/internal/agent/tools"
 	"github.com/memcode-ai/memcode/internal/skills"
+	"github.com/memcode-ai/memcode/internal/statedir"
 )
 
 // maxSkillMatches caps how many skills a `find` returns — a query touches a couple of
@@ -135,7 +136,7 @@ func (s *Session) useSkill(ctx context.Context, input json.RawMessage) toolResul
 // skillApprovalsPath is the editable file remembering which skills the user approved with
 // "don't ask again" — kept in .memcode (like permissions), one skill name per line.
 func skillApprovalsPath(root string) string {
-	return filepath.Join(root, ".memcode", "skill-approvals")
+	return filepath.Join(statedir.For(root), "skill-approvals")
 }
 
 // loadApprovedSkills reads the remembered skill approvals (absent file → empty, not an error).

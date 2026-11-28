@@ -18,14 +18,12 @@ import (
 	"time"
 
 	"github.com/chromedp/chromedp"
+	"github.com/memcode-ai/memcode/internal/statedir"
 )
 
 // ManagedDir is where an on-demand-installed browser would live (future installer).
 func ManagedDir() string {
-	if home, err := os.UserHomeDir(); err == nil {
-		return filepath.Join(home, ".memcode", "tools", "browser-render")
-	}
-	return ".memcode/tools/browser-render"
+	return filepath.Join(statedir.Home(), "tools", "browser-render")
 }
 
 // Find returns the path to a usable Chrome/Chromium and whether one was found. It

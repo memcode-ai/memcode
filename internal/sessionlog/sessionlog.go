@@ -31,7 +31,7 @@ import (
 
 	"mvdan.cc/sh/v3/syntax"
 
-	"github.com/memcode-ai/memcode/internal/config"
+	"github.com/memcode-ai/memcode/internal/statedir"
 	"github.com/memcode-ai/memcode/internal/textutil"
 )
 
@@ -169,7 +169,7 @@ func (w *Writer) Close() error {
 }
 
 func sessionsDir(root string) string {
-	return filepath.Join(root, config.DirName, "sessions")
+	return filepath.Join(statedir.For(root), "sessions")
 }
 
 // --- readers (deterministic; the agent's self-recall primitive) ---

@@ -17,6 +17,7 @@ import (
 	"github.com/memcode-ai/memcode/internal/llm"
 	"github.com/memcode-ai/memcode/internal/provider"
 	"github.com/memcode-ai/memcode/internal/sessionlog"
+	"github.com/memcode-ai/memcode/internal/statedir"
 	"github.com/memcode-ai/memcode/internal/todos"
 	"github.com/memcode-ai/memcode/internal/wire"
 )
@@ -1240,7 +1241,7 @@ func (s *Session) captureToolCallLeak(ctx context.Context, purpose llm.Purpose, 
 		"messages":      req.Messages, // the FULL conversation history we sent — the thing to inspect
 		"leaked_output": text,
 	}
-	dir := filepath.Join(s.root, ".memcode", "diagnostics")
+	dir := filepath.Join(statedir.For(s.root), "diagnostics")
 	if os.MkdirAll(dir, 0o755) != nil {
 		return
 	}
@@ -1300,7 +1301,7 @@ func (s *Session) consentLaneFallback(ctx context.Context, exh *provider.ErrLane
 		Question: exh.Error() + ". Continue this turn on memcode credits?",
 		Options: []AskOption{
 			{Label: optLaneContinue, Description: "This turn only, billed to your memcode credits — the next turn tries your " + laneNoun(exh.Lane) + " again"},
-			{Label: optLaneAlways, Description: "Whenever your " + laneNoun(exh.Lane) + " is exhausted, continue on credits without asking (saved to .memcode/config.json)"},
+			{Label: optLaneAlways, Description: "Whenever your " + laneNoun(exh.Lane) + " is exhausted, continue on credits without asking"},
 			{Label: optLaneCancel, Description: "Stop this turn — wait for the window, or /model another family"},
 		},
 	})

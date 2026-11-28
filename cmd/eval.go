@@ -16,6 +16,7 @@ import (
 	"github.com/memcode-ai/memcode/internal/config"
 	"github.com/memcode-ai/memcode/internal/llm"
 	"github.com/memcode-ai/memcode/internal/provider"
+	"github.com/memcode-ai/memcode/internal/statedir"
 	"github.com/memcode-ai/memcode/internal/store"
 	"github.com/memcode-ai/memcode/internal/structure"
 )
@@ -100,7 +101,7 @@ func runVariant(ctx context.Context, repoRoot, model string, prov provider.Model
 	if _, err := config.Init(wt, false); err != nil {
 		return runtime.Result{}, 0, err
 	}
-	st, err := store.Open(ctx, filepath.Join(wt, config.DirName, "state.db"))
+	st, err := store.Open(ctx, filepath.Join(statedir.For(wt), "state.db"))
 	if err != nil {
 		return runtime.Result{}, 0, err
 	}

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/memcode-ai/memcode/internal/statedir"
 	"github.com/memcode-ai/memcode/internal/taskgit"
 )
 
@@ -260,7 +261,7 @@ func TestStagingExcludesMemcodeState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(wt.Path, ".memcode", "jobs"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(wt.Path, statedir.LegacyName, "jobs"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	write := func(rel, body string) {

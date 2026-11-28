@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/memcode-ai/memcode/internal/jobs"
+	"github.com/memcode-ai/memcode/internal/statedir"
 )
 
 // A report-back agent (agent{background}) that transitions running→done yields a report-back
@@ -16,7 +17,7 @@ import (
 func TestAgentReportBackOnFinish(t *testing.T) {
 	root := t.TempDir()
 	writeJob := func(j jobs.Job) {
-		jd := filepath.Join(root, ".memcode", "jobs", j.ID)
+		jd := filepath.Join(statedir.For(root), "jobs", j.ID)
 		if err := os.MkdirAll(jd, 0o755); err != nil {
 			t.Fatal(err)
 		}

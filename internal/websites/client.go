@@ -28,6 +28,7 @@ import (
 
 	"github.com/memcode-ai/memcode/internal/atomicfile"
 	"github.com/memcode-ai/memcode/internal/provider"
+	"github.com/memcode-ai/memcode/internal/statedir"
 )
 
 // ErrBuildsGated is returned by Build/Edit/Push when the server's internal-
@@ -68,7 +69,7 @@ const (
 
 	// metaRelPath is written into a pulled repo so push/publish can resolve the
 	// site without a lookup. Committed on purpose: a re-clone keeps it.
-	metaRelPath = ".memcode/website.json"
+	metaRelPath = "website.json"
 )
 
 // Site is one website, as the www API reports it.
@@ -658,26 +659,26 @@ func (c *Client) DeleteAsset(ctx context.Context, siteID, name string) error {
 
 // ReadMeta loads the .memcode/website.json marker from a pulled repo.
 func ReadMeta(dir string) (Meta, error) {
-	raw, err := os.ReadFile(filepath.Join(dir, metaRelPath))
+	raw, err := os.ReadFile(filepath.Join(statedir.For(dir), metaRelPath))
 	if err != nil {
-		return Meta{}, fmt.Errorf("%s is not a pulled memcode website (missing %s) — use `memcode websites pull <slug>`", dir, metaRelPath)
+		return Meta{}, fmt.Errorf("%s is not a pulled memcode website — use `memcode websites pull <slug>`", dir)
 	}
 	var m Meta
 	if err := json.Unmarshal(raw, &m); err != nil || (m.SiteID == "" && m.LocalID == "") {
-		return Meta{}, fmt.Errorf("corrupt %s", metaRelPath)
+		return Meta{}, fmt.Errorf("corrupt website metadata for %s", dir)
 	}
 	return m, nil
 }
 
 func writeMeta(dir string, m Meta) error {
-	if err := os.MkdirAll(filepath.Join(dir, ".memcode"), 0o755); err != nil {
+	if err := os.MkdirAll(statedir.For(dir), 0o755); err != nil {
 		return err
 	}
 	raw, err := json.MarshalIndent(m, "", "  ")
 	if err != nil {
 		return err
 	}
-	return atomicfile.WriteFile(filepath.Join(dir, metaRelPath), append(raw, '\n'), 0o644)
+	return atomicfile.WriteFile(filepath.Join(statedir.For(dir), metaRelPath), append(raw, '\n'), 0o644)
 }
 
 // download streams a (signed, pre-authenticated) URL to w — no bearer header,

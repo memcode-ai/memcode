@@ -942,7 +942,7 @@ func waitForJob(ctx context.Context, root, id string) string {
 		case <-ctx.Done():
 			return "Interrupted before it finished."
 		case <-deadline.C:
-			return fmt.Sprintf("That task is still running after %s — I stopped waiting. Details in .memcode/jobs/%s/log", maxJobWait, id)
+			return fmt.Sprintf("That task is still running after %s — I stopped waiting. Details: memcode jobs logs %s", maxJobWait, id)
 		case <-tick.C:
 			j, err := jobs.Get(root, id)
 			if err != nil {
@@ -955,7 +955,7 @@ func waitForJob(ctx context.Context, root, id string) string {
 				if strings.TrimSpace(j.Result) != "" {
 					return j.Result
 				}
-				return fmt.Sprintf("That task didn't complete (%s). Details in .memcode/jobs/%s/log", j.Status, id)
+				return fmt.Sprintf("That task didn't complete (%s). Details: memcode jobs logs %s", j.Status, id)
 			}
 		}
 	}

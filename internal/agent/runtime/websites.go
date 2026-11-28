@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/memcode-ai/memcode/internal/authflow"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/memcode-ai/memcode/internal/authflow"
+	"github.com/memcode-ai/memcode/internal/statedir"
 
 	"github.com/memcode-ai/memcode/internal/agent/permissions"
 	"github.com/memcode-ai/memcode/internal/agent/secrets"
@@ -555,7 +557,7 @@ func (s *Session) gateWebsites(ctx context.Context, action string, risk permissi
 // websitesApprovalsPath remembers the repo-scoped "don't ask again" approvals
 // for websites actions: one action name per line (Medium actions only).
 func websitesApprovalsPath(root string) string {
-	return filepath.Join(root, ".memcode", "websites-approvals")
+	return filepath.Join(statedir.For(root), "websites-approvals")
 }
 
 // loadWebsitesApproval reads the remembered per-action approvals. Lines naming

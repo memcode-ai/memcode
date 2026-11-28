@@ -12,9 +12,10 @@ import (
 var approveCmd = &cobra.Command{
 	Use:   "approve <command-pattern>",
 	Short: "Remember an allow-rule so the agent stops re-prompting for it",
-	Long: `Appends an allow-rule to .memcode/permissions so a matching command runs
-without prompting in ask/auto mode. Patterns use '*' as a wildcard. That file is
-plain text and yours to edit directly. Catastrophic commands (rm -rf, git reset
+	Long: `Appends an allow-rule to this project's permissions so a matching command runs
+without prompting in ask/auto mode. Patterns use '*' as a wildcard. The rules are
+a plain-text file in the project's state folder (` + "`memcode doctor`" + ` shows where),
+yours to edit directly. Catastrophic commands (rm -rf, git reset
 --hard, publish, cloud deploys) require --trusted to be remembered.
 
 Examples:

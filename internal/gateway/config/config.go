@@ -16,6 +16,7 @@ import (
 	yaml "go.yaml.in/yaml/v4"
 
 	"github.com/memcode-ai/memcode/internal/atomicfile"
+	"github.com/memcode-ai/memcode/internal/statedir"
 )
 
 // Secret env keys. These live in the global .env (provider.GlobalEnvPath), NOT
@@ -423,11 +424,7 @@ func MediaDir() (string, error) {
 // own memory.md, MEMCODE.md, and skills. Distinct from the project (the cwd) and
 // from user-global ~/.memcode (shared by all agents).
 func AgentHome(id string) (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(home, ".memcode", "agents", id), nil
+	return filepath.Join(statedir.Home(), "agents", id), nil
 }
 
 // Load reads gateway.yaml, returning zero Settings if the file does not exist.

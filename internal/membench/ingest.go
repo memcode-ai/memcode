@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/memcode-ai/memcode/internal/config"
 	"github.com/memcode-ai/memcode/internal/sessionlog"
+	"github.com/memcode-ai/memcode/internal/statedir"
 )
 
 // Ingest writes each benchmark session as a real .memcode session log:
@@ -57,7 +57,7 @@ func Ingest(root string, docs []SessionDoc) error {
 			return err
 		}
 		if !doc.TS.IsZero() {
-			ev := filepath.Join(root, config.DirName, "sessions", doc.ID, "events.jsonl")
+			ev := filepath.Join(statedir.For(root), "sessions", doc.ID, "events.jsonl")
 			_ = os.Chtimes(ev, doc.TS, doc.TS)
 		}
 	}

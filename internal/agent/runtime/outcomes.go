@@ -27,11 +27,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/memcode-ai/memcode/internal/config"
 	"github.com/memcode-ai/memcode/internal/events"
 	"github.com/memcode-ai/memcode/internal/lessons"
 	"github.com/memcode-ai/memcode/internal/llm"
 	"github.com/memcode-ai/memcode/internal/sessionlog"
+	"github.com/memcode-ai/memcode/internal/statedir"
 	"github.com/memcode-ai/memcode/internal/store"
 
 	"github.com/memcode-ai/memcode/internal/wire"
@@ -310,7 +310,7 @@ func (s *Session) factsFromSession(ctx context.Context, t outcomeSession) {
 	// Appending to an old session's log would bump its mtime and corrupt
 	// recency ordering (RecentSessions and burst grouping are mtime-based) —
 	// capture and restore it around the write.
-	evPath := filepath.Join(s.root, config.DirName, "sessions", t.id, "events.jsonl")
+	evPath := filepath.Join(statedir.For(s.root), "sessions", t.id, "events.jsonl")
 	st, statErr := os.Stat(evPath)
 	w, err := sessionlog.Open(s.root, t.id)
 	if err != nil {
@@ -422,7 +422,7 @@ func (s *Session) ruleLines(t outcomeSession) map[string]string {
 		for _, id := range t.prefIDs {
 			want[id] = true
 		}
-		dir := filepath.Join(s.root, ".memcode", "prefs")
+		dir := filepath.Join(statedir.For(s.root), "prefs")
 		entries, _ := os.ReadDir(dir)
 		for _, e := range entries {
 			if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {

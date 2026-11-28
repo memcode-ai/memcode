@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"sort"
 
+	"github.com/memcode-ai/memcode/internal/statedir"
 	"github.com/memcode-ai/memcode/internal/store"
 )
 
@@ -57,7 +58,7 @@ func PendingDemotions(cands []Candidate, _ store.Store) ([]Candidate, error) {
 // form never matched, so demotion deleted a nonexistent path and the binding file
 // survived. Falls back to the legacy <id>.md if no slugged file is found.
 func ConfirmPath(root, id string) string {
-	dir := filepath.Join(root, ".memcode", "prefs")
+	dir := filepath.Join(statedir.For(root), "prefs")
 	if matches, _ := filepath.Glob(filepath.Join(dir, id+"-*.md")); len(matches) > 0 {
 		return matches[0]
 	}

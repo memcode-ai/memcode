@@ -19,6 +19,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/memcode-ai/memcode/internal/statedir"
 )
 
 // Skill is one discovered trait: its frontmatter (the Agent Skills open spec,
@@ -70,7 +72,7 @@ type rootSpec struct {
 // (a gateway agent's own skills — more specific than the user), which outrank
 // user-global ones.
 func discoveryRoots(repoRoot string, extra []string) []rootSpec {
-	roots := []rootSpec{{filepath.Join(repoRoot, ".memcode", "skills"), 0}}
+	roots := []rootSpec{{filepath.Join(statedir.For(repoRoot), "skills"), 0}}
 	for _, d := range nestedSkillDirs(repoRoot) { // .agents/skills + .claude/skills, repo-root or nested
 		roots = append(roots, rootSpec{d, 1})
 	}
@@ -80,7 +82,7 @@ func discoveryRoots(repoRoot string, extra []string) []rootSpec {
 	if home, err := os.UserHomeDir(); err == nil && home != "" {
 		roots = append(roots,
 			rootSpec{filepath.Join(home, ".agents", "skills"), 3},  // Agent Skills, user-global
-			rootSpec{filepath.Join(home, ".memcode", "skills"), 3}, // memcode, user-global
+			rootSpec{filepath.Join(statedir.Home(), "skills"), 3},  // memcode, user-global
 			rootSpec{filepath.Join(home, ".claude", "skills"), 4},  // Claude Code user skills
 			rootSpec{filepath.Join(home, ".claude", "plugins"), 5}, // Claude Code plugins
 		)

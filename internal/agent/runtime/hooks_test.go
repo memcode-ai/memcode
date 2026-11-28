@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/memcode-ai/memcode/internal/agent/permissions"
+	"github.com/memcode-ai/memcode/internal/statedir"
 	"github.com/memcode-ai/memcode/internal/store"
 	"github.com/memcode-ai/memcode/internal/wire"
 )
@@ -19,10 +20,10 @@ import (
 func hooksSess(t *testing.T, root, cfg string) *Session {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
-	if err := os.MkdirAll(filepath.Join(root, ".memcode"), 0o755); err != nil {
+	if err := os.MkdirAll(statedir.For(root), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, ".memcode", "hooks.json"), []byte(cfg), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(statedir.For(root), "hooks.json"), []byte(cfg), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	st, err := store.Open(context.Background(), filepath.Join(t.TempDir(), "state.db"))

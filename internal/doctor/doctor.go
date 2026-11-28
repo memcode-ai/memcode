@@ -16,9 +16,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/memcode-ai/memcode/internal/config"
 	"github.com/memcode-ai/memcode/internal/lsp"
 	"github.com/memcode-ai/memcode/internal/provider"
+	"github.com/memcode-ai/memcode/internal/statedir"
 	"github.com/memcode-ai/memcode/internal/store"
 )
 
@@ -45,28 +45,11 @@ func Check(ctx context.Context, st store.Store, root string, prov provider.Model
 	add := func(name string, s Status, detail string) { out = append(out, Result{name, s, detail}) }
 
 	// 1. Initialized — the state db exists.
-	db := filepath.Join(root, config.DirName, "state.db")
+	db := filepath.Join(statedir.For(root), "state.db")
 	if _, err := os.Stat(db); err != nil {
-		add("initialized", Fail, "no .memcode/state.db — run `memcode init`")
+		add("initialized", Fail, "not set up for this project yet — launching memcode here sets it up")
 	} else {
 		add("initialized", OK, root)
-	}
-
-	// 2. .memcode self-ignored — the one that bit us repeatedly. Trust git, not the
-	// file's bytes: does git actually ignore .memcode?
-	if inGitRepo(ctx, root) {
-		// Probe a path INSIDE .memcode, not the bare dir. The self-ignore
-		// (.memcode/.gitignore = `*`) ignores the dir's CONTENTS — which is what hides
-		// it from `git status` — but `git check-ignore .memcode` (the dir name) does
-		// NOT match it. Checking a content path is correct for both the self-ignore and
-		// a root .gitignore entry.
-		if gitIgnores(ctx, root, filepath.Join(config.DirName, "state.db")) {
-			add(".memcode self-ignored", OK, "git ignores .memcode/")
-		} else {
-			add(".memcode self-ignored", Fail, "git shows .memcode/ — relaunch memcode (writes .memcode/.gitignore on startup)")
-		}
-	} else {
-		add(".memcode self-ignored", Warn, "not a git repo — nothing to ignore")
 	}
 
 	// 3. Backend connection — hosted (cli → gateway → llms) or a custom
@@ -146,7 +129,7 @@ func Check(ctx context.Context, st store.Store, root string, prov provider.Model
 	}
 
 	// 6. Sessionlog writable — episodic memory + $ capture depend on it.
-	if dir := filepath.Join(root, config.DirName, "sessions"); writable(dir) {
+	if dir := filepath.Join(statedir.For(root), "sessions"); writable(dir) {
 		add("sessionlog writable", OK, dir)
 	} else {
 		add("sessionlog writable", Fail, "can't write "+dir+" — check permissions")
@@ -299,10 +282,6 @@ func Render(rs []Result) string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
-func inGitRepo(ctx context.Context, root string) bool {
-	return exec.CommandContext(ctx, "git", "-C", root, "rev-parse", "--git-dir").Run() == nil
-}
-
 // indexFresh compares the HEAD the model was last scanned at (the repo/index_head
 // State marker that openProject's freshen writes) to the current HEAD. ok=false when
 // there's nothing to compare (non-git, or never scanned).
@@ -321,13 +300,8 @@ func indexFresh(ctx context.Context, st store.Store, root string) (fresh, ok boo
 	return last == cur, true
 }
 
-// gitIgnores reports whether git actually ignores the path (check-ignore exits 0).
-func gitIgnores(ctx context.Context, root, path string) bool {
-	return exec.CommandContext(ctx, "git", "-C", root, "check-ignore", "-q", path).Run() == nil
-}
-
 // writable reports whether dir is (or could be) written — probing the nearest
-// EXISTING ancestor so a diagnostic never creates .memcode on an uninitialized repo.
+// EXISTING ancestor so a diagnostic never creates state for an uninitialized project.
 func writable(dir string) bool {
 	probe := dir
 	for {

@@ -12,6 +12,7 @@ import (
 	"github.com/memcode-ai/memcode/internal/agent/permissions"
 	"github.com/memcode-ai/memcode/internal/agent/tools"
 	"github.com/memcode-ai/memcode/internal/sessionlog"
+	"github.com/memcode-ai/memcode/internal/statedir"
 	"github.com/memcode-ai/memcode/internal/store"
 	"github.com/memcode-ai/memcode/internal/wire"
 )
@@ -102,8 +103,8 @@ func TestSessionLogDogfood(t *testing.T) {
 	}
 
 	// Print the real artifacts (visible under `go test -v`).
-	ev, _ := os.ReadFile(filepath.Join(root, ".memcode", "sessions", id, "events.jsonl"))
-	tr, _ := os.ReadFile(filepath.Join(root, ".memcode", "sessions", id, "transcript.md"))
+	ev, _ := os.ReadFile(filepath.Join(statedir.For(root), "sessions", id, "events.jsonl"))
+	tr, _ := os.ReadFile(filepath.Join(statedir.For(root), "sessions", id, "transcript.md"))
 	t.Logf("\n=== events.jsonl ===\n%s", ev)
 	t.Logf("\n=== transcript.md ===\n%s", tr)
 	t.Logf("\n=== session recap (what the agent self-recalls) ===\n%s\n", recap)

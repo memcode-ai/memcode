@@ -16,6 +16,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/memcode-ai/memcode/internal/statedir"
 )
 
 func tarGz(t *testing.T, files map[string]string) []byte {
@@ -114,9 +116,13 @@ func TestInitLocalCreatesNothingRemote(t *testing.T) {
 			t.Errorf("missing %s", p)
 		}
 	}
-	gi, _ := os.ReadFile(filepath.Join(site.Source, ".gitignore"))
-	if !strings.Contains(string(gi), ".memcode/") {
-		t.Error(".memcode/ must be ignored so its marker never gets pushed")
+	// The site's metadata lives in memcode's state, never in the site, so it can
+	// never be pushed with it.
+	if _, err := os.Stat(filepath.Join(site.Source, ".memcode")); !os.IsNotExist(err) {
+		t.Error("the site folder must hold no memcode metadata")
+	}
+	if _, err := os.Stat(filepath.Join(statedir.For(site.Source), metaRelPath)); err != nil {
+		t.Errorf("site metadata missing from memcode's state: %v", err)
 	}
 	if found, ok := FindLocal("crumb bakery"); !ok || found.Source != site.Source {
 		t.Fatalf("FindLocal by name: %+v %v", found, ok)

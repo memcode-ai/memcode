@@ -21,6 +21,7 @@ import (
 	"github.com/memcode-ai/memcode/internal/config"
 	"github.com/memcode-ai/memcode/internal/llm"
 	"github.com/memcode-ai/memcode/internal/provider"
+	"github.com/memcode-ai/memcode/internal/statedir"
 	"github.com/memcode-ai/memcode/internal/store"
 	"github.com/memcode-ai/memcode/internal/theme"
 	"github.com/memcode-ai/memcode/internal/todos"
@@ -1077,7 +1078,7 @@ func TestAgentCountFromJobsDir(t *testing.T) {
 		t.Errorf("expected 0 agents with no jobs dir, got %d", n)
 	}
 	// Create a jobs dir with a finished job meta → still 0 (only running counts).
-	jobsDir := filepath.Join(dir, ".memcode", "jobs", "job_test1")
+	jobsDir := filepath.Join(statedir.For(dir), "jobs", "job_test1")
 	if err := os.MkdirAll(jobsDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -1095,7 +1096,7 @@ func TestAgentCountFromJobsDir(t *testing.T) {
 func TestSeedSeenAgentsNoNotifyOnLaunch(t *testing.T) {
 	dir := t.TempDir()
 	// Create a finished job.
-	jobsDir := filepath.Join(dir, ".memcode", "jobs", "job_done")
+	jobsDir := filepath.Join(statedir.For(dir), "jobs", "job_done")
 	if err := os.MkdirAll(jobsDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -1156,7 +1157,7 @@ func TestSlashForkNothingToFork(t *testing.T) {
 func TestSlashForkForks(t *testing.T) {
 	sess, be, runner := newRecRunner(t)
 	root, src := sess.Root(), sess.SessionID()
-	dir := filepath.Join(root, ".memcode", "sessions", src)
+	dir := filepath.Join(statedir.For(root), "sessions", src)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}

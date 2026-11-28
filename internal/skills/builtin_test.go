@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/memcode-ai/memcode/internal/statedir"
 )
 
 func TestBuiltinWebsitesDiscoveredWithoutFilesystemRoots(t *testing.T) {
@@ -38,7 +40,7 @@ func TestBuiltinWebsitesDiscoveredWithoutFilesystemRoots(t *testing.T) {
 func TestBuiltinWebsitesRepoLocalOverrideWins(t *testing.T) {
 	repo := t.TempDir()
 	t.Setenv("HOME", filepath.Join(t.TempDir(), "missing-home"))
-	writeSkill(t, filepath.Join(repo, ".memcode", "skills"), "websites", `---
+	writeSkill(t, filepath.Join(statedir.For(repo), "skills"), "websites", `---
 name: websites
 description: repo override
 metadata:

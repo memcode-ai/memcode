@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/memcode-ai/memcode/internal/atomicfile"
+	"github.com/memcode-ai/memcode/internal/statedir"
 )
 
 const keepCheckpoints = 50 // per session; oldest pruned on Begin
@@ -53,7 +54,7 @@ type Checkpoint struct {
 
 // New opens (or creates) the checkpoint log for a session.
 func New(root, sessionID string) *Log {
-	l := &Log{root: root, dir: filepath.Join(root, ".memcode", "checkpoints", sessionID)}
+	l := &Log{root: root, dir: filepath.Join(statedir.For(root), "checkpoints", sessionID)}
 	l.nextSeq = 1
 	for _, m := range l.list() {
 		if m.Seq >= l.nextSeq {

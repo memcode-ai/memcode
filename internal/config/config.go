@@ -1,5 +1,6 @@
-// Package config loads and persists per-project memcode configuration,
-// stored under a .memcode directory at the project root.
+// Package config loads and persists per-project memcode configuration, stored
+// in the project's state directory under the user-global memcode home (see
+// internal/statedir) — never inside the project itself.
 package config
 
 import (
@@ -13,10 +14,15 @@ import (
 
 	"github.com/memcode-ai/memcode/internal/atomicfile"
 	"github.com/memcode-ai/memcode/internal/provider"
+	"github.com/memcode-ai/memcode/internal/statedir"
 )
 
-// DirName is the per-project directory that holds memcode state.
-const DirName = ".memcode"
+// DirName is the directory an older memcode created inside each project. Only
+// tasks/ remains there; state lives in StateDir(root).
+const DirName = statedir.LegacyName
+
+// StateDir is where memcode keeps the state of the project at root.
+func StateDir(root string) string { return statedir.For(root) }
 
 // ConfigFile is the config filename inside DirName.
 const ConfigFile = "config.json"
@@ -210,11 +216,11 @@ func (c *Config) Save() error {
 	if c.Root == "" {
 		return fmt.Errorf("config has no root set")
 	}
-	path := filepath.Join(c.Root, DirName, ConfigFile)
+	path := filepath.Join(StateDir(c.Root), ConfigFile)
 	return write(path, *c)
 }
 
-// ErrNotInitialized is returned when no .memcode directory is found.
+// ErrNotInitialized is returned when the project has no memcode state yet.
 var ErrNotInitialized = errors.New("memcode is not initialized in this project")
 
 // defaultConfig returns the configuration written by `memcode init`.
@@ -232,7 +238,7 @@ func defaultConfig() Config {
 	}
 }
 
-// Init creates the .memcode directory and config file at root. It returns
+// Init creates the project's state directory and config file. It returns
 // whether new configuration was written. Passing force overwrites an existing
 // config file.
 func Init(root string, force bool) (created bool, err error) {
@@ -241,11 +247,10 @@ func Init(root string, force bool) (created bool, err error) {
 		return false, err
 	}
 
-	dir := filepath.Join(abs, DirName)
+	dir := StateDir(abs)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return false, err
 	}
-	EnsureGitignore(abs) // make .memcode self-ignoring
 
 	path := filepath.Join(dir, ConfigFile)
 	if _, statErr := os.Stat(path); statErr == nil && !force {
@@ -345,7 +350,7 @@ func Load(start string) (*Config, error) {
 		return nil, err
 	}
 
-	path := filepath.Join(root, DirName, ConfigFile)
+	path := filepath.Join(StateDir(root), ConfigFile)
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, ErrNotInitialized

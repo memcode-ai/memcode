@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/memcode-ai/memcode/internal/events"
+	"github.com/memcode-ai/memcode/internal/statedir"
 	"github.com/memcode-ai/memcode/internal/store"
 )
 
@@ -127,9 +128,9 @@ func TestInlineSurfacesTopLessons(t *testing.T) {
 		t.Errorf("lesson content missing: %q", block)
 	}
 	// Deleting the file revokes the lesson.
-	entries, _ := os.ReadDir(filepath.Join(root, ".memcode", "lessons"))
+	entries, _ := os.ReadDir(filepath.Join(statedir.For(root), "lessons"))
 	for _, e := range entries {
-		_ = os.Remove(filepath.Join(root, ".memcode", "lessons", e.Name()))
+		_ = os.Remove(filepath.Join(statedir.For(root), "lessons", e.Name()))
 	}
 	if Inline(root) != "" {
 		t.Error("deleted lesson must vanish from the block")
@@ -216,7 +217,7 @@ func TestDemoteMarkerBlocksRepromotion(t *testing.T) {
 	if err := Demote(root, cands[0]); err != nil {
 		t.Fatal(err)
 	}
-	if matches, _ := filepath.Glob(filepath.Join(root, ".memcode", "lessons", cands[0].ID+"-*.md")); len(matches) != 0 {
+	if matches, _ := filepath.Glob(filepath.Join(statedir.For(root), "lessons", cands[0].ID+"-*.md")); len(matches) != 0 {
 		t.Fatal("demote must remove the lesson file")
 	}
 	if got := PendingPromotions(root, cands); len(got) != 0 {
@@ -232,7 +233,7 @@ func TestDemoteMarkerBlocksRepromotion(t *testing.T) {
 	if _, err := WriteLesson(root, cands[0]); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(root, ".memcode", "lessons", cands[0].ID+".demoted")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(statedir.For(root), "lessons", cands[0].ID+".demoted")); !os.IsNotExist(err) {
 		t.Error("promotion must clear the demotion marker")
 	}
 }

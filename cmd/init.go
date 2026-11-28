@@ -15,8 +15,8 @@ import (
 var initCmd = &cobra.Command{
 	Use:   "init",
 	Short: "Set up memcode and build the initial model of this project",
-	Long: `Creates a .memcode directory holding the state engine, then scans the
-project to build its deterministic topology: subsystems, dependencies, ownership
+	Long: `Sets up memcode's state for this project (kept in ~/.memcode, never inside
+the project), then scans the project to build its deterministic topology: subsystems, dependencies, ownership
 and change hotspots — all from manifests, the directory tree and git history (no
 code parsing). Safe to re-run; see also "memcode index" to refresh.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -29,12 +29,8 @@ code parsing). Safe to re-run; see also "memcode index" to refresh.`,
 		if err != nil {
 			return err
 		}
-		created, err := config.Init(root, force)
-		if err != nil {
+		if _, err := config.Init(root, force); err != nil {
 			return err
-		}
-		if created {
-			fmt.Printf("created %s/ (memcode's local state — self-ignored via %s/.gitignore)\n", config.DirName, config.DirName)
 		}
 		fmt.Printf("repo root: %s  (%s)\n", root, src)
 		fmt.Printf("state db:  %s\n\n", storePath(root))

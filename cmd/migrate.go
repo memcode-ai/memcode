@@ -18,6 +18,7 @@ import (
 	"github.com/memcode-ai/memcode/internal/gateway/importer"
 	"github.com/memcode-ai/memcode/internal/mcp"
 	"github.com/memcode-ai/memcode/internal/provider"
+	"github.com/memcode-ai/memcode/internal/statedir"
 )
 
 // The migration commands are deliberately source-specific — `memcode claw` for
@@ -514,11 +515,7 @@ func copySkills(srcDir string) (imported []string, notes []string) {
 	if err != nil {
 		return nil, nil // no skills dir → nothing to do
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return nil, nil
-	}
-	dstRoot := filepath.Join(home, ".memcode", "skills")
+	dstRoot := filepath.Join(statedir.Home(), "skills")
 	for _, e := range entries {
 		if !e.IsDir() {
 			continue
@@ -582,11 +579,7 @@ func migrateMemories(src migrationSource) (int, error) {
 	if len(entries) == 0 {
 		return 0, nil
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return 0, nil
-	}
-	path := filepath.Join(home, ".memcode", "memory.md")
+	path := filepath.Join(statedir.Home(), "memory.md")
 	if err := upsertMemoryBlock(path, src.slug, buildMemoryBlock(src, entries, truncated)); err != nil {
 		return 0, err
 	}

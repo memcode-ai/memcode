@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/memcode-ai/memcode/internal/statedir"
 )
 
 func TestLoadInstructions(t *testing.T) {
@@ -77,7 +79,7 @@ func TestLoadMemory(t *testing.T) {
 	}
 
 	// Global + project: additive (both present), global before project.
-	pdir := filepath.Join(root, ".memcode")
+	pdir := statedir.For(root)
 	if err := os.MkdirAll(pdir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +151,7 @@ func TestShrinkwrapCachePathStableAndHashed(t *testing.T) {
 	if a == b {
 		t.Errorf("different content must map to different cache paths (hash-keyed): both %q", a)
 	}
-	if !strings.Contains(a, filepath.Join(".memcode", "instructions")) {
-		t.Errorf("cache must live under .memcode/instructions, got %q", a)
+	if want := filepath.Join(statedir.For(root), "instructions"); !strings.HasPrefix(a, want+string(filepath.Separator)) {
+		t.Errorf("cache must live in the project's state dir (%s), got %q", want, a)
 	}
 }

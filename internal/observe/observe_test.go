@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/memcode-ai/memcode/internal/sessionlog"
+	"github.com/memcode-ai/memcode/internal/statedir"
 )
 
 // Load must merge memcode's own native session (read-only, via sessionlog)
@@ -60,7 +61,7 @@ func TestLoadMergesNativeAndExternalTaggedBySource(t *testing.T) {
 	}
 
 	// Nothing external ever lands in .memcode/sessions.
-	entries, err := os.ReadDir(filepath.Join(root, ".memcode", "sessions"))
+	entries, err := os.ReadDir(filepath.Join(statedir.For(root), "sessions"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +71,7 @@ func TestLoadMergesNativeAndExternalTaggedBySource(t *testing.T) {
 
 	// The external observation lives in its own namespace, untouched by the
 	// native writer.
-	if _, err := os.Stat(filepath.Join(root, ".memcode", "observe", "claude-code", "cc_session_1.jsonl")); err != nil {
+	if _, err := os.Stat(filepath.Join(statedir.For(root), "observe", "claude-code", "cc_session_1.jsonl")); err != nil {
 		t.Errorf("external observation missing from its own namespace: %v", err)
 	}
 }
@@ -98,7 +99,7 @@ func TestHasAny(t *testing.T) {
 func TestLoadSkipsMalformedLines(t *testing.T) {
 	ctx := context.Background()
 	root := t.TempDir()
-	dir := filepath.Join(root, ".memcode", "observe", "codex")
+	dir := filepath.Join(statedir.For(root), "observe", "codex")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}

@@ -37,7 +37,7 @@ without switching away from the agent it already uses.
 Add it to a client that speaks MCP, e.g. Claude Code:
   claude mcp add memcode -- memcode mcp serve
 
-The memory tools are read-only and run offline against the local .memcode store.`,
+The memory tools are read-only and run offline against the project's local memcode store.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
 		st, cfg, err := openProject(ctx)

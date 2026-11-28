@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/memcode-ai/memcode/internal/config"
+	"github.com/memcode-ai/memcode/internal/statedir"
 )
 
 // writeSession appends a sequence of records under root for the given id.
@@ -53,7 +53,7 @@ func TestAppendAndRecent(t *testing.T) {
 	}
 
 	// The files actually exist on disk under .memcode/sessions/<id>/.
-	dir := filepath.Join(root, config.DirName, "sessions", "sess_a")
+	dir := filepath.Join(statedir.For(root), "sessions", "sess_a")
 	for _, f := range []string{"events.jsonl", "transcript.md"} {
 		if _, err := readRecords(filepath.Join(dir, "events.jsonl")); err != nil {
 			t.Fatalf("events unreadable: %v", err)
@@ -164,7 +164,7 @@ func TestLatestRecentPicksNewestSession(t *testing.T) {
 	// times in a row locally. Stamp the order the test is actually about
 	// instead of racing the clock for it.
 	old := time.Now().Add(-time.Hour)
-	if err := os.Chtimes(filepath.Join(root, config.DirName, "sessions", "sess_1", "events.jsonl"), old, old); err != nil {
+	if err := os.Chtimes(filepath.Join(statedir.For(root), "sessions", "sess_1", "events.jsonl"), old, old); err != nil {
 		t.Fatal(err)
 	}
 

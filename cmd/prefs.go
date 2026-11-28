@@ -19,8 +19,8 @@ signal count, session count, and status so you can see what the system has learn
 and how close each candidate is to the promotion bar (weight ≥ 2.0, ≥3 signals,
 ≥2 sessions).
 
-Confirmed preferences are the standing plaintext rules in .memcode/prefs/*.md;
-review them with memcode{command:"preferences"} or by editing the files directly.`,
+Confirmed preferences are standing plaintext rules kept with the project's
+memcode state; review them with memcode{command:"preferences"}.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
 		st, _, err := openProject(ctx)

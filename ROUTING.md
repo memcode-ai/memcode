@@ -30,7 +30,7 @@ The pin resolver settles this once, at session start (`config.ResolvePin`):
 | Source | Persisted? | Notes |
 |---|---|---|
 | `--model` / the session override | **No** | This invocation's model, not a new preference |
-| Workspace (`.memcode` config) | Yes | This repo's answer |
+| Workspace (the project's memcode config) | Yes | This repo's answer |
 | User store | Yes | Adopted into the workspace on first use here |
 | `default_model` (catalog) | **Seeds once**, then persisted | So only one run ever consults it |
 

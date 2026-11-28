@@ -5,8 +5,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/memcode-ai/memcode/internal/config"
 	"github.com/memcode-ai/memcode/internal/llm"
+	"github.com/memcode-ai/memcode/internal/statedir"
 	"github.com/memcode-ai/memcode/internal/wire"
 )
 
@@ -69,7 +69,7 @@ func (s *Session) traceWire(purpose llm.Purpose, req wire.Request, resp wire.Res
 	if merr != nil {
 		return
 	}
-	dir := filepath.Join(s.root, config.DirName, "sessions", s.sessionID)
+	dir := filepath.Join(statedir.For(s.root), "sessions", s.sessionID)
 	_ = os.MkdirAll(dir, 0o755)
 	f, ferr := os.OpenFile(filepath.Join(dir, "wire.jsonl"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if ferr != nil {

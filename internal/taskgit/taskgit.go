@@ -18,6 +18,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/memcode-ai/memcode/internal/statedir"
 )
 
 // Worktree is an isolated checkout a run executes in.
@@ -67,7 +69,7 @@ func HeadRevision(ctx context.Context, dir string) (string, error) {
 // they are ignored by git, obviously disposable, and easy to find when a failed
 // run needs inspecting.
 func WorktreeRoot(repo string) string {
-	return filepath.Join(repo, ".memcode", "worktrees")
+	return filepath.Join(statedir.For(repo), "worktrees")
 }
 
 // BranchName renders a run's branch from the task's pattern.

@@ -149,7 +149,7 @@ func (s *Session) saveScript(ctx context.Context, slug, description, command str
 	}
 	s.refreshScripts()
 	s.toolLine(true, "Script", "save "+sc.Slug, "", false)
-	return textResult("saved script `" + sc.Slug + "` (.memcode/scripts/" + sc.Slug + ".sh) — replay it with script{run:\"" + sc.Slug + "\"}.")
+	return textResult("saved script `" + sc.Slug + "` — replay it with script{run:\"" + sc.Slug + "\"}.")
 }
 
 // deleteScript soft-removes a saved script (moved to .trash, not hard-deleted — .memcode is
@@ -170,7 +170,7 @@ func (s *Session) deleteScript(ctx context.Context, slug string) toolResult {
 	}
 	s.refreshScripts()
 	s.toolLine(true, "Script", "delete "+sc.Slug, "", false)
-	return textResult("deleted script `" + sc.Slug + "` (moved to .memcode/scripts/.trash — recoverable, not gone for good).")
+	return textResult("deleted script `" + sc.Slug + "` (moved to the trash — recoverable, not gone for good).")
 }
 
 // refreshScripts re-indexes the session's script catalog after a save/delete so subsequent

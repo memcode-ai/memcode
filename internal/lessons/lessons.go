@@ -31,6 +31,7 @@ import (
 
 	"github.com/memcode-ai/memcode/internal/atomicfile"
 	"github.com/memcode-ai/memcode/internal/events"
+	"github.com/memcode-ai/memcode/internal/statedir"
 	"github.com/memcode-ai/memcode/internal/store"
 
 	"github.com/memcode-ai/memcode/internal/setsim"
@@ -436,7 +437,7 @@ func InlineTop(root string) (string, []string) {
 	return strings.TrimRight(b.String(), "\n"), ids
 }
 
-func dir(root string) string { return filepath.Join(root, ".memcode", "lessons") }
+func dir(root string) string { return filepath.Join(statedir.For(root), "lessons") }
 
 func tokenSet(text string) map[string]bool {
 	out := map[string]bool{}
