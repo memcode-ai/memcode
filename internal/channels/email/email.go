@@ -61,8 +61,8 @@ type Channel struct {
 	threads map[string]threadInfo
 
 	// dial/send are test seams.
-	dial func() (imapSession, error)
-	send func(to string, raw []byte) error
+	dial func(ctx context.Context) (imapSession, error)
+	send func(ctx context.Context, to string, raw []byte) error
 }
 
 type threadInfo struct {
@@ -152,7 +152,7 @@ func (c *Channel) Start(ctx context.Context, sink channels.Sink) error {
 // the \Seen flag — is the ack, so the channel leaves the mailbox's read state
 // untouched (safe on a personal inbox).
 func (c *Channel) pollOnce(ctx context.Context, sink channels.Sink) error {
-	sess, err := c.dial()
+	sess, err := c.dial(ctx)
 	if err != nil {
 		return err
 	}
@@ -317,5 +317,5 @@ func (c *Channel) Send(ctx context.Context, conversation string, msg channels.Ou
 	th := c.threads[conversation]
 	c.mu.Unlock()
 	raw := composeReply(c.address, conversation, th, msg.Text)
-	return c.send(conversation, raw)
+	return c.send(ctx, conversation, raw)
 }

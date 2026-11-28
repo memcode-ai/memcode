@@ -178,6 +178,11 @@ type Config struct {
 
 	// Endpoint selects the active Endpoints entry by name ("" = the first).
 	Endpoint string `json:"endpoint,omitempty"`
+
+	// SessionRetentionDays overrides, for this project, how many days a session
+	// is kept after its last activity (0 = forever). nil defers to the user-level
+	// setting, then the default (see SessionRetention).
+	SessionRetentionDays *int `json:"session_retention_days,omitempty"`
 }
 
 // Endpoint is one named OpenAI-compatible endpoint in the config list.

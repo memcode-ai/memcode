@@ -1760,19 +1760,49 @@ func (s *appState) updateConfig(mut func(cfg *config.Config)) {
 var configMu sync.Mutex
 
 // startSpinner ticks the live region ~8fps while busy so the spinner + elapsed clock animate.
+//
+// Single-instance: a chained turn calling it again while the spinner runs is a no-op
+// (claimSpinner). The goroutine stops when the app is idle (released ON the UI thread,
+// so a startSpinner right after sees the slot free), when the app ctx ends, or when the
+// UI loop stops running dispatched work (Dispatch closed at quit) — never blocks forever.
 func (s *appState) startSpinner() {
+	tok := claimSpinner(s)
+	if tok == nil {
+		return // already animating
+	}
+	done := context.Background().Done()
+	if s.w != nil && s.w.ctx != nil {
+		done = s.w.ctx.Done()
+	}
+	const uiStalled = 30 * time.Second // no dispatched tick ran for this long: the UI loop is gone
 	go func() {
+		defer releaseSpinner(s, tok)
 		t := time.NewTicker(120 * time.Millisecond)
 		defer t.Stop()
-		for range t.C {
-			done := make(chan bool, 1)
+		for {
+			select {
+			case <-done:
+				return
+			case <-t.C:
+			}
+			busy := make(chan bool, 1) // buffered: a late-running tick never blocks the UI
 			s.rt.Dispatch(func() {
-				if s.busy() {
+				b := s.busy()
+				if b {
 					s.SetState(func() { s.spin++ })
+				} else {
+					releaseSpinner(s, tok)
 				}
-				done <- s.busy()
+				busy <- b
 			})
-			if !<-done {
+			select {
+			case b := <-busy:
+				if !b {
+					return
+				}
+			case <-done:
+				return
+			case <-time.After(uiStalled):
 				return
 			}
 		}

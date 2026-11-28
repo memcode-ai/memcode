@@ -334,3 +334,33 @@ func TestSendChunksAsNotice(t *testing.T) {
 		t.Error("chunked bodies do not reassemble to the original text")
 	}
 }
+
+// A room that becomes a DM mid-run (m.direct arrives in /sync account data) is
+// recognized without a restart.
+func TestDirectRoomsRefreshFromSync(t *testing.T) {
+	c := New("http://unused", "TOKEN", nil, "")
+	c.userID, c.direct, c.lastIdentity = botID, map[string]bool{}, time.Now()
+	var resp syncResponse
+	if err := json.Unmarshal([]byte(`{"next_batch":"b","account_data":{"events":[
+		{"type":"m.direct","content":{"@new:example.org":["!newdm:example.org"]}}]}}`), &resp); err != nil {
+		t.Fatal(err)
+	}
+	c.refreshIdentity(context.Background(), &resp)
+	if !c.direct["!newdm:example.org"] {
+		t.Fatalf("direct = %v, want the room from the sync's m.direct", c.direct)
+	}
+}
+
+// A whoami / m.direct fetch that failed at startup is retried later, so DM
+// detection doesn't stay off for the whole run.
+func TestIdentityRetriedAfterStartupFailure(t *testing.T) {
+	fs := &fakeHomeserver{t: t, syncs: []string{`{"next_batch":"b"}`}}
+	srv := httptest.NewServer(fs.handler())
+	defer srv.Close()
+	c := New(srv.URL, "TOKEN", nil, "")
+	c.lastIdentity = time.Now().Add(-2 * identityRetry) // startup attempt failed long enough ago
+	c.refreshIdentity(context.Background(), &syncResponse{NextBatch: "b"})
+	if c.userID != botID || !c.direct["!dm:example.org"] {
+		t.Fatalf("after retry: userID=%q direct=%v", c.userID, c.direct)
+	}
+}

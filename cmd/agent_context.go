@@ -29,6 +29,8 @@ type jobContext struct {
 	// Toolsets/DisabledToolsets are the agent's tool policy.
 	Toolsets         []string `json:"toolsets,omitempty"`
 	DisabledToolsets []string `json:"disabled_toolsets,omitempty"`
+	// Audience "shared": the reply goes to a group (see runtime.SetSharedAudience).
+	Audience string `json:"audience,omitempty"`
 }
 
 // resolveJobAttachments turns spool IDs into engine attachments. Each ID must

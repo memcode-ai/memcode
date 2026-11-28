@@ -69,6 +69,13 @@ func runStubServer() {
 			reply(req.ID, []Location{loc, {URI: "file:///w/y.go", Range: loc.Range}})
 		case "textDocument/hover":
 			reply(req.ID, map[string]any{"contents": map[string]any{"kind": "plaintext", "value": "func Foo() int"}})
+		case "test/hang":
+			// never replies: the client's timeout must clean up after itself
+		case "test/delayed":
+			time.Sleep(300 * time.Millisecond)
+			reply(req.ID, "late")
+		case "test/die":
+			os.Exit(3)
 		case "shutdown":
 			reply(req.ID, nil)
 		case "exit":
@@ -127,5 +134,81 @@ func TestPathURIRoundTrip(t *testing.T) {
 	}
 	if p := URIToPath(uri); p != "/w/x.go" {
 		t.Errorf("URIToPath = %q", p)
+	}
+}
+
+// A call that times out must not leak its pending entry.
+func TestCallTimeoutForgetsPending(t *testing.T) {
+	c := newStubClientWithEnv(t)
+	defer c.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	if _, err := c.call(ctx, "test/hang", nil); err == nil {
+		t.Fatal("hang call returned without error")
+	}
+	c.mu.Lock()
+	n := len(c.pending)
+	c.mu.Unlock()
+	if n != 0 {
+		t.Fatalf("pending entries after timeout = %d, want 0", n)
+	}
+}
+
+// A writer stuck on stdin (simulated by holding the write lock) must not stop the read
+// loop from delivering responses to other callers.
+func TestBlockedWriterDoesNotStallReads(t *testing.T) {
+	c := newStubClientWithEnv(t)
+	defer c.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	got := make(chan error, 1)
+	go func() {
+		_, err := c.call(ctx, "test/delayed", nil)
+		got <- err
+	}()
+	time.Sleep(100 * time.Millisecond) // the request is written; its reply is due in ~200ms
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
+	select {
+	case err := <-got:
+		if err != nil {
+			t.Fatalf("delayed call: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("response not delivered while a writer held the write lock")
+	}
+}
+
+// A server that dies on its own is reaped (no zombie), and pending calls fail fast.
+func TestExitedServerIsReaped(t *testing.T) {
+	c := newStubClientWithEnv(t)
+	defer c.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if _, err := c.call(ctx, "test/die", nil); err == nil {
+		t.Fatal("call to a dying server succeeded")
+	}
+	select {
+	case <-c.exited:
+	case <-time.After(3 * time.Second):
+		t.Fatal("exited server was not reaped")
+	}
+	if c.cmd.ProcessState == nil {
+		t.Fatal("no ProcessState: Wait was never called")
+	}
+}
+
+// Close on a live server returns promptly and reaps it.
+func TestCloseReaps(t *testing.T) {
+	c := newStubClientWithEnv(t)
+	start := time.Now()
+	c.Close()
+	if time.Since(start) > 6*time.Second {
+		t.Fatalf("Close took %v", time.Since(start))
+	}
+	select {
+	case <-c.exited:
+	default:
+		t.Fatal("Close returned before the server was reaped")
 	}
 }

@@ -1782,6 +1782,11 @@ func (s *Session) bash(ctx context.Context, input json.RawMessage) toolResult {
 		return errResult("bash arrived with an EMPTY command — the content likely didn't transmit. Re-issue it; if it's a large command, split it into smaller steps.")
 	}
 	risk, catastrophic := permissions.ClassifyBash(in.Command)
+	if in.OutsideSandbox && risk < permissions.Dangerous {
+		// Leaving the sandbox exposes memcode's credentials and authority to the
+		// command: never silent, in any mode but allow-all.
+		risk = permissions.Dangerous
+	}
 	// In research contexts (plan/explore), resolve the AMBIGUOUS middle (Medium) with
 	// a cheap classify-lane check — it can confirm read-only (→ auto-run) or flag a likely
 	// mutation (→ confirm). Deterministic Safe/Dangerous are trusted as-is.
@@ -1808,7 +1813,7 @@ func (s *Session) bash(ctx context.Context, input json.RawMessage) toolResult {
 	if !ok {
 		return errResult("command denied: " + reason)
 	}
-	return s.runGatedCommand(ctx, command, in.Cwd, in.Background)
+	return s.runGatedCommandIn(ctx, command, in.Cwd, in.Background, in.OutsideSandbox)
 }
 
 // runGatedCommand executes an ALREADY-APPROVED command: resolves cwd, applies the OS
@@ -1818,6 +1823,12 @@ func (s *Session) bash(ctx context.Context, input json.RawMessage) toolResult {
 // not a per-command re-classification of what's inside it) can reuse the exact same
 // execution/logging/reporting path without going through bash's classify+gate again.
 func (s *Session) runGatedCommand(ctx context.Context, command, cwd string, background bool) toolResult {
+	return s.runGatedCommandIn(ctx, command, cwd, background, false)
+}
+
+// runGatedCommandIn is runGatedCommand with the sandbox choice explicit:
+// outside=true (an approved outside_sandbox call) runs unwrapped.
+func (s *Session) runGatedCommandIn(ctx context.Context, command, cwd string, background, outside bool) toolResult {
 	dir := s.root
 	if cwd != "" {
 		// Bash is the explicit, permission-gated escape hatch: an ABSOLUTE cwd is
@@ -1846,8 +1857,11 @@ func (s *Session) runGatedCommand(ctx context.Context, command, cwd string, back
 	// The wrapped line is EXECUTION-ONLY: logs, display, and acceptance keep
 	// the user-visible command.
 	execCommand := command
-	if wrapped, ok := sandbox.Wrap(command, sandbox.PolicyFor(s.readOnly, s.root)); ok {
-		execCommand = wrapped
+	sandboxed := false
+	if !outside {
+		if wrapped, ok := sandbox.Wrap(command, sandbox.PolicyFor(s.readOnly, s.root)); ok {
+			execCommand, sandboxed = wrapped, true
+		}
 	}
 
 	// Long-running (dev server / watcher): start it as a detached background job and
@@ -1941,6 +1955,9 @@ func (s *Session) runGatedCommand(ctx context.Context, command, cwd string, back
 		// Be explicit so the model doesn't mistake a silent success for a broken
 		// display: the command ran and printed nothing.
 		fmt.Fprintf(&b, "(the command produced no output)\n")
+	}
+	if sandboxed && exitCode != 0 && sandbox.NestingFailure(o+"\n"+e) {
+		fmt.Fprintf(&b, "(this command can't run inside memcode's sandbox: it starts its own sandbox or needs sudo. If it is needed, run it again with outside_sandbox: true — the user is asked first.)\n")
 	}
 	// Only a real failure is reported as an error to the model. A partial (a chained sequence whose
 	// last step returned non-zero but which produced output) is NOT an error — the exit code is in

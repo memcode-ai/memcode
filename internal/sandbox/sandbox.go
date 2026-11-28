@@ -18,12 +18,15 @@
 package sandbox
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
+	"time"
 )
 
 // Mode is the containment level.
@@ -44,6 +47,10 @@ type Policy struct {
 	// network, generated code loses its exfiltration channel and can gate at
 	// Medium instead of Dangerous. Bash keeps network (builds/tests need it).
 	DenyNetwork bool
+	// Shield keeps memcode's own credentials and authority out of the command's
+	// reach, in every mode including Off: see shield.go. Set by PolicyFor unless
+	// sandboxing is force-disabled.
+	Shield *Shield
 }
 
 // EnvVar toggles sandboxing for NORMAL sessions: "1"/"true"/"workspace" wraps
@@ -59,13 +66,13 @@ func PolicyFor(readOnly bool, root string) Policy {
 		return Policy{Mode: Off}
 	case "1", "true", "workspace":
 		if !readOnly {
-			return Policy{Mode: Workspace, Root: root}
+			return Policy{Mode: Workspace, Root: root, Shield: ShieldFor(root)}
 		}
 	}
 	if readOnly {
-		return Policy{Mode: ReadOnly, Root: root}
+		return Policy{Mode: ReadOnly, Root: root, Shield: ShieldFor(root)}
 	}
-	return Policy{Mode: Off}
+	return Policy{Mode: Off, Root: root, Shield: ShieldFor(root)}
 }
 
 // Supported reports whether Wrap would ACTUALLY contain under p on this
@@ -73,7 +80,7 @@ func PolicyFor(readOnly bool, root string) Policy {
 // sandboxed+no-network = Medium, unsandboxed = Dangerous) must know the
 // difference between "asked for a sandbox" and "got one".
 func Supported(p Policy) bool {
-	if p.Mode == Off {
+	if p.Mode == Off && p.Shield == nil {
 		return false
 	}
 	switch runtime.GOOS {
@@ -81,17 +88,38 @@ func Supported(p Policy) bool {
 		_, err := os.Stat("/usr/bin/sandbox-exec")
 		return err == nil
 	case "linux":
-		_, err := exec.LookPath("bwrap")
-		return err == nil
+		return bwrapWorks()
 	}
 	return false
+}
+
+var (
+	bwrapOnce sync.Once
+	bwrapOK   bool
+)
+
+// bwrapWorks reports whether bubblewrap can actually create a sandbox here.
+// Installed is not enough: containers and CI runners often forbid the user
+// namespaces it needs, and wrapping every command in a bwrap that always
+// fails would break every command. Probed once per process.
+func bwrapWorks() bool {
+	bwrapOnce.Do(func() {
+		bin, err := exec.LookPath("bwrap")
+		if err != nil {
+			return
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		bwrapOK = exec.CommandContext(ctx, bin, "--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc", "true").Run() == nil
+	})
+	return bwrapOK
 }
 
 // Wrap returns a shell line that runs command under the policy's containment,
 // and whether wrapping applies. ok=false means run the command unchanged
 // (policy Off, or no backend on this platform).
 func Wrap(command string, p Policy) (string, bool) {
-	if p.Mode == Off || strings.TrimSpace(command) == "" {
+	if (p.Mode == Off && p.Shield == nil) || strings.TrimSpace(command) == "" {
 		return command, false
 	}
 	switch runtime.GOOS {
@@ -102,7 +130,7 @@ func Wrap(command string, p Policy) (string, bool) {
 		return "/usr/bin/sandbox-exec -p " + shq(seatbeltProfile(p)) + " /bin/sh -c " + shq(command), true
 	case "linux":
 		bwrap, err := exec.LookPath("bwrap")
-		if err != nil {
+		if err != nil || !bwrapWorks() {
 			return command, false
 		}
 		return bwrapLine(bwrap, command, p), true
@@ -142,10 +170,11 @@ func seatbeltProfile(p Policy) string {
 		}
 		allow = append(allow, fmt.Sprintf("(subpath %q)", root))
 	}
-	profile := "(version 1)\n" +
-		"(allow default)\n" +
-		"(deny file-write*)\n" +
-		"(allow file-write* " + strings.Join(allow, " ") + ")"
+	profile := "(version 1)\n(allow default)"
+	if p.Mode != Off {
+		profile += "\n(deny file-write*)\n(allow file-write* " + strings.Join(allow, " ") + ")"
+	}
+	profile += p.Shield.seatbelt(p.Mode)
 	if p.DenyNetwork {
 		// Last rule wins in SBPL: this overrides the (allow default) for every
 		// network operation. Inherited pipes are unaffected (they're fds, not
@@ -158,7 +187,11 @@ func seatbeltProfile(p Policy) string {
 // bwrapLine builds the Linux bubblewrap invocation: read-only root bind, tmp
 // and caches (and the workspace, per policy) bound writable.
 func bwrapLine(bwrap, command string, p Policy) string {
-	args := []string{shq(bwrap), "--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc", "--die-with-parent"}
+	rootBind := "--ro-bind"
+	if p.Mode == Off {
+		rootBind = "--bind" // shield only: everything stays writable except what the shield protects
+	}
+	args := []string{shq(bwrap), rootBind, "/", "/", "--dev", "/dev", "--proc", "/proc", "--die-with-parent"}
 	if p.DenyNetwork {
 		args = append(args, "--unshare-net") // isolated net namespace: loopback only, no egress
 	}
@@ -178,6 +211,7 @@ func bwrapLine(bwrap, command string, p Policy) string {
 		}
 		bindIfExists(root)
 	}
+	args = append(args, p.Shield.bwrap(p.Mode)...)
 	args = append(args, "/bin/sh", "-c", shq(command))
 	return strings.Join(args, " ")
 }

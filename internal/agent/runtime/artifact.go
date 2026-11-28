@@ -91,7 +91,12 @@ func (s *Session) artifactTool(ctx context.Context, input json.RawMessage) toolR
 		if in.Action == "update" {
 			verb = "Update published artifact"
 		}
-		if denied := s.gateArtifact(ctx, verb, in.Title, in.Path, len(raw)); denied != nil {
+		if s.sharedAudience {
+			return errResult(sharedAudienceRefusal("artifact " + in.Action))
+		}
+		// Publishing puts workspace content on a public link: Dangerous, so Auto
+		// asks too (only allow-all or a remembered "don't ask again" skips it).
+		if denied := s.gateArtifact(ctx, verb, in.Title, in.Path, len(raw), permissions.Dangerous); denied != nil {
 			return *denied
 		}
 		var art artifacts.Artifact
@@ -117,7 +122,7 @@ func (s *Session) artifactTool(ctx context.Context, input json.RawMessage) toolR
 		if in.ID == "" {
 			return errResult("artifact delete needs `id` — find it with artifact{action:\"list\"}")
 		}
-		if denied := s.gateArtifact(ctx, "Delete published artifact", in.ID, "", 0); denied != nil {
+		if denied := s.gateArtifact(ctx, "Delete published artifact", in.ID, "", 0, permissions.Medium); denied != nil {
 			return *denied
 		}
 		if err := client.Delete(ctx, in.ID); err != nil {
@@ -131,15 +136,15 @@ func (s *Session) artifactTool(ctx context.Context, input json.RawMessage) toolR
 	}
 }
 
-// gateArtifact runs the approval gate for a mutating artifact action. Returns nil
-// when allowed; a pointer to the denial result otherwise. Medium tier: auto and
-// allow-all modes run without a prompt; ask mode prompts, with "don't ask again"
-// remembered per-repo (all artifact publishing, not per-artifact — one decision).
-func (s *Session) gateArtifact(ctx context.Context, verb, title, path string, size int) *toolResult {
+// gateArtifact runs the approval gate for a mutating artifact action at the
+// given risk. Returns nil when allowed; a pointer to the denial result
+// otherwise. Publishing is Dangerous (Auto asks); delete is Medium. "Don't ask
+// again" is remembered per repo (all artifact publishing — one decision).
+func (s *Session) gateArtifact(ctx context.Context, verb, title, path string, size int, risk permissions.Risk) *toolResult {
 	if s.approvedArtifacts {
 		return nil
 	}
-	if permissions.Decide(s.effectiveMode(), permissions.Medium, false) == permissions.Allow {
+	if permissions.Decide(s.effectiveMode(), risk, false) == permissions.Allow {
 		return nil
 	}
 	detail := "creates/changes a public unlisted page at memcode.ai"

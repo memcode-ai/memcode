@@ -4,18 +4,25 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/memcode-ai/memcode/internal/sessionlog"
+	"github.com/memcode-ai/memcode/internal/sessionprune"
 	"github.com/memcode-ai/memcode/internal/store"
 	"github.com/memcode-ai/memcode/internal/textutil"
 )
 
 var sessionCmd = &cobra.Command{
 	Use:   "session",
-	Short: "Inspect recorded agent sessions",
+	Short: "Inspect and delete recorded agent sessions",
+	Long: `Inspect and delete recorded agent sessions.
+
+Sessions are kept on this machine and deleted automatically once they have
+been idle longer than the retention period (30 days unless you change it with
+"memcode session retention"). Delete one yourself with "memcode session delete".`,
 }
 
 var sessionListCmd = &cobra.Command{
@@ -133,9 +140,23 @@ func loadSessions(ctx context.Context, st store.Store) ([]sessionView, error) {
 	}
 	out := make([]sessionView, 0, len(order))
 	for _, id := range order {
+		if onlyMemoryEvents(byID[id].timeline) {
+			continue // a deleted session leaves only what it taught memcode
+		}
 		out = append(out, *byID[id])
 	}
 	return out, nil
+}
+
+// onlyMemoryEvents reports whether every event is a kind that outlives its
+// session (see sessionprune.MemoryKinds).
+func onlyMemoryEvents(evs []store.Event) bool {
+	for _, e := range evs {
+		if !slices.Contains(sessionprune.MemoryKinds, e.Kind) {
+			return false
+		}
+	}
+	return true
 }
 
 func renderSession(s sessionView) {

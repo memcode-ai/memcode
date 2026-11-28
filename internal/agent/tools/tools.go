@@ -171,6 +171,9 @@ type (
 		Command    string `json:"command"`
 		Cwd        string `json:"cwd,omitempty"`
 		Background bool   `json:"background,omitempty"` // long-running (dev server/watcher): run detached, don't block
+		// OutsideSandbox runs the command without memcode's OS sandbox, for a tool
+		// that starts its own sandbox (those can't nest). Always asks the user.
+		OutsideSandbox bool `json:"outside_sandbox,omitempty"`
 	}
 	// MCPMCPCodeExecInput drives the mcp_code_exec tool: a Python 3 script that calls a
 	// whitelisted set of read-only memcode tools as functions and prints ONLY the
@@ -526,9 +529,10 @@ func Defs() []wire.ToolDef {
 			Name:        Bash,
 			Description: "Run a shell command (sh -c) for ACTIONS: builds, tests, installs, git, and live/external lookups (cloud CLIs, DB queries). Not for reading or searching repo files — use read_file/glob/ripgrep/git_diff for those; and for database inspection prefer one SQL query (psql -c, supabase db query) over probing a REST API table-by-table. Commands that don't exit (dev servers, watchers, log tails) MUST set background:true — they run as a managed job (/jobs, /tail, /kill); never foreground them, and when the user asks you to start a dev server, do it this way rather than refusing. When scanning files in bash, exclude hidden/ignored dirs (.git, .memcode, node_modules) unless asked. Subject to permission approval.",
 			InputSchema: obj(map[string]any{
-				"command":    str("the shell command to run"),
-				"cwd":        str("optional working directory relative to the repo root"),
-				"background": boolean("run as a detached background job (anything long-running); returns immediately, and the job's EXIT hands its result back to you as a new turn — so a poll loop must break on success and bound its total wait"),
+				"command":         str("the shell command to run"),
+				"cwd":             str("optional working directory relative to the repo root"),
+				"background":      boolean("run as a detached background job (anything long-running); returns immediately, and the job's EXIT hands its result back to you as a new turn — so a poll loop must break on success and bound its total wait"),
+				"outside_sandbox": boolean("only if told the command can't run in memcode's sandbox: run outside it (asks the user)"),
 			}, "command"),
 		},
 		{

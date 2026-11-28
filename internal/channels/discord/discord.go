@@ -9,6 +9,8 @@ package discord
 
 import (
 	"context"
+	"errors"
+	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -28,7 +30,12 @@ type Channel struct {
 	session  *discordgo.Session
 	mediaDir string // media spool; "" disables attachment downloads
 	dl       *http.Client
+
+	open func() error // session.Open; a seam for tests
 }
+
+// maxOpenBackoff caps the retry ladder for the initial gateway connect.
+const maxOpenBackoff = 60 * time.Second
 
 // New builds a Discord channel for the given bot token. It requests the message
 // intents (Message Content is privileged — the user must enable it on the bot).
@@ -41,7 +48,7 @@ func New(token, mediaDir string) (*Channel, error) {
 	}
 	s.Identify.Intents = discordgo.IntentsGuildMessages | discordgo.IntentsDirectMessages | discordgo.IntentMessageContent
 	// Attachment URLs come from inbound messages — download through the shared SSRF guard.
-	return &Channel{session: s, mediaDir: mediaDir, dl: channels.SafeHTTPClient(30 * time.Second)}, nil
+	return &Channel{session: s, mediaDir: mediaDir, dl: channels.SafeHTTPClient(30 * time.Second), open: s.Open}, nil
 }
 
 // Name returns the adapter identifier.
@@ -67,13 +74,38 @@ func (c *Channel) Start(ctx context.Context, sink channels.Sink) error {
 	})
 	defer remove()
 
-	if err := c.session.Open(); err != nil {
+	if err := c.openWithRetry(ctx); err != nil {
 		return err
 	}
 	defer c.session.Close()
 
 	<-ctx.Done()
 	return ctx.Err()
+}
+
+// openWithRetry makes the FIRST gateway connect as resilient as discordgo's
+// own reconnects: a network blip or Discord outage at gateway start is retried
+// with backoff (until ctx ends) instead of stopping the channel for good. A
+// rejected token (HTTP 401) is config, not weather — fatal, never retried.
+func (c *Channel) openWithRetry(ctx context.Context) error {
+	backoff := channels.NewBackoff(time.Second, maxOpenBackoff)
+	for {
+		err := c.open()
+		if err == nil {
+			return nil
+		}
+		var rest *discordgo.RESTError
+		if errors.As(err, &rest) && rest.Response != nil && rest.Response.StatusCode == http.StatusUnauthorized {
+			return err
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		log.Printf("discord: gateway connect failed: %v (retrying)", err)
+		if err := backoff.Sleep(ctx); err != nil {
+			return err
+		}
+	}
 }
 
 // toInbound converts a Discord message-create event to a normalized Inbound,

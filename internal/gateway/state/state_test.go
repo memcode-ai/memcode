@@ -270,3 +270,25 @@ func TestItemAttachmentsRoundTrip(t *testing.T) {
 		t.Errorf("attachments = %+v", got[0].Attachments)
 	}
 }
+
+// Whether a message came from a DM or a group survives the durable inbox, so a
+// replayed job after a restart keeps its audience; an unknown/old row is a group.
+func TestInboxKeepsDirectness(t *testing.T) {
+	s := openTemp(t)
+	ctx := context.Background()
+	dm := Item{Channel: "telegram", MessageID: "dm", Conversation: "c1", Principal: "p", Text: "hi", Direct: true}
+	grp := Item{Channel: "telegram", MessageID: "grp", Conversation: "c2", Principal: "p", Text: "hi"}
+	for _, it := range []Item{dm, grp} {
+		if _, err := s.Accept(ctx, it, time.Unix(1000, 0)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := map[string]bool{}
+	pending, _ := s.Pending(ctx)
+	for _, it := range pending {
+		got[it.MessageID] = it.Direct
+	}
+	if !got["dm"] || got["grp"] {
+		t.Fatalf("directness not persisted: %+v", got)
+	}
+}

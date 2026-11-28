@@ -13,6 +13,7 @@
 package codex
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -25,12 +26,31 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/memcode-ai/memcode/internal/atomicfile"
+	"github.com/memcode-ai/memcode/internal/filelock"
 )
 
-// resolveMu serializes Resolve's read→refresh→write-back: Codex refresh tokens are single-use
-// and rotate, so two concurrent Resolves could both spend the same refresh token and clobber
-// the rotated replacement on write-back. One mutex per credential file.
+// resolveMu serializes Resolve's read→refresh→write-back within this process; a file lock
+// (lockName) extends that across memcode processes. Codex refresh tokens are single-use and
+// rotate, so two concurrent refreshes would both spend the same refresh token and clobber
+// the rotated replacement on write-back.
 var resolveMu sync.Mutex
+
+// lockName is the advisory lock under the memcode state home serializing Codex refreshes.
+const lockName = "codex-oauth"
+
+// lockWait bounds the wait for another process's refresh (its own work is bounded by the
+// 20s HTTP timeout), so a stuck holder yields a clear error, not a hung session.
+var lockWait = 45 * time.Second
+
+// unsaved remembers a refresh whose write-back failed: the old refresh token is spent and
+// the rotated login lives only in memory. While auth.json still shows the spent token,
+// this process continues from memory instead of replaying it.
+var unsaved struct {
+	spent string
+	c     codexCreds
+}
 
 // Backend is the resolved Codex endpoint: the ChatGPT backend base, the access
 // token (Bearer), and the identity headers every turn must carry.
@@ -74,13 +94,33 @@ func Resolve() (Backend, error) {
 	}
 	access := c.Access
 	if expiringSoon(access) {
+		// Take the cross-process lock, then RE-READ: another process may have rotated the
+		// login while we waited, and replaying the old refresh token would fail.
+		lk, lerr := filelock.AcquireNamed(context.Background(), lockName, lockWait)
+		if lerr != nil {
+			return Backend{}, fmt.Errorf("another memcode process is refreshing the Codex login and has not finished — try again (%v)", lerr)
+		}
+		defer func() { _ = lk.Release() }()
+		if c, err = readCreds(); err != nil {
+			return Backend{}, err
+		}
+		if unsaved.spent != "" && c.Refresh == unsaved.spent {
+			c = unsaved.c
+		}
+		access = c.Access
+	}
+	if expiringSoon(access) {
 		if c.Refresh == "" {
 			return Backend{}, fmt.Errorf("the Codex login is expired and can't be refreshed — sign in again with `codex login`")
 		}
 		refreshed, rerr := refresh(c.Refresh)
 		switch {
 		case rerr == nil:
-			writeBack(refreshed)
+			if werr := writeBack(refreshed); werr != nil {
+				unsaved.spent, unsaved.c = c.Refresh, refreshed
+			} else {
+				unsaved.spent, unsaved.c = "", codexCreds{}
+			}
 			access = refreshed.Access
 		case errors.Is(rerr, errCodexQuota):
 			// Quota cap, not an auth failure: the current token is still valid,
@@ -232,12 +272,12 @@ func refresh(refreshToken string) (codexCreds, error) {
 }
 
 // writeBack persists refreshed tokens into the Codex CLI's own auth.json so the
-// rotated, single-use refresh token stays in sync for both tools. Best-effort,
-// atomic, 0600. Unrelated fields in the file are preserved.
-func writeBack(c codexCreds) {
+// rotated, single-use refresh token stays in sync for both tools. Atomic (a
+// crash never leaves a truncated auth.json), 0600; unrelated fields are kept.
+func writeBack(c codexCreds) error {
 	p := authPath()
 	if p == "" {
-		return
+		return fmt.Errorf("no home directory")
 	}
 	m := map[string]any{}
 	if b, err := os.ReadFile(p); err == nil {
@@ -257,16 +297,12 @@ func writeBack(c codexCreds) {
 
 	b, err := json.MarshalIndent(m, "", "  ")
 	if err != nil {
-		return
+		return err
 	}
 	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
-		return
+		return err
 	}
-	tmp := p + ".tmp"
-	if os.WriteFile(tmp, b, 0o600) != nil {
-		return
-	}
-	_ = os.Rename(tmp, p)
+	return atomicfile.WriteFile(p, b, 0o600)
 }
 
 // accountIDFromJWT extracts the ChatGPT account id from the access-token JWT's

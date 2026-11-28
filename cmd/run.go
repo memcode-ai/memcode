@@ -124,6 +124,15 @@ for local gateway development. Never store keys in .memcode.`,
 			return nil
 		}
 
+		// Retention (daily, best-effort): never the session this run continues.
+		keep := []string{gwSession}
+		if resume := resumeRef(cmd); resume != "" {
+			if id, err := runtime.ResolveSession(cfg.Root, resume); err == nil {
+				keep = append(keep, id)
+			}
+		}
+		autoPruneSessions(ctx, st, cfg, keep...)
+
 		noContext, _ := cmd.Flags().GetBool("no-context")
 		sess := runtime.New(st, runner, cfg.Root, model, mode, userOut())
 		sess.SetEffortOverride(cfg.Effort) // the remembered thinking effort ("" → medium); an agent job's pin overrides it below
@@ -243,6 +252,9 @@ for local gateway development. Never store keys in .memcode.`,
 					if unknown := sess.SetToolPolicy(gwContext.Toolsets, gwContext.DisabledToolsets); len(unknown) > 0 {
 						fmt.Printf("note: tool policy entries not recognized (see memcode.ai/docs/agents/tools): %s\n", strings.Join(unknown, ", "))
 					}
+				}
+				if gwContext.Audience == "shared" {
+					sess.SetSharedAudience(true)
 				}
 				if jc := gwContext; len(jc.Items) > 0 || len(jc.SkillRoots) > 0 || len(jc.Attachments) > 0 {
 					sess.SetContext(jc.Items)                                      // gateway-supplied agent/user context for this run

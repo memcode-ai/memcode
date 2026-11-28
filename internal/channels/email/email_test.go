@@ -171,7 +171,7 @@ func TestPollOnceCursorSemantics(t *testing.T) {
 	store := &fakeCursor{}
 	fake := &fakeSession{uidValidity: 7, uidNext: 42, msgs: map[imap.UID][]byte{41: []byte(simpleMail)}}
 	c := newTestChannel(store)
-	c.dial = func() (imapSession, error) { return fake, nil }
+	c.dial = func(context.Context) (imapSession, error) { return fake, nil }
 	delivered := 0
 	if err := c.pollOnce(context.Background(), sinkFn(func(channels.Inbound) error {
 		delivered++
@@ -299,7 +299,7 @@ func TestPollOnceRefusesUnauthenticatedSender(t *testing.T) {
 	store := &fakeCursor{cur: "7/41"}
 	fake := &fakeSession{uidValidity: 7, uidNext: 43, msgs: map[imap.UID][]byte{42: []byte(spoofed)}}
 	c := newTestChannel(store)
-	c.dial = func() (imapSession, error) { return fake, nil }
+	c.dial = func(context.Context) (imapSession, error) { return fake, nil }
 	delivered := 0
 	if err := c.pollOnce(context.Background(), sinkFn(func(channels.Inbound) error {
 		delivered++
@@ -319,7 +319,7 @@ func TestSendUsesThread(t *testing.T) {
 	c := newTestChannel(&fakeCursor{})
 	var sentTo string
 	var sentRaw []byte
-	c.send = func(to string, raw []byte) error { sentTo, sentRaw = to, raw; return nil }
+	c.send = func(_ context.Context, to string, raw []byte) error { sentTo, sentRaw = to, raw; return nil }
 	// Simulate having seen a message from tim first.
 	p, _ := parseMessage([]byte(simpleMail))
 	c.rememberThread(p)

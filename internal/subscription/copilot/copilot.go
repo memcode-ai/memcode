@@ -24,6 +24,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/memcode-ai/memcode/internal/atomicfile"
 )
 
 // The inference endpoint and the identity Copilot expects. api.githubcopilot.com
@@ -285,11 +287,7 @@ func writeCache(fp string, ent cacheEntry) {
 	if err != nil {
 		return
 	}
-	tmp := p + ".tmp"
-	if os.WriteFile(tmp, b, 0o600) != nil {
-		return
-	}
-	_ = os.Rename(tmp, p)
+	_ = atomicfile.WriteFile(p, b, 0o600) // fsync'd temp + rename: never a truncated cache
 }
 
 // Available reports whether a GitHub token the exchange could use is present —

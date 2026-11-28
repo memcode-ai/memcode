@@ -1,8 +1,12 @@
 package discord
 
 import (
+	"context"
+	"errors"
+	"net/http"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/bwmarrin/discordgo"
 
@@ -84,5 +88,40 @@ func TestGatingSignals(t *testing.T) {
 	reply.ReferencedMessage = &discordgo.Message{Author: &discordgo.User{ID: self}}
 	if inb, _ := toInbound(reply, self); !inb.Mentioned {
 		t.Error("reply-to-bot not treated as a mention")
+	}
+}
+
+// The first gateway connect is retried after a transient failure instead of
+// stopping the channel for good; a rejected token is fatal immediately.
+func TestOpenWithRetry(t *testing.T) {
+	c := &Channel{}
+	calls := 0
+	c.open = func() error {
+		calls++
+		if calls < 2 {
+			return errors.New("dial tcp: connection refused")
+		}
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := c.openWithRetry(ctx); err != nil || calls != 2 {
+		t.Fatalf("openWithRetry = %v after %d calls, want success on the 2nd", err, calls)
+	}
+
+	calls = 0
+	c.open = func() error {
+		calls++
+		return &discordgo.RESTError{Response: &http.Response{StatusCode: http.StatusUnauthorized}}
+	}
+	if err := c.openWithRetry(ctx); err == nil || calls != 1 {
+		t.Fatalf("bad token: err=%v calls=%d, want a fatal error on the first try", err, calls)
+	}
+
+	c.open = func() error { return errors.New("down") }
+	cctx, ccancel := context.WithCancel(context.Background())
+	ccancel()
+	if err := c.openWithRetry(cctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled ctx: err=%v, want context.Canceled", err)
 	}
 }

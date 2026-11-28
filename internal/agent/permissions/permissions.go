@@ -723,7 +723,12 @@ func classifyArgv(argv []string, depth int) (Risk, bool) {
 	case readNet[head]:
 		return Safe, false // read-only network lookup (dig/nslookup/host/whois) — inspects, never mutates
 	case netHeads[head]:
-		return classifyNet(args)
+		return classifyNet(head, args)
+	case head == "security" && keychainSecretRead(args):
+		// Printing a Keychain secret (Claude Code's login, saved passwords) hands
+		// it to the model. Asks in every mode; listing/inspecting items without
+		// -w/-g falls through to the default.
+		return Dangerous, false
 	case head == "git":
 		return classifyGit(args)
 	case head == "terraform" || head == "tofu":
@@ -968,7 +973,7 @@ func subVerbAfter(args []string, sub string) string {
 // exfiltration → Dangerous; a plain fetch (GET) → Safe. (Download-and-execute,
 // `curl … | bash`, is handled by classifying every command in the pipeline — the
 // bash segment isn't Safe on its own.)
-func classifyNet(args []string) (Risk, bool) {
+func classifyNet(head string, args []string) (Risk, bool) {
 	// An explicit mutating method (parsed from -X/--request/--method in ALL their forms:
 	// `-X POST`, `-XPOST`, `--request=POST`, `--method POST`) → write. GET/HEAD stay Safe, and
 	// a URL that merely contains "post" no longer false-trips (we read the method, not any token).
@@ -980,6 +985,21 @@ func classifyNet(args []string) (Risk, bool) {
 		"--data", "--data-binary", "--data-raw", "--data-ascii", "--data-urlencode", "--json",
 		"--form", "--form-string", "--upload-file", // curl
 		"--post-data", "--post-file", "--body-data", "--body-file", // wget
+	}
+	// Request parts read from local files: headers (-H @file), query strings
+	// (--url-query @file), whole option files (-K/--config) and wget's URL
+	// lists (-i). Each puts file contents into the request.
+	for i, a := range args {
+		switch {
+		case a == "-K" || a == "--config" || strings.HasPrefix(a, "--config=") || (strings.HasPrefix(a, "-K") && len(a) > 2):
+			return Dangerous, false
+		case head == "wget" && (a == "-i" || a == "--input-file" || strings.HasPrefix(a, "--input-file=")):
+			return Dangerous, false
+		case (a == "-H" || a == "--header" || a == "--url-query") && i+1 < len(args) && strings.HasPrefix(args[i+1], "@"):
+			return Dangerous, false
+		case strings.HasPrefix(a, "--header=@") || strings.HasPrefix(a, "--url-query=@") || strings.HasPrefix(a, "-H@"):
+			return Dangerous, false
+		}
 	}
 	for _, a := range args {
 		// Short send flags are CASE-SENSITIVE and may carry their value attached: -d/-F/-T and
@@ -1544,4 +1564,23 @@ func afterDoubleDash(args []string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// keychainSecretRead reports a macOS `security` invocation that outputs a
+// secret: find-*-password with -w/-g, or dumping a keychain with its data.
+func keychainSecretRead(args []string) bool {
+	if len(args) == 0 {
+		return false
+	}
+	switch args[0] {
+	case "dump-keychain":
+		return true
+	case "find-generic-password", "find-internet-password":
+		for _, a := range args[1:] {
+			if a == "-w" || a == "-g" || (strings.HasPrefix(a, "-") && !strings.HasPrefix(a, "--") && strings.ContainsAny(a[1:], "wg")) {
+				return true
+			}
+		}
+	}
+	return false
 }

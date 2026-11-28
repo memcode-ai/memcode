@@ -23,6 +23,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/memcode-ai/memcode/internal/atomicfile"
+	"github.com/memcode-ai/memcode/internal/filelock"
 )
 
 const (
@@ -90,10 +93,30 @@ func Available() bool {
 	return err == nil
 }
 
-// resolveMu serializes Resolve's read→refresh→write: xAI refresh tokens are single-use and
-// rotate, so two concurrent Resolves could both spend the same refresh token and clobber the
-// rotated replacement on write. One mutex per token file (memcode owns it).
+// resolveMu serializes Resolve's read→refresh→write within this process; a file lock
+// (lockName) extends it across memcode processes. xAI refresh tokens are single-use and
+// rotate, so two concurrent refreshes would both spend the same refresh token and clobber
+// the rotated replacement on write.
 var resolveMu sync.Mutex
+
+// lockName is the advisory lock under the memcode state home serializing Grok refreshes.
+const lockName = "grok-oauth"
+
+// lockWait bounds the wait for another process's refresh (its own HTTP is bounded by
+// httpTimeout), so a stuck holder yields a clear error instead of a hung session.
+var lockWait = 45 * time.Second
+
+// unsaved remembers a refresh whose write failed: the old refresh token is spent and the
+// rotated login lives only in memory. While the file still shows the spent token, this
+// process continues from memory instead of replaying it.
+var unsaved struct {
+	spent string
+	c     creds
+}
+
+func fresh(c creds) bool {
+	return time.Now().Unix() < c.ExpiresAt-int64(refreshSkew/time.Second)
+}
 
 // Resolve returns a live access token, refreshing it first when it is close to
 // expiry. An error explains the fix (run `memcode auth use grok`).
@@ -104,7 +127,26 @@ func Resolve() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if time.Now().Unix() < c.ExpiresAt-int64(refreshSkew/time.Second) {
+	if fresh(c) {
+		return c.AccessToken, nil
+	}
+	// Take the cross-process lock, then RE-READ: another process may already have
+	// rotated the login while we waited.
+	lk, err := filelock.AcquireNamed(context.Background(), lockName, lockWait)
+	if err != nil {
+		if time.Now().Unix() < c.ExpiresAt {
+			return c.AccessToken, nil // still unexpired: serve it rather than fail the turn
+		}
+		return "", fmt.Errorf("another memcode process is refreshing the Grok login and has not finished — try again (%v)", err)
+	}
+	defer func() { _ = lk.Release() }()
+	if c, err = read(); err != nil {
+		return "", err
+	}
+	if unsaved.spent != "" && c.RefreshToken == unsaved.spent {
+		c = unsaved.c
+	}
+	if fresh(c) {
 		return c.AccessToken, nil
 	}
 	refreshed, err := refresh(c)
@@ -116,7 +158,11 @@ func Resolve() (string, error) {
 		}
 		return "", err
 	}
-	write(refreshed)
+	if write(refreshed) != nil {
+		unsaved.spent, unsaved.c = c.RefreshToken, refreshed
+	} else {
+		unsaved.spent, unsaved.c = "", creds{}
+	}
 	return refreshed.AccessToken, nil
 }
 
@@ -146,8 +192,16 @@ func Login(ctx context.Context, prompt func(verificationURL, userCode string)) e
 		return fmt.Errorf("the xAI login response was missing tokens — try again")
 	}
 	resolveMu.Lock()
-	write(c)
-	resolveMu.Unlock()
+	defer resolveMu.Unlock()
+	lk, err := filelock.AcquireNamed(ctx, lockName, lockWait)
+	if err != nil {
+		return fmt.Errorf("couldn't save the xAI login: %w", err)
+	}
+	defer func() { _ = lk.Release() }()
+	unsaved.spent, unsaved.c = "", creds{}
+	if err := write(c); err != nil {
+		return fmt.Errorf("couldn't save the xAI login: %w", err)
+	}
 	return nil
 }
 
@@ -183,25 +237,21 @@ func read() (creds, error) {
 	return c, nil
 }
 
-// write persists tokens atomically, 0600. Best-effort: a failed write costs a
-// refresh next run, not the session.
-func write(c creds) {
+// write persists tokens atomically (a crash never leaves a truncated file),
+// 0600. A failure is reported; Resolve keeps the rotated login in memory.
+func write(c creds) error {
 	p := tokenPath()
 	if p == "" {
-		return
+		return fmt.Errorf("no home directory")
 	}
 	b, err := json.MarshalIndent(c, "", "  ")
 	if err != nil {
-		return
+		return err
 	}
 	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
-		return
+		return err
 	}
-	tmp := p + ".tmp"
-	if os.WriteFile(tmp, b, 0o600) != nil {
-		return
-	}
-	_ = os.Rename(tmp, p)
+	return atomicfile.WriteFile(p, b, 0o600)
 }
 
 // discoverTokenEndpoint reads the OIDC discovery document. The token endpoint
@@ -352,7 +402,7 @@ func refresh(c creds) (creds, error) {
 	endpoint := c.TokenEndpoint
 	if endpoint == "" {
 		var err error
-		if endpoint, err = discoverTokenEndpoint(context.Background()); err != nil {
+		if endpoint, err = discoverTokenEndpoint(context.Background()); err != nil { // bounded by httpTimeout
 			return creds{}, err
 		}
 	}

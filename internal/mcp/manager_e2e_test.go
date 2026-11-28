@@ -176,3 +176,19 @@ func toolNames(ts []Tool) []string {
 	}
 	return out
 }
+
+// A stdio server started for a project runs inside memcode's OS shield and
+// still works end to end (discovery and calls over the wrapped process).
+func TestManagerStdioUnderShield(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	m := Connect(ctx, map[string]ServerConfig{"fake": helperServer()}, Options{Version: "test", Root: t.TempDir()})
+	defer m.Close()
+	if errs := m.Errors(); len(errs) != 0 {
+		t.Fatalf("shielded server failed to connect: %v", errs)
+	}
+	out, isErr, err := m.Call(ctx, "mcp__fake__echo", map[string]any{"text": "ping"})
+	if err != nil || isErr || !strings.Contains(out, "echo: ping") {
+		t.Fatalf("shielded call failed: out=%q isErr=%v err=%v", out, isErr, err)
+	}
+}

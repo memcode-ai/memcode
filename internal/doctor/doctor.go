@@ -18,6 +18,7 @@ import (
 
 	"github.com/memcode-ai/memcode/internal/lsp"
 	"github.com/memcode-ai/memcode/internal/provider"
+	"github.com/memcode-ai/memcode/internal/sandbox"
 	"github.com/memcode-ai/memcode/internal/statedir"
 	"github.com/memcode-ai/memcode/internal/store"
 )
@@ -50,6 +51,17 @@ func Check(ctx context.Context, st store.Store, root string, prov provider.Model
 		add("initialized", Fail, "not set up for this project yet — launching memcode here sets it up")
 	} else {
 		add("initialized", OK, root)
+	}
+
+	// 2. OS shield — keeps memcode's credentials and authority out of agent
+	// commands' reach (internal/sandbox/shield.go). Off only by request, or
+	// where the platform has no backend.
+	if pol := sandbox.PolicyFor(false, root); pol.Shield == nil {
+		add("sandbox", Warn, "turned off (MEMCODE_SANDBOX=0) — agent commands can read memcode's credentials")
+	} else if !sandbox.Supported(pol) {
+		add("sandbox", Warn, "no sandbox on this system — install bubblewrap (bwrap) so agent commands can't read memcode's credentials")
+	} else {
+		add("sandbox", OK, "agent commands can't read memcode's credentials or change its settings")
 	}
 
 	// 3. Backend connection — hosted (cli → gateway → llms) or a custom

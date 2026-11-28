@@ -47,6 +47,7 @@ import (
 	"github.com/memcode-ai/memcode/internal/runtimes"
 	"github.com/memcode-ai/memcode/internal/scripts"
 	"github.com/memcode-ai/memcode/internal/sessionlog"
+	"github.com/memcode-ai/memcode/internal/sessionprune"
 	"github.com/memcode-ai/memcode/internal/skills"
 	"github.com/memcode-ai/memcode/internal/store"
 	"github.com/memcode-ai/memcode/internal/textutil"
@@ -126,6 +127,7 @@ type Session struct {
 	ckpt            *checkpoint.Log                   // per-session edit pre-images (rewind); recreated with the session id
 	curCkpt         *checkpoint.Checkpoint            // the open checkpoint for the RUNNING turn (nil between turns)
 	slog            atomic.Pointer[sessionlog.Writer] // append-only episodic log (.memcode/sessions/<id>/); a turn can still be running when the session ends
+	releaseLive     func()                            // clears this session's live marker (sessionprune.MarkLive); nil when none
 	bgJobs          *jobs.Registry                    // background jobs ($ … & / agent-started servers)
 	mcp             *mcp.Manager                      // connected MCP servers + their tools (.mcp.json); nil when none configured
 	lspMgr          *lsp.Manager                      // resident language servers (diagnostics + nav); lazily started, detect-and-connect
@@ -143,6 +145,7 @@ type Session struct {
 	testEditIntent  bool                              // user explicitly asked to change tests/specs/behavior this turn
 	lastUserText    string                            // the user's most recent request (ground truth for the authorization judge)
 	redactor        *secrets.Redactor
+	sharedAudience  bool                   // the reply is read by a group (SetSharedAudience): publishing refused
 	approvals       []permissions.Approval // remembered allow-rules
 	observer        UIObserver             // optional front-end tap (TUI); may be nil
 	toolNotify      func(label string)     // optional per-tool-call activity tap (job heartbeat); may be nil
@@ -483,6 +486,25 @@ func (s *Session) SetSessionID(id string) { s.pinnedID = id }
 // context is unchanged. Supplemental context is input for this run only — it does
 // not write project memory.
 func (s *Session) SetContext(items []ContextItem) { s.supplemental = items }
+
+// SetSharedAudience marks a run whose answer is read by a group (a gateway
+// job from a group chat): people the workspace's allow-list never authorized.
+// Publishing anything (artifacts, websites, share links) is refused outright,
+// whatever the mode or a remembered approval, and the agent is told who reads
+// its reply.
+func (s *Session) SetSharedAudience(on bool) {
+	s.sharedAudience = on
+	if on {
+		s.supplemental = append(s.supplemental, ContextItem{Kind: KindInstruction, Source: "gateway",
+			Content: "Your reply is posted to a group chat that can include people who are not authorized for this workspace. " +
+				"Answer with conclusions and short excerpts only as needed; never paste file contents, configuration, logs, credentials or personal data into the reply."})
+	}
+}
+
+// sharedAudienceRefusal is the tool error for a publish attempted from a group.
+func sharedAudienceRefusal(what string) string {
+	return what + " is not available from a group chat: the result would be visible to people outside this workspace. Ask from a direct message or the CLI."
+}
 
 // SetSkillRoots supplies caller-provided EXTRA skill discovery roots (e.g. a
 // gateway agent's own skills dir). They rank between repo-local and
@@ -1003,11 +1025,21 @@ func (s *Session) startSessionLog(headSHA string) {
 		return
 	}
 	s.slog.Store(w)
+	// Mark the session open so `memcode session delete` and automatic pruning
+	// in another process leave it alone while it runs.
+	if s.releaseLive != nil {
+		s.releaseLive()
+	}
+	s.releaseLive = sessionprune.MarkLive(s.root, s.sessionID)
 	w.Append(sessionlog.Record{Kind: sessionlog.KindSessionStarted, Model: s.model, Mode: string(s.mode), HeadSHA: headSHA})
 }
 
 // endSessionLog records the closing event and closes the log.
 func (s *Session) endSessionLog() {
+	if s.releaseLive != nil {
+		s.releaseLive()
+		s.releaseLive = nil
+	}
 	w := s.slog.Swap(nil)
 	if w == nil {
 		return

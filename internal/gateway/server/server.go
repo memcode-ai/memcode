@@ -482,7 +482,7 @@ func (r *runtime) Deliver(ctx context.Context, inb channels.Inbound) error {
 	fresh, err := r.gw.Accept(ctx, state.Item{
 		Channel: inb.Channel, MessageID: inb.MessageID, Conversation: inb.Conversation,
 		Principal: inb.Principal, Text: inb.Text, Trusted: inb.Trusted,
-		Agent: agent, Project: project, Attachments: ids,
+		Agent: agent, Project: project, Attachments: ids, Direct: inb.IsDirect,
 	}, time.Now())
 	if err != nil {
 		return err // NOT durably recorded — adapter must not ack
@@ -625,6 +625,9 @@ func (r *runtime) runJob(ctx context.Context, it state.Item) {
 	// → empty envelope → the coding engine runs exactly as the CLI.
 	jc := jobContextFor(it.Agent)
 	jc.Attachments = rest
+	if !it.Direct {
+		jc.Audience = audienceShared // a group reads the reply: no publishing, no workspace dumps
+	}
 	if it.Agent != "" {
 		a := settings.Agents[it.Agent]
 		jc.Model = a.Model // agent's pinned model drives its runs
@@ -649,6 +652,9 @@ func (r *runtime) runJob(ctx context.Context, it state.Item) {
 	if strings.TrimSpace(reply) == "" {
 		reply = "Done."
 	}
+	// Every reply leaves the machine: known secret values and credential shapes
+	// never ride it, whatever the job printed.
+	reply = replyRedactor().Redact(reply)
 	// Synthesize any voice rendition ONCE, here — before the durable handoff — so
 	// a delivery retry or a restart re-sends the same spool file instead of
 	// re-billing TTS or losing the in_kind decision (the pending-replies replay

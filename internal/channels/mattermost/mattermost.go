@@ -34,12 +34,23 @@ const (
 	maxReconnectBackoff  = 60 * time.Second
 )
 
+// Websocket liveness. A socket can die silently (NAT timeout, a server that
+// stopped writing) and a read with no deadline would then block forever with
+// the bot deaf. We ping every pingInterval; any frame or pong pushes the read
+// deadline out by pongWait, so a dead peer is detected and the loop reconnects.
+const (
+	pingInterval = 30 * time.Second
+	pongWait     = 75 * time.Second
+)
+
 // Channel is a Mattermost bot connection.
 type Channel struct {
 	base     string // server base URL, no trailing slash
 	token    string
 	client   *http.Client
 	mediaDir string // media spool; "" disables attachment downloads
+
+	pingEvery, pongWait time.Duration // websocket liveness (fields so tests can shrink them)
 }
 
 // New builds a Mattermost channel for the given server base URL and bot access
@@ -47,10 +58,12 @@ type Channel struct {
 // into; "" disables attachment handling (messages still flow as text).
 func New(serverURL, token, mediaDir string) *Channel {
 	return &Channel{
-		base:     strings.TrimRight(serverURL, "/"),
-		token:    token,
-		client:   &http.Client{Timeout: 30 * time.Second},
-		mediaDir: mediaDir,
+		base:      strings.TrimRight(serverURL, "/"),
+		token:     token,
+		client:    &http.Client{Timeout: 30 * time.Second},
+		mediaDir:  mediaDir,
+		pingEvery: pingInterval,
+		pongWait:  pongWait,
 	}
 }
 
@@ -158,11 +171,31 @@ func (c *Channel) runConn(ctx context.Context, sink channels.Sink, wsURL, selfID
 		return fmt.Errorf("authentication challenge: %w", err)
 	}
 
+	_ = conn.SetReadDeadline(time.Now().Add(c.pongWait))
+	conn.SetPongHandler(func(string) error {
+		return conn.SetReadDeadline(time.Now().Add(c.pongWait))
+	})
+	go func() {
+		t := time.NewTicker(c.pingEvery)
+		defer t.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-t.C:
+				// WriteControl is safe concurrently with the reader; a failed ping
+				// means the socket is gone, which the read will report.
+				_ = conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(10*time.Second))
+			}
+		}
+	}()
+
 	for {
 		_, raw, err := conn.ReadMessage()
 		if err != nil {
 			return fmt.Errorf("event stream: %w", err)
 		}
+		_ = conn.SetReadDeadline(time.Now().Add(c.pongWait))
 		backoff.Reset() // the socket is live — reset the ladder
 		inb, fileIDs, ok := parseEvent(raw, selfID, selfUsername)
 		if !ok {

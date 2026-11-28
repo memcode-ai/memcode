@@ -55,7 +55,7 @@ func (s *Session) connectMCP(ctx context.Context, interactive bool) {
 		s.mcpConfigs[name] = cfg
 	}
 	s.mcpInteractive = interactive
-	s.mcp = mcp.Connect(ctx, connect, mcp.Options{Version: mcpClientVersion, AllowOAuth: interactive})
+	s.mcp = mcp.Connect(ctx, connect, mcp.Options{Version: mcpClientVersion, AllowOAuth: interactive, Root: s.root})
 	s.reportMCP()
 	if len(s.mcpPending) > 0 && !interactive {
 		s.printf("● mcp: %d project server(s) pending approval — review with `memcode mcp`\n", len(s.mcpPending))
@@ -100,9 +100,9 @@ func (s *Session) reviewPendingMCP(ctx context.Context) {
 		s.mcpConfigs[name] = cfg
 	}
 	if s.mcp == nil {
-		s.mcp = mcp.Connect(ctx, connect, mcp.Options{Version: mcpClientVersion, AllowOAuth: s.mcpInteractive})
+		s.mcp = mcp.Connect(ctx, connect, mcp.Options{Version: mcpClientVersion, AllowOAuth: s.mcpInteractive, Root: s.root})
 	} else {
-		s.mcp.Add(ctx, connect, mcp.Options{Version: mcpClientVersion, AllowOAuth: s.mcpInteractive})
+		s.mcp.Add(ctx, connect, mcp.Options{Version: mcpClientVersion, AllowOAuth: s.mcpInteractive, Root: s.root})
 	}
 	s.reportMCP()
 }

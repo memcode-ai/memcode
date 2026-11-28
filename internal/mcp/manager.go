@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"os/exec"
@@ -14,20 +15,35 @@ import (
 	"time"
 
 	"github.com/memcode-ai/memcode/internal/agent/secrets"
+	"github.com/memcode-ai/memcode/internal/sandbox"
 
+	"github.com/modelcontextprotocol/go-sdk/auth"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 const (
-	connectTimeout     = 20 * time.Second // bound a slow/hung handshake (npx download, cold HTTP server)
 	listTimeout        = 15 * time.Second
 	defaultCallTimeout = 120 * time.Second // per-tool-call ceiling unless a server sets its own
+)
+
+// Vars for tests.
+var (
+	// connectTimeout bounds the non-interactive handshake (npx download, cold HTTP server).
+	connectTimeout = 20 * time.Second
+	// authorizeTimeout is the budget for an interactive browser authorization during
+	// connect: a person has to sign in and approve, which takes far longer than a
+	// handshake. The connect clock is suspended while it runs and restarts after.
+	authorizeTimeout = 5 * time.Minute
 )
 
 // Options configure a connection batch.
 type Options struct {
 	Version    string // memcode version reported to servers
 	AllowOAuth bool   // attach the interactive OAuth flow to remote servers that need auth (interactive sessions only)
+	// Root is the project the session runs in. When set, stdio servers run
+	// inside memcode's OS shield (internal/sandbox): a third-party server can't
+	// read memcode's credentials or rewrite its settings.
+	Root string
 }
 
 // Tool is one discovered MCP tool, flattened for memcode's tool registry.
@@ -146,16 +162,18 @@ func dial(ctx context.Context, name string, sc ServerConfig, opts Options) (*ser
 	if err != nil {
 		return nil, err
 	}
+	var authEvents <-chan bool
+	if st, ok := transport.(*mcpsdk.StreamableClientTransport); ok {
+		if ia, ok := st.OAuthHandler.(*interactiveAuth); ok {
+			authEvents = ia.events
+		}
+	}
 	client := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "memcode", Version: opts.Version}, nil)
 	connCtx, cancel := context.WithCancel(ctx)
-	type result struct {
-		s   *mcpsdk.ClientSession
-		err error
-	}
-	ch := make(chan result, 1)
+	ch := make(chan dialResult, 1)
 	go func() {
 		s, err := client.Connect(connCtx, transport, nil)
-		ch <- result{s, err}
+		ch <- dialResult{s, err}
 	}()
 	stop := func() {
 		cancel()
@@ -163,17 +181,79 @@ func dial(ctx context.Context, name string, sc ServerConfig, opts Options) (*ser
 			oauthStop()
 		}
 	}
-	select {
-	case r := <-ch:
-		if r.err != nil {
-			stop()
-			return nil, r.err
-		}
-		return &serverConn{name: name, session: r.s, cancel: stop, timeout: callTimeout(sc)}, nil
-	case <-time.After(connectTimeout):
-		stop() // abandon the hung dial
-		return nil, fmt.Errorf("connect timed out after %s", connectTimeout)
+	s, err := awaitConnect(ctx, ch, authEvents, stop)
+	if err != nil {
+		return nil, err
 	}
+	return &serverConn{name: name, session: s, cancel: stop, timeout: callTimeout(sc)}, nil
+}
+
+type dialResult struct {
+	s   *mcpsdk.ClientSession
+	err error
+}
+
+// awaitConnect waits for a Connect outcome. The handshake gets connectTimeout; while an
+// interactive authorization is running (authEvents: true = started, false = finished) the
+// clock switches to authorizeTimeout, then back to connectTimeout for the rest of the
+// handshake. ctx cancels it at any point. On any failure stop abandons the dial.
+func awaitConnect(ctx context.Context, ch <-chan dialResult, authEvents <-chan bool, stop func()) (*mcpsdk.ClientSession, error) {
+	timer := time.NewTimer(connectTimeout)
+	defer timer.Stop()
+	authorizing := false
+	for {
+		select {
+		case r := <-ch:
+			if r.err != nil {
+				stop()
+				return nil, r.err
+			}
+			return r.s, nil
+		case started := <-authEvents:
+			authorizing = started
+			if started {
+				timer.Reset(authorizeTimeout)
+			} else {
+				timer.Reset(connectTimeout)
+			}
+		case <-timer.C:
+			stop() // abandon the hung dial
+			if authorizing {
+				return nil, fmt.Errorf("authorization was not completed within %s — reconnect to try again", authorizeTimeout)
+			}
+			return nil, fmt.Errorf("connect timed out after %s", connectTimeout)
+		case <-ctx.Done():
+			stop()
+			return nil, ctx.Err()
+		}
+	}
+}
+
+// interactiveAuth wraps the browser OAuth handler so the dial can tell a person-paced
+// authorization (minutes) from a hung handshake (seconds), and bounds each authorization.
+type interactiveAuth struct {
+	auth.OAuthHandler
+	events chan bool
+}
+
+func newInteractiveAuth(h auth.OAuthHandler) *interactiveAuth {
+	return &interactiveAuth{OAuthHandler: h, events: make(chan bool, 8)}
+}
+
+func (a *interactiveAuth) signal(started bool) {
+	select {
+	case a.events <- started:
+	default: // no dial is listening (mid-session re-auth): the request ctx bounds it
+	}
+}
+
+// Authorize runs the browser flow under its own authorizeTimeout (and the request ctx).
+func (a *interactiveAuth) Authorize(ctx context.Context, req *http.Request, resp *http.Response) error {
+	a.signal(true)
+	defer a.signal(false)
+	actx, cancel := context.WithTimeout(ctx, authorizeTimeout)
+	defer cancel()
+	return a.OAuthHandler.Authorize(actx, req, resp)
 }
 
 // transportFor builds the SDK transport for a server: a subprocess for stdio, or the streamable
@@ -206,7 +286,7 @@ func transportFor(sc ServerConfig, opts Options) (mcpsdk.Transport, func(), erro
 			if herr != nil {
 				return nil, nil, herr
 			}
-			t.OAuthHandler = h
+			t.OAuthHandler = newInteractiveAuth(h)
 			return t, stop, nil
 		}
 		return t, nil, nil
@@ -215,6 +295,11 @@ func transportFor(sc ServerConfig, opts Options) (mcpsdk.Transport, func(), erro
 			return nil, nil, fmt.Errorf("stdio server has no command")
 		}
 		cmd := exec.Command(sc.Command, sc.Args...)
+		if opts.Root != "" {
+			if line, ok := sandbox.WrapArgv(append([]string{sc.Command}, sc.Args...), sandbox.ShieldOnly(opts.Root)); ok {
+				cmd = exec.Command("/bin/sh", "-c", line)
+			}
+		}
 		cmd.Env = secrets.ChildEnv(nil) // a third-party server never gets memcode's own credentials
 		for k, v := range sc.Env {
 			cmd.Env = append(cmd.Env, k+"="+v)
@@ -573,15 +658,26 @@ func flattenResource(contents []*mcpsdk.ResourceContents) string {
 // redirects, and a configured secret must never leak to any of those other hosts.
 // Returns the default client when there are no headers.
 func httpClient(headers map[string]string, serverURL string) *http.Client {
+	// No Client.Timeout: streamable HTTP keeps a long-lived event stream open, and each
+	// request is already bounded by its ctx (connect/list/call timeouts). The transport
+	// bounds the phases that have no ctx-independent end: dialing and the TLS handshake.
 	if len(headers) == 0 {
-		return http.DefaultClient
+		return &http.Client{Transport: baseTransport}
 	}
 	host := ""
 	if u, err := url.Parse(serverURL); err == nil {
 		host = strings.ToLower(u.Host)
 	}
-	return &http.Client{Transport: &headerRoundTripper{base: http.DefaultTransport, headers: headers, host: host}}
+	return &http.Client{Transport: &headerRoundTripper{base: baseTransport, headers: headers, host: host}}
 }
+
+// baseTransport is the default transport with bounded dial and TLS handshake.
+var baseTransport http.RoundTripper = func() http.RoundTripper {
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.DialContext = (&net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second}).DialContext
+	t.TLSHandshakeTimeout = 15 * time.Second
+	return t
+}()
 
 type headerRoundTripper struct {
 	base    http.RoundTripper

@@ -120,6 +120,12 @@ type EdgeFilter struct {
 type Store interface {
 	AppendEvent(ctx context.Context, e Event) (int64, error)
 	ListEvents(ctx context.Context, f EventFilter) ([]Event, error)
+	// SessionActivity maps each session id stamped in event payloads to its
+	// newest event time, ignoring events of a kind in skipKinds.
+	SessionActivity(ctx context.Context, skipKinds []string) (map[string]time.Time, error)
+	// DeleteSessionEvents removes the events of the given sessions except the
+	// kinds in keepKinds (see sessions.go).
+	DeleteSessionEvents(ctx context.Context, sessionIDs, keepKinds []string) (int64, error)
 
 	UpsertEntity(ctx context.Context, e Entity) error
 	ListEntities(ctx context.Context, kind string) ([]Entity, error) // kind="" = all

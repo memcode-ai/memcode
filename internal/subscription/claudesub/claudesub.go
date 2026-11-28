@@ -18,6 +18,7 @@ package claudesub
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -32,12 +33,33 @@ import (
 	"time"
 
 	"github.com/memcode-ai/memcode/internal/atomicfile"
+	"github.com/memcode-ai/memcode/internal/filelock"
 )
 
-// resolveMu serializes Resolve's read→refresh→write: refresh tokens are single-use and
-// rotate, so two concurrent Resolves could both spend the same refresh token (the second
-// exchange fails) and clobber the rotated one on write-back. One mutex per credential file.
+// resolveMu serializes Resolve's read→refresh→write within this process; the
+// cross-process half is a file lock (lockName) held across the same span.
+// Refresh tokens are single-use and rotate, so two concurrent refreshes would
+// both spend the same refresh token (the second exchange fails) and clobber
+// the rotated one on write-back.
 var resolveMu sync.Mutex
+
+// lockName is the advisory lock under the memcode state home that serializes
+// refreshes of the Claude login across memcode processes.
+const lockName = "claude-oauth"
+
+// lockWait bounds how long a refresh waits for another process's refresh. The
+// holder's own work is bounded (15s HTTP + write-back), so a longer wait means
+// it is stuck; fail with a clear error instead of hanging the session.
+var lockWait = 45 * time.Second
+
+// unsaved remembers a refresh whose write-back failed: the old refresh token
+// is spent and the rotated one lives only here. When the store still shows the
+// spent token, this process continues from the in-memory login instead of
+// replaying a refresh token the server will reject.
+var unsaved struct {
+	spent string
+	c     creds
+}
 
 // oauthClientID is the client id the Claude Code OAuth flow uses; required to
 // refresh the token.
@@ -74,7 +96,26 @@ func resolve(rejected string) (creds, error) {
 	if err != nil {
 		return creds{}, err
 	}
-	if valid(c.ExpiresAt) && (rejected == "" || c.AccessToken != rejected) {
+	if usable(c, rejected) {
+		return c, nil
+	}
+	// A refresh is needed: take the cross-process lock, then RE-READ — another
+	// memcode (or a re-auth) may have rotated the login while we waited, and
+	// spending the old refresh token again would fail and sign everyone out.
+	lk, err := filelock.AcquireNamed(context.Background(), lockName, lockWait)
+	if err != nil {
+		return creds{}, fmt.Errorf("another memcode process is refreshing the Claude login and has not finished — try again (%v)", err)
+	}
+	defer func() { _ = lk.Release() }()
+	if c, err = readCreds(); err != nil {
+		return creds{}, err
+	}
+	if unsaved.spent != "" && c.RefreshToken == unsaved.spent {
+		fromKC := c.fromKeychain
+		c = unsaved.c
+		c.fromKeychain = fromKC
+	}
+	if usable(c, rejected) {
 		return c, nil
 	}
 	if c.RefreshToken == "" {
@@ -87,9 +128,17 @@ func resolve(rejected string) (creds, error) {
 	if err := writeBack(c, refreshed); err != nil {
 		// The old refresh token is spent; the new one exists only in memory. Use
 		// it for this session and say plainly what the user may need to do.
+		unsaved.spent, unsaved.c = c.RefreshToken, refreshed
 		return refreshed, fmt.Errorf("refreshed the Claude login but couldn't save it (%v) — if Claude Code asks you to sign in again, that is why", err)
 	}
+	unsaved.spent, unsaved.c = "", creds{}
 	return refreshed, nil
+}
+
+// usable reports whether c can be served without a refresh: unexpired, and
+// not the exact token the API just rejected.
+func usable(c creds, rejected string) bool {
+	return c.AccessToken != "" && valid(c.ExpiresAt) && (rejected == "" || c.AccessToken != rejected)
 }
 
 // TokenSource hands a long-lived session the CURRENT Claude access token,
@@ -233,7 +282,9 @@ func readKeychainCreds() (creds, bool) {
 	if !keychainEnabled || runtime.GOOS != "darwin" {
 		return creds{}, false
 	}
-	cmd := exec.Command("security", "find-generic-password", "-s", "Claude Code-credentials", "-w")
+	ctx, cancel := context.WithTimeout(context.Background(), keychainTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "security", "find-generic-password", "-s", "Claude Code-credentials", "-w")
 	cmd.Stdin = nil
 	out, err := cmd.Output()
 	if err != nil {
@@ -348,6 +399,10 @@ func writeBackFile(c creds) error {
 
 const keychainService = "Claude Code-credentials"
 
+// keychainTimeout bounds each `security` call (one may wait on a Keychain
+// access prompt), so a stuck one can't hang memcode or hold the refresh lock.
+const keychainTimeout = 60 * time.Second
+
 // writeBackKeychain updates Claude Code's Keychain item in place. The secret
 // goes to `security` on stdin (hex-encoded, in its interactive mode), never on
 // the command line where other processes could read it.
@@ -355,12 +410,14 @@ func writeBackKeychain(c creds) error {
 	if !keychainEnabled || runtime.GOOS != "darwin" {
 		return nil
 	}
-	existing, _ := exec.Command("security", "find-generic-password", "-s", keychainService, "-w").Output()
+	ctx, cancel := context.WithTimeout(context.Background(), keychainTimeout)
+	defer cancel()
+	existing, _ := exec.CommandContext(ctx, "security", "find-generic-password", "-s", keychainService, "-w").Output()
 	b, err := oauthJSON(bytes.TrimSpace(existing), c)
 	if err != nil {
 		return err
 	}
-	attrs, err := exec.Command("security", "find-generic-password", "-s", keychainService).Output()
+	attrs, err := exec.CommandContext(ctx, "security", "find-generic-password", "-s", keychainService).Output()
 	if err != nil {
 		return fmt.Errorf("keychain item not found: %w", err)
 	}
@@ -368,7 +425,7 @@ func writeBackKeychain(c creds) error {
 	if acct == "" || strings.ContainsAny(acct, "\"\n\\") {
 		return fmt.Errorf("keychain item has no usable account name")
 	}
-	cmd := exec.Command("security", "-i")
+	cmd := exec.CommandContext(ctx, "security", "-i")
 	cmd.Stdin = strings.NewReader(fmt.Sprintf("add-generic-password -U -a \"%s\" -s \"%s\" -X %x\n", acct, keychainService, b))
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("keychain update failed: %v %s", err, strings.TrimSpace(string(out)))

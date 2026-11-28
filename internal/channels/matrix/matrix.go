@@ -16,6 +16,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -30,6 +31,9 @@ const (
 	// must stay under the federation's 65 KiB cap; 4000 chars leaves ample room.
 	matrixMaxMessage = 4000
 	maxSyncBackoff   = 60 * time.Second
+	// identityRetry throttles re-fetching whoami / m.direct after a startup
+	// failure, so a transient error doesn't leave DM detection off for the run.
+	identityRetry = time.Minute
 )
 
 // CursorStore persists the /sync since-token so a restart resumes where it
@@ -49,7 +53,9 @@ type Channel struct {
 	mediaDir   string // media spool; "" disables attachment downloads
 
 	userID string          // own mxid, learned via /whoami at Start
-	direct map[string]bool // room ids marked as DMs in m.direct account data
+	direct map[string]bool // room ids marked as DMs in m.direct account data; nil = unknown
+	// lastIdentity is when whoami/m.direct was last attempted (retry throttle).
+	lastIdentity time.Time
 }
 
 // New builds a Matrix channel for the given homeserver and access token.
@@ -76,8 +82,21 @@ func (c *Channel) Name() string { return "matrix" }
 // sub-types (not anonymous structs) so they're straightforward to build in
 // tests.
 type syncResponse struct {
-	NextBatch string    `json:"next_batch"`
-	Rooms     syncRooms `json:"rooms"`
+	NextBatch   string      `json:"next_batch"`
+	Rooms       syncRooms   `json:"rooms"`
+	AccountData accountData `json:"account_data"`
+}
+
+// accountData is the global account data in a /sync response. It carries
+// m.direct whenever the DM set changes, so DM rooms created mid-run are
+// recognized without a restart.
+type accountData struct {
+	Events []accountDataEvent `json:"events"`
+}
+
+type accountDataEvent struct {
+	Type    string          `json:"type"`
+	Content json.RawMessage `json:"content"`
 }
 
 type syncRooms struct {
@@ -137,6 +156,7 @@ func (c *Channel) Start(ctx context.Context, sink channels.Sink) error {
 	// messages won't trigger unless respond_to_all).
 	c.userID = c.whoami(ctx)
 	c.direct = c.fetchDirectRooms(ctx)
+	c.lastIdentity = time.Now()
 
 	var since string
 	if c.store != nil {
@@ -162,6 +182,7 @@ func (c *Channel) Start(ctx context.Context, sink channels.Sink) error {
 			continue
 		}
 		backoff.Reset() // recovered — reset the ladder
+		c.refreshIdentity(ctx, resp)
 
 		// First-ever sync (no since-token): deliver nothing. The filtered
 		// request limited each timeline to one event, and even that one is
@@ -360,9 +381,9 @@ func (c *Channel) whoami(ctx context.Context) string {
 }
 
 // fetchDirectRooms reads the m.direct account data — the client convention
-// that marks which rooms are DMs — and returns the set of DM room ids.
-// Best-effort and fetched once: a room becoming a DM mid-run is rare enough
-// that a restart picking it up is fine for v1.
+// that marks which rooms are DMs — and returns the set of DM room ids, or nil
+// on failure. Fetched at Start; later changes arrive via /sync account data
+// (see refreshIdentity), and a failed fetch is retried there.
 func (c *Channel) fetchDirectRooms(ctx context.Context) map[string]bool {
 	if c.userID == "" {
 		return nil
@@ -383,9 +404,46 @@ func (c *Channel) fetchDirectRooms(ctx context.Context) map[string]bool {
 		return nil
 	}
 	// m.direct maps peer mxid → list of room ids; we only need the room set.
-	var byUser map[string][]string
-	if err := json.NewDecoder(resp.Body).Decode(&byUser); err != nil {
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	if err != nil {
 		return nil
+	}
+	direct, ok := directRoomSet(raw)
+	if !ok {
+		return nil
+	}
+	return direct
+}
+
+// refreshIdentity keeps the own-id and DM set current: an m.direct event in
+// the sync's account data replaces the DM set (rooms that became DMs mid-run),
+// and a whoami / m.direct fetch that failed at startup is retried, throttled.
+func (c *Channel) refreshIdentity(ctx context.Context, resp *syncResponse) {
+	for _, ev := range resp.AccountData.Events {
+		if ev.Type != "m.direct" {
+			continue
+		}
+		if d, ok := directRoomSet(ev.Content); ok {
+			c.direct = d
+		}
+	}
+	if (c.userID != "" && c.direct != nil) || time.Since(c.lastIdentity) < identityRetry {
+		return
+	}
+	c.lastIdentity = time.Now()
+	if c.userID == "" {
+		c.userID = c.whoami(ctx)
+	}
+	if c.direct == nil {
+		c.direct = c.fetchDirectRooms(ctx)
+	}
+}
+
+// directRoomSet turns m.direct content (peer mxid → room ids) into a room set.
+func directRoomSet(raw []byte) (map[string]bool, bool) {
+	var byUser map[string][]string
+	if err := json.Unmarshal(raw, &byUser); err != nil {
+		return nil, false
 	}
 	direct := make(map[string]bool)
 	for _, rooms := range byUser {
@@ -393,7 +451,7 @@ func (c *Channel) fetchDirectRooms(ctx context.Context) map[string]bool {
 			direct[id] = true
 		}
 	}
-	return direct
+	return direct, true
 }
 
 // sync performs one /sync long-poll. An empty since means the first-ever sync,

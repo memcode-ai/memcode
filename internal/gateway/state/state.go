@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS inbox (
     project      TEXT NOT NULL DEFAULT '', -- project id snapshot at receipt (immutable for this task)
     attachments  TEXT NOT NULL DEFAULT '', -- JSON array of media spool IDs riding this message
     voice        TEXT NOT NULL DEFAULT '', -- spool ID of the synthesized voice reply (synthesized ONCE, at job completion)
+    direct       INTEGER NOT NULL DEFAULT 0, -- 1 = a direct message; 0 = a group (or unknown: treated as shared)
     received_at  TEXT NOT NULL,
     PRIMARY KEY (channel, message_id)
 );
@@ -113,6 +114,10 @@ type Item struct {
 	Project      string   // project id snapshot at receipt
 	Attachments  []string // media spool IDs (bare filenames; resolved only inside the spool)
 	Voice        string   // spool ID of the synthesized voice reply ("" = text only)
+	// Direct is true only for a one-to-one conversation with the sender. A group
+	// reply is read by people the allow-list never authorized, so jobs from a
+	// group run with a shared audience (see the server's runJob).
+	Direct bool
 }
 
 // Store is the gateway's durable state.
@@ -165,6 +170,7 @@ func Open(ctx context.Context, dir string) (*Store, error) {
 		`ALTER TABLE inbox ADD COLUMN project TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE inbox ADD COLUMN attachments TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE inbox ADD COLUMN voice TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE inbox ADD COLUMN direct INTEGER NOT NULL DEFAULT 0`,
 	} {
 		if _, err := db.ExecContext(ctx, col); err != nil && !strings.Contains(err.Error(), "duplicate column") {
 			_ = db.Close()
@@ -221,10 +227,10 @@ func (s *Store) Close() error {
 func (s *Store) Accept(ctx context.Context, it Item, now time.Time) (bool, error) {
 	res, err := s.db.ExecContext(ctx,
 		`INSERT OR IGNORE INTO inbox
-		   (channel, message_id, conversation, principal, text, trusted, status, agent, project, attachments, received_at)
-		 VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`,
+		   (channel, message_id, conversation, principal, text, trusted, status, agent, project, attachments, direct, received_at)
+		 VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?)`,
 		it.Channel, it.MessageID, it.Conversation, it.Principal, it.Text, boolInt(it.Trusted),
-		it.Agent, it.Project, encodeIDs(it.Attachments), now.UTC().Format(time.RFC3339Nano),
+		it.Agent, it.Project, encodeIDs(it.Attachments), boolInt(it.Direct), now.UTC().Format(time.RFC3339Nano),
 	)
 	if err != nil {
 		return false, fmt.Errorf("accept inbound: %w", err)
@@ -249,7 +255,7 @@ func (s *Store) SetInboxStatus(ctx context.Context, channel, messageID, from, to
 
 func (s *Store) Pending(ctx context.Context) ([]Item, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT channel, message_id, conversation, principal, text, trusted, agent, project, attachments
+		`SELECT channel, message_id, conversation, principal, text, trusted, agent, project, attachments, direct
 		   FROM inbox WHERE status = 'pending' ORDER BY received_at LIMIT 500`)
 	if err != nil {
 		return nil, fmt.Errorf("pending inbox: %w", err)
@@ -258,12 +264,13 @@ func (s *Store) Pending(ctx context.Context) ([]Item, error) {
 	var out []Item
 	for rows.Next() {
 		var it Item
-		var trusted int
+		var trusted, direct int
 		var atts string
-		if err := rows.Scan(&it.Channel, &it.MessageID, &it.Conversation, &it.Principal, &it.Text, &trusted, &it.Agent, &it.Project, &atts); err != nil {
+		if err := rows.Scan(&it.Channel, &it.MessageID, &it.Conversation, &it.Principal, &it.Text, &trusted, &it.Agent, &it.Project, &atts, &direct); err != nil {
 			return nil, err
 		}
 		it.Trusted = trusted != 0
+		it.Direct = direct != 0
 		it.Attachments = decodeIDs(atts)
 		out = append(out, it)
 	}

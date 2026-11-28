@@ -38,6 +38,8 @@ import (
 type prefsFile struct {
 	PinnedModel  string `json:"pinned_model,omitempty"`
 	PinnedWindow int    `json:"pinned_window,omitempty"`
+	// SessionRetentionDays is the user-level session retention (see SessionRetention).
+	SessionRetentionDays *int `json:"session_retention_days,omitempty"`
 }
 
 // UserPrefsPath returns $XDG_CONFIG_HOME/memcode/prefs.json, else

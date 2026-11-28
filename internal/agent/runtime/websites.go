@@ -44,6 +44,9 @@ func (s *Session) websitesTool(ctx context.Context, input json.RawMessage) toolR
 	if risk > permissions.Safe && (s.readOnly || s.planCtl.Planning() || s.chatReadOnly) {
 		return errResult("denied: websites " + in.Action + " isn't available while planning/read-only — the read-only actions are, changes wait for execution")
 	}
+	if risk >= permissions.Dangerous && s.sharedAudience {
+		return errResult(sharedAudienceRefusal("websites " + in.Action))
+	}
 	// Argument problems are reported before any network call or approval prompt.
 	uploadPath, err := s.validateWebsitesInput(in)
 	if err != nil {
@@ -340,10 +343,11 @@ func websiteActionRisk(action string) (permissions.Risk, bool) {
 		return permissions.Safe, true
 	case "push":
 		return websitesPushRisk, true
-	case "create", "build", "edit", "update", "share":
-		// share: a link that lets anyone holding it view the draft for a week.
+	case "create", "build", "edit", "update":
 		return permissions.Medium, true
-	case "publish", "unpublish", "delete", "assets_upload", "assets_delete":
+	case "publish", "unpublish", "delete", "assets_upload", "assets_delete", "share":
+		// share: a link that lets anyone holding it view the draft for a week —
+		// disclosure outside the machine, so never silent in Auto.
 		return permissions.Dangerous, true
 	}
 	return permissions.Safe, false

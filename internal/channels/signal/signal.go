@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -65,7 +66,7 @@ func New(baseURL, account, attachmentsDir, mediaDir string) *Channel {
 		attachmentsDir: attachmentsDir,
 		mediaDir:       mediaDir,
 		client:         &http.Client{Timeout: 30 * time.Second},
-		sse:            &http.Client{},
+		sse:            &http.Client{Transport: sseTransport()},
 		byNum:          map[string]string{},
 	}
 }
@@ -354,4 +355,14 @@ func (c *Channel) rpc(ctx context.Context, method string, params map[string]any)
 		return fmt.Errorf("signal %s: %s", method, out.Error.Message)
 	}
 	return nil
+}
+
+// sseTransport bounds everything about the event stream except its (long-lived,
+// ctx-cancelled) body: the dial, and the wait for response headers, so a wedged
+// daemon fails the connect and walks the reconnect ladder instead of hanging it.
+func sseTransport() *http.Transport {
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.DialContext = (&net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}).DialContext
+	t.ResponseHeaderTimeout = 30 * time.Second
+	return t
 }

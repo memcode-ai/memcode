@@ -58,12 +58,15 @@ import (
 // capability) and the one-line pointers that keep the model from hand-
 // rolling REST (the `memcode websites` CLI fallback for the build-gate 403,
 // and the skill pointer for the full lifecycle).
+//
+// 2026-11-28: +100B for bash's outside_sandbox flag — the one sanctioned way
+// out of the always-on OS shield, which must be visible to the model.
 func TestToolDefsWireBudget(t *testing.T) {
 	core, err := json.Marshal(Defs())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(core) > 38_000 {
+	if len(core) > 38_100 {
 		t.Errorf("core tool defs = %dB (~%d tokens) on the wire — over the 38KB budget; trim descriptions/schemas or raise deliberately", len(core), len(core)/4)
 	}
 	browser, err := json.Marshal(BrowserDefs())

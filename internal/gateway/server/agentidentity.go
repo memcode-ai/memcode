@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	agentrt "github.com/memcode-ai/memcode/internal/agent/runtime"
+	"github.com/memcode-ai/memcode/internal/agent/secrets"
 	gwconfig "github.com/memcode-ai/memcode/internal/gateway/config"
 )
 
@@ -31,12 +32,22 @@ type jobContext struct {
 	// deny wins).
 	Toolsets         []string `json:"toolsets,omitempty"`
 	DisabledToolsets []string `json:"disabled_toolsets,omitempty"`
+	// Audience is "shared" when the reply goes to a group: the job may not
+	// publish anything and is told its answer is read by unauthorized people.
+	Audience string `json:"audience,omitempty"`
 }
+
+// audienceShared marks a job whose reply is read by a group.
+const audienceShared = "shared"
 
 func (jc jobContext) empty() bool {
 	return len(jc.Items) == 0 && len(jc.SkillRoots) == 0 && len(jc.Attachments) == 0 &&
-		jc.Model == "" && jc.Reasoning == "" && len(jc.Toolsets) == 0 && len(jc.DisabledToolsets) == 0
+		jc.Model == "" && jc.Reasoning == "" && len(jc.Toolsets) == 0 && len(jc.DisabledToolsets) == 0 && jc.Audience == ""
 }
+
+// replyRedactor masks the gateway process's own secret env values and known
+// credential formats in outgoing replies.
+func replyRedactor() *secrets.Redactor { return secrets.NewFromEnv() }
 
 // jobContextFor composes everything a bound agent layers onto a run: its
 // instructions and memory as generic ContextItems, and its own skills dir as an

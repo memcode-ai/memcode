@@ -95,13 +95,16 @@ func runInteractive(ctx context.Context, mode permissions.Mode, modeExplicit boo
 		sess.SetBrowserEnabled(true)
 		defer sess.CloseBrowser() // tear down Chrome when the TUI session ends
 	}
+	resumeID := ""
 	if resume != "" {
 		id, err := runtime.ResolveSession(cfg.Root, resume)
 		if err != nil {
 			return err
 		}
 		sess.SetResume(id) // consumed by StartChat inside the TUI
+		resumeID = id
 	}
+	autoPruneSessions(ctx, st, cfg, resumeID) // retention: daily, never the resumed session
 	// Boot contract (Tim): CHECK, UPDATE, RESTART — every launch. A bounded
 	// network check; a newer release installs synchronously and the process
 	// re-execs into it before the TUI starts. Offline falls back to any

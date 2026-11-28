@@ -304,3 +304,37 @@ func TestStartWebSocketRoundTrip(t *testing.T) {
 		t.Fatal("Start did not return after cancel")
 	}
 }
+
+// A socket that goes silent (no frames, no pongs) must be detected and dropped
+// so the bot reconnects, instead of blocking in ReadMessage forever.
+func TestRunConnDetectsDeadSocket(t *testing.T) {
+	upgrader := websocket.Upgrader{}
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		<-release // never read (so never pong), never write
+	}))
+	defer srv.Close()
+	defer close(release)
+
+	wsURL, _ := deriveWSURL(srv.URL)
+	c := New(srv.URL, "tok", "")
+	c.pingEvery, c.pongWait = 50*time.Millisecond, 300*time.Millisecond
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- c.runConn(context.Background(), sinkFunc(func(context.Context, channels.Inbound) error { return nil }),
+			wsURL, "", "", channels.NewBackoff(time.Second, time.Minute))
+	}()
+	select {
+	case err := <-errCh:
+		if err == nil {
+			t.Fatal("runConn returned nil on a dead socket")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("runConn never noticed the dead socket")
+	}
+}

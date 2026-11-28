@@ -584,33 +584,70 @@ func (s *appState) planAskAdvisor() {
 	q := "Review this implementation PLAN (it states its own task under \"Goal\"). Advise whether to " +
 		"proceed, the single biggest risk, and anything missing or over-built. Be decisive.\n\n" +
 		"=== PLAN ===\n" + plan
-	in0, out0 := s.w.sess.Tokens()
-	s.SetState(func() {
-		s.planChoosing = false
-		s.setBusy(runtime.OwnerAsync)
-		s.turnStart = time.Now()
-		s.turnIn0 = in0
-		s.turnOut0 = out0
-	})
+	actx := s.beginPlanSideCall()
 	s.sysln("◆ advisor  reviewing the plan…")
 	s.startSpinner()
 	go func() {
-		advice, _ := s.w.sess.AskAdvisor(s.w.ctx, q, "medium")
+		advice, ok := s.w.sess.AskAdvisor(actx, q, "medium")
 		commitAsk := s.w.sess.CommitGateNeeded(s.w.ctx) // recheck off the UI thread — the tree may have changed
 		s.rt.Dispatch(func() {
-			s.flushAppend()
-			s.SetState(func() { s.setBusy(runtime.OwnerNone) })
-			s.refreshFooter()
+			if s.endPlanSideCall(actx, commitAsk) {
+				return
+			}
+			if !ok {
+				// An error or "unavailable" string is a status, not advice: show it,
+				// and keep the card at its current stage so "Revise plan with the
+				// review" never folds an error message into the plan.
+				s.sysln(strings.TrimSpace(advice))
+				return
+			}
 			s.printBlock(advice)
 			s.SetState(func() {
 				s.planAdvice = advice
 				s.planStage = 1
-				s.planChoosing = true
-				s.planChoice = 0
-				s.planCommitAsk = commitAsk
 			})
 		})
 	}()
+}
+
+// beginPlanSideCall marks the plan card's advisor/review call as a cancellable async op:
+// Ctrl+C (and Esc) reach it through asyncCancel like any runAsync op. Returns the call's ctx.
+func (s *appState) beginPlanSideCall() context.Context {
+	actx, cancel := context.WithCancel(s.w.ctx)
+	in0, out0 := s.w.sess.Tokens()
+	s.SetState(func() {
+		s.planChoosing = false
+		s.setBusy(runtime.OwnerAsync)
+		s.asyncCancel = cancel
+		s.turnStart = time.Now()
+		s.turnIn0 = in0
+		s.turnOut0 = out0
+	})
+	return actx
+}
+
+// endPlanSideCall (UI thread) settles a plan side call: clears busy/asyncCancel and
+// re-raises the plan card. It reports true when the call was interrupted, in which case
+// the card returns at its previous stage and the caller must not use the result.
+func (s *appState) endPlanSideCall(actx context.Context, commitAsk bool) bool {
+	interrupted := actx.Err() != nil // capture BEFORE cancel (which sets Err)
+	cancel := s.asyncCancel
+	s.flushAppend()
+	s.SetState(func() {
+		s.setBusy(runtime.OwnerNone)
+		s.asyncCancel = nil
+		s.planChoosing = true
+		s.planChoice = 0
+		s.planCommitAsk = commitAsk
+	})
+	if cancel != nil {
+		cancel()
+	}
+	s.refreshFooter()
+	if interrupted {
+		s.sysln("(interrupted)")
+	}
+	return interrupted
 }
 
 // planPolicyMode resolves a plan target's mode, honouring any override the
@@ -669,28 +706,22 @@ func (s *appState) planReviewWithModel(label, display string) {
 		shown = label
 	}
 	pinBefore := s.w.sess.Pin()
-	in0, out0 := s.w.sess.Tokens()
-	s.SetState(func() {
-		s.planChoosing = false
-		s.setBusy(runtime.OwnerAsync)
-		s.turnStart = time.Now()
-		s.turnIn0 = in0
-		s.turnOut0 = out0
-	})
+	actx := s.beginPlanSideCall()
 	s.sysln("◆ review  " + shown + " is reading the plan…")
 	s.startSpinner()
 	go func() {
-		review, servedBy := s.w.sess.ReviewPlanWith(s.w.ctx, plan, label)
+		review, servedBy := s.w.sess.ReviewPlanWith(actx, plan, label)
 		commitAsk := s.w.sess.CommitGateNeeded(s.w.ctx) // recheck off the UI thread
 		s.rt.Dispatch(func() {
-			s.flushAppend()
-			s.SetState(func() { s.setBusy(runtime.OwnerNone) })
-			s.refreshFooter()
+			interrupted := s.endPlanSideCall(actx, commitAsk)
 			// Belt and braces: an ephemeral override that leaked into the session
 			// pin would be a per-request model switch reappearing by the back
 			// door, so say so loudly rather than let it pass.
 			if now := s.w.sess.Pin(); now != pinBefore {
 				s.sysln("internal: the review changed the session model (" + pinBefore + " → " + now + ") — it must not; please report this")
+			}
+			if interrupted {
+				return // a cancelled review reads as "No issues raised." — never present it
 			}
 			if servedBy != "" && servedBy != shown {
 				s.sysln("  ⎿ reviewed by " + servedBy)
@@ -699,9 +730,6 @@ func (s *appState) planReviewWithModel(label, display string) {
 			s.SetState(func() {
 				s.planAdvice = review
 				s.planStage = 1
-				s.planChoosing = true
-				s.planChoice = 0
-				s.planCommitAsk = commitAsk
 			})
 		})
 	}()
