@@ -205,7 +205,8 @@ func (s *appState) footerRow() ui.Widget {
 		// Cache-hit pulse: glyph + % of prompt tokens served from cache. Conditional (only when
 		// caching is actually happening) and muted, so it's a quiet signal, not a fixture.
 		if cr, _ := s.w.sess.CacheStats(); cr > 0 {
-			add(fmt.Sprintf("%s %d%%", cacheGlyph, cacheHitRate(in, cr)), s.sty.muted)
+			uncachedIn, _, _, _, _ := s.w.sess.Spend()
+			add(fmt.Sprintf("%s %d%%", cacheGlyph, cacheHitRate(uncachedIn, cr)), s.sty.muted)
 		}
 	}
 	// Context-window fill of the latest MAIN call. Hidden until the first main call
