@@ -232,6 +232,10 @@ type Session struct {
 	// DrainPlanDeferred on ExitPlan (Execute or Cancel) and replayed through the scheduler.
 	planDeferred []separateAsk
 
+	// bg holds finished background results (report-back agents, background shells) posted
+	// while a turn runs; runLoop folds them in at the safe boundary. See bgevents.go.
+	bg bgEvents
+
 	// judges tracks side-channel classifier outcomes (ok/timeout/err per mode) — the
 	// /doctor instrument for silent judge degradation. Own mutex inside; see judge.go.
 	judges judgeStats

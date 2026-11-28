@@ -477,10 +477,25 @@ func (s *appState) refreshFooter() {
 				for _, note := range notes {
 					s.sysln(note)
 				}
+				// Background results go to the AGENT, not the user's input queue: while a turn
+				// runs they are posted to it and fold in at its next safe boundary (the loop
+				// prints the marker); with no turn running they start one. Results a finished
+				// turn never reached are taken back here, since refreshFooter runs at turn end.
+				deliver := func(marker, text string) {
+					if s.busyOwner == runtime.OwnerTurn {
+						s.w.sess.PostBackground(text)
+						return
+					}
+					s.injectTurn(marker, text)
+				}
+				if s.busyOwner != runtime.OwnerTurn {
+					if left := s.w.sess.TakeBackground(); len(left) > 0 {
+						s.injectTurn("  ↳ background work finished — handing the result(s) back to the agent",
+							strings.Join(left, "\n\n"))
+					}
+				}
 				for _, b := range backs {
-					// A background agent finished and asked to report back: feed its result into the
-					// engine as a new turn so the model acts on it (not just a user notification).
-					s.injectTurn(
+					deliver(
 						fmt.Sprintf("  ↳ agent %s finished — handing its result back to the agent", b.ID),
 						fmt.Sprintf("[background agent %s finished] task: %s\n\nResult:\n%s", b.ID, b.Task, b.Result),
 					)
@@ -498,7 +513,7 @@ func (s *appState) refreshFooter() {
 					if sb.Failed {
 						verb = fmt.Sprintf("failed (exit %d)", sb.Exit)
 					}
-					s.injectTurn(
+					deliver(
 						fmt.Sprintf("  ↳ background shell %s — handing the result back to the agent", verb),
 						sb.ReportPrompt(),
 					)

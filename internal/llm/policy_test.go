@@ -210,8 +210,9 @@ func TestCapabilityGapsRefuseInsteadOfSwitchingModels(t *testing.T) {
 	}
 }
 
-// A turn past the pin's window refuses too — /compact or switch, never a
-// silent hop to a bigger model.
+// A turn past the pin's window refuses too — never a silent hop to a bigger
+// model. The refusal carries the overflow sentinel, so the agent loop compacts
+// and retries on its own instead of telling the user to run /compact.
 func TestContextOverflowRefuses(t *testing.T) {
 	info := prodInfo(nil)
 	for i := range info.Models {
@@ -225,8 +226,8 @@ func TestContextOverflowRefuses(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "window") {
 		t.Fatalf("want an overflow refusal, got %v", err)
 	}
-	if !strings.Contains(err.Error(), "/compact") {
-		t.Errorf("the refusal must name /compact: %v", err)
+	if !errors.Is(err, wire.ErrContextOverflow) {
+		t.Errorf("the refusal must be compactable (wire.ErrContextOverflow), got: %v", err)
 	}
 	if len(p.requested) != 0 {
 		t.Fatalf("a refused turn must reach no provider, got %v", p.requested)

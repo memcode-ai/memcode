@@ -491,6 +491,13 @@ func (s *Session) runLoop(ctx context.Context, sys promptSpec, messages *[]wire.
 			}
 		}
 
+		// SAME safe boundary: results of background work this agent started (a report-back
+		// agent or background shell finished mid-turn) join the running turn as runtime
+		// events instead of waiting behind it in the user's input queue.
+		if n := s.foldBackground(messages); n > 0 {
+			s.printf("%s\n", metaStyle.Render(fmt.Sprintf("  ↳ background work finished — folding %d result(s) into this turn", n)))
+		}
+
 		// SAME safe boundary, the other drain: genuinely SEPARATE follow-ups (the
 		// classifier's "not related" verdict) never touch the active transaction — they
 		// just sat invisibly in the queue until their own turn ran. Track them on the todo

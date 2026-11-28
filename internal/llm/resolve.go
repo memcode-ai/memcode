@@ -208,8 +208,11 @@ func capabilityCheck(label string, req wire.Request, info provider.ModelsInfo) r
 	if hasBlock(req, "document") && !f.PDF {
 		return resolved{err: fmt.Errorf("%s can't read PDFs. Switch with /model to send this turn", name)}
 	}
+	// Over the window is a context-management condition, not a user action: wrap the
+	// overflow sentinel so the agent loop compacts at its safe boundary and retries
+	// (runLoop). The text only surfaces if compaction cannot bring the turn under.
 	if est := estimateTokens(req); f.Window > 0 && est > f.Window {
-		return resolved{err: fmt.Errorf("this turn is about %d tokens, past %s's %d-token window. Run /compact, or switch with /model", est, name, f.Window)}
+		return resolved{err: fmt.Errorf("this turn is about %d tokens, past %s's %d-token window: %w", est, name, f.Window, wire.ErrContextOverflow)}
 	}
 	return resolved{label: label, pinned: true}
 }
