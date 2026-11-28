@@ -194,9 +194,13 @@ func (s *appState) resolveEndpointModel() {
 		return
 	}
 	model := ids[0]
-	s.w.sess.SetPin(model, ep.LimitsFor(model).ContextWindow)
-	s.persistModel(func(cfg *config.Config) { cfg.RememberEndpointModel(ep, model) })
 	s.rt.Dispatch(func() {
+		// Re-check on the UI thread: a /model typed during the fetch wins.
+		if s.w.sess.Pin() != "" {
+			return
+		}
+		s.w.sess.SetPin(model, ep.LimitsFor(model).ContextWindow)
+		s.persistModel(func(cfg *config.Config) { cfg.RememberEndpointModel(ep, model) })
 		s.SetState(func() {})
 		s.sysln("model → " + model + " (first listed by endpoint " + ep.Name + " — change with /model)")
 	})

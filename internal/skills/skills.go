@@ -72,7 +72,11 @@ type rootSpec struct {
 // (a gateway agent's own skills — more specific than the user), which outrank
 // user-global ones.
 func discoveryRoots(repoRoot string, extra []string) []rootSpec {
-	roots := []rootSpec{{filepath.Join(statedir.For(repoRoot), "skills"), 0}}
+	roots := []rootSpec{
+		{filepath.Join(statedir.For(repoRoot), "skills"), 0},
+		// Skills a repo commits for its team, the same way .claude/skills works.
+		{filepath.Join(repoRoot, statedir.LegacyName, "skills"), 1},
+	}
 	for _, d := range nestedSkillDirs(repoRoot) { // .agents/skills + .claude/skills, repo-root or nested
 		roots = append(roots, rootSpec{d, 1})
 	}

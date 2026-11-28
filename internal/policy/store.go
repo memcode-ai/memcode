@@ -2,6 +2,7 @@ package policy
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -56,6 +57,20 @@ func Load(path string) Set {
 	return f.Policies
 }
 
+// loadable refuses a write over a file that exists but doesn't parse: Load
+// reads it as empty, so saving would erase every policy in that scope.
+func loadable(path string) error {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	var f file
+	if err := json.Unmarshal(b, &f); err != nil {
+		return fmt.Errorf("%s isn't valid JSON (%v) — fix it first; nothing was changed", path, err)
+	}
+	return nil
+}
+
 // Save writes a policy file atomically.
 func Save(path string, s Set) error {
 	if path == "" {
@@ -77,6 +92,9 @@ func SetField(path string, t Target, field string, raw any) error {
 	if err != nil {
 		return err
 	}
+	if err := loadable(path); err != nil {
+		return err
+	}
 	s := Load(path)
 	s.Put(t, field, v)
 	return Save(path, s)
@@ -86,6 +104,9 @@ func SetField(path string, t Target, field string, raw any) error {
 // untouched — resetting "how explore agents behave" in this repo must not
 // disturb what was set everywhere.
 func UnsetTarget(path string, t Target) error {
+	if err := loadable(path); err != nil {
+		return err
+	}
 	s := Load(path)
 	if _, ok := s[t]; !ok {
 		return nil

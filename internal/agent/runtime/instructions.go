@@ -60,7 +60,7 @@ const claudeMdName = "CLAUDE.md"
 // learned about the user and their work), distinct from MEMCODE.md instructions, which
 // are RULES. It splits the same two ways instructions do, but with the opposite combine:
 // where instructions fall through (project OR user, first wins), memory is ADDITIVE —
-// global (~/.memcode/memory.md) AND project (<repo>/.memcode/memory.md) both load, so a
+// global (~/.memcode/memory.md) AND project (memory.md in the project's state dir) both load, so a
 // fact learned in one repo (global) travels while a repo-specific fact stays put. The
 // global file is where a migration from another assistant lands its memories, so they are
 // actually carried into every session rather than parked in a file nothing reads.

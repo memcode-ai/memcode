@@ -88,10 +88,17 @@ func (cp *Checkpoint) Snapshot(relPath string) {
 	if cp == nil || relPath == "" {
 		return
 	}
-	if abs, err := filepath.Abs(relPath); err == nil {
-		if r, err := filepath.Rel(cp.log.root, abs); err == nil && !strings.HasPrefix(r, "..") {
+	// A relative path is relative to the ROOT, as the edit tools resolve it, never
+	// to the process cwd (memcode started in a subdirectory snapshotted the wrong
+	// file and /rewind then restored nothing).
+	if filepath.IsAbs(relPath) {
+		if r, err := filepath.Rel(cp.log.root, relPath); err == nil {
 			relPath = r
 		}
+	}
+	relPath = filepath.Clean(relPath)
+	if relPath == ".." || strings.HasPrefix(relPath, ".."+string(filepath.Separator)) || filepath.IsAbs(relPath) {
+		return // outside the project: not ours to snapshot or restore
 	}
 	if cp.saved[relPath] {
 		return
@@ -101,16 +108,20 @@ func (cp *Checkpoint) Snapshot(relPath string) {
 	src := filepath.Join(cp.log.root, relPath)
 	b, err := os.ReadFile(src)
 	existed := err == nil
+	mode := os.FileMode(0o600)
+	if fi, serr := os.Stat(src); serr == nil {
+		mode = fi.Mode().Perm() // the copy is exactly as private as the original (.env stays 0600)
+	}
 	if err != nil && !os.IsNotExist(err) {
 		return // unreadable (perms?) — don't record a lie
 	}
 	dir := cp.dir()
 	dst := filepath.Join(dir, "files", relPath)
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(dst), 0o700); err != nil {
 		return
 	}
 	if existed {
-		if err := os.WriteFile(dst, b, 0o644); err != nil {
+		if err := os.WriteFile(dst, b, mode); err != nil {
 			return
 		}
 	}
@@ -205,16 +216,25 @@ func (l *Log) Restore(seq int) ([]string, error) {
 			restored = append(restored, path+" (deleted — the edit had created it)")
 			continue
 		}
-		b, err := os.ReadFile(filepath.Join(l.dir, strconv.Itoa(pi.cpSeq), "files", path))
+		pre := filepath.Join(l.dir, strconv.Itoa(pi.cpSeq), "files", path)
+		b, err := os.ReadFile(pre)
 		if err != nil {
 			errs = append(errs, fmt.Sprintf("%s: %v", path, err))
 			continue
+		}
+		mode := os.FileMode(0o644)
+		if fi, err := os.Stat(pre); err == nil {
+			mode = fi.Mode().Perm() // the original's permissions, kept on the snapshot
 		}
 		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 			errs = append(errs, fmt.Sprintf("%s: %v", path, err))
 			continue
 		}
-		if err := os.WriteFile(dst, b, 0o644); err != nil {
+		// A symlink put where the file was must not redirect the restore elsewhere.
+		if fi, err := os.Lstat(dst); err == nil && fi.Mode()&os.ModeSymlink != 0 {
+			_ = os.Remove(dst)
+		}
+		if err := atomicfile.WriteFile(dst, b, mode); err != nil {
 			errs = append(errs, fmt.Sprintf("%s: %v", path, err))
 			continue
 		}

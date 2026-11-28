@@ -22,6 +22,13 @@ func (s *Session) snapshotEdits(uses []wire.Block) {
 	if s.curCkpt == nil {
 		return
 	}
+	// Resolve exactly as the edit tools do, so the snapshot is of the file the
+	// edit will touch (a path the edit would refuse is simply not snapshotted).
+	snap := func(p string) {
+		if rel, err := s.repoRel(p); err == nil {
+			s.curCkpt.Snapshot(rel)
+		}
+	}
 	for _, u := range uses {
 		switch u.Name {
 		case tools.EditFile:
@@ -29,14 +36,14 @@ func (s *Session) snapshotEdits(uses []wire.Block) {
 				Path string `json:"path"`
 			}
 			if json.Unmarshal(u.Input, &in) == nil && in.Path != "" {
-				s.curCkpt.Snapshot(in.Path)
+				snap(in.Path)
 			}
 		case tools.ApplyPatch:
 			var in tools.ApplyPatchInput
 			if json.Unmarshal(u.Input, &in) == nil {
 				for _, e := range in.Edits {
 					if e.Path != "" {
-						s.curCkpt.Snapshot(e.Path)
+						snap(e.Path)
 					}
 				}
 			}

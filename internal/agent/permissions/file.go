@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/memcode-ai/memcode/internal/atomicfile"
 	"github.com/memcode-ai/memcode/internal/statedir"
 )
 
@@ -72,7 +73,7 @@ func Append(root, pattern string, trusted bool) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_RDWR, 0o644)
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		return err
 	}
@@ -122,7 +123,9 @@ func Remove(root, pattern string) (bool, error) {
 	if !removed {
 		return false, nil
 	}
-	return true, os.WriteFile(FilePath(root), []byte(strings.Join(kept, "\n")+"\n"), 0o644)
+	// Atomic: a torn write could cut a rule short (`npm run * --dry-run` →
+	// `npm run *`), which would allow MORE than the user approved.
+	return true, atomicfile.WriteFile(FilePath(root), []byte(strings.Join(kept, "\n")+"\n"), 0o600)
 }
 
 // parseLine turns one file line into an Approval (repo-wide, never-expiring).

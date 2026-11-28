@@ -80,7 +80,10 @@ func (t *Trigger) Handler(sink channels.Sink) http.Handler {
 		// chat principal that could be listed).
 		inb := channels.Inbound{Channel: ch, Conversation: convo, Principal: "github", Text: task, MessageID: "github:" + delivery, Trusted: true}
 		if err := sink.Deliver(r.Context(), inb); err != nil {
-			w.WriteHeader(http.StatusServiceUnavailable) // not recorded — GitHub will retry
+			// Not recorded: forget the id so GitHub's retry (same delivery id) is
+			// processed, instead of being acked as a duplicate and lost.
+			t.dedup.forget(delivery)
+			w.WriteHeader(http.StatusServiceUnavailable)
 			return
 		}
 		w.WriteHeader(http.StatusAccepted)
@@ -191,4 +194,20 @@ func (d *dedup) seenBefore(id string) bool {
 	d.seen[id] = struct{}{}
 	d.order = append(d.order, id)
 	return false
+}
+
+// forget drops id so a retry of a delivery that failed is processed again.
+func (d *dedup) forget(id string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if _, ok := d.seen[id]; !ok {
+		return
+	}
+	delete(d.seen, id)
+	for i, v := range d.order {
+		if v == id {
+			d.order = append(d.order[:i], d.order[i+1:]...)
+			break
+		}
+	}
 }

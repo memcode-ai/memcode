@@ -14,6 +14,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/charmbracelet/x/term"
@@ -209,6 +210,7 @@ type appState struct {
 	turnOut0    int
 	spin        int
 	queued      []string
+	footerBusy  atomic.Bool        // a refreshFooter is in flight (see refreshFooter)
 	asyncLabel  string             // what a non-model runAsyncAs op is doing ("signing in"); "" while the model is working
 	asyncCancel context.CancelFunc // cancels the in-flight runAsync op (Ctrl+C during /compact//models/advisor)
 
@@ -457,9 +459,17 @@ func (s *appState) sysln(text string) {
 // redraws. It also detects sub-agents that finished since the last check and surfaces
 // done-notification lines to scrollback (the "report back" for dispatched sub-agents).
 func (s *appState) refreshFooter() {
+	// One refresh at a time, bounded: on a big repo git can take longer than the
+	// tick, and unguarded refreshes piled up goroutines and git processes.
+	if !s.footerBusy.CompareAndSwap(false, true) {
+		return
+	}
 	go func() {
-		o := s.w.sess.Orientation(s.w.ctx)
-		g := s.w.sess.GitStat(s.w.ctx)
+		defer s.footerBusy.Store(false)
+		fctx, cancel := context.WithTimeout(s.w.ctx, 10*time.Second)
+		defer cancel()
+		o := s.w.sess.Orientation(fctx)
+		g := s.w.sess.GitStat(fctx)
 		root := s.w.sess.Root()
 		n := agentCount(root)
 		s.rt.Dispatch(func() {
@@ -1734,11 +1744,16 @@ func (s *appState) updateConfig(mut func(cfg *config.Config)) {
 	configMu.Lock()
 	defer configMu.Unlock()
 	cfg, err := config.Load(s.w.sess.Root())
-	if err != nil {
-		return
+	if err == nil {
+		mut(cfg)
+		err = cfg.Save()
 	}
-	mut(cfg)
-	_ = cfg.Save()
+	if err != nil {
+		// The change applies to this session; say it won't survive a restart
+		// instead of letting the next launch quietly revert it.
+		msg := "○ couldn't save that setting for next time: " + err.Error()
+		s.rt.Dispatch(func() { s.sysln(msg) })
+	}
 }
 
 // configMu serializes updateConfig's load-mutate-save cycles (see updateConfig).

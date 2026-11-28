@@ -19,6 +19,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/memcode-ai/memcode/internal/atomicfile"
 	"github.com/memcode-ai/memcode/internal/statedir"
 )
 
@@ -159,6 +160,9 @@ func LocalServers(root string) map[string]ServerConfig {
 // AddServer writes a server into the given scope's store (raw, unexpanded — secrets stay as
 // ${VAR} references). Overwrites an existing entry of the same name in that scope.
 func AddServer(root string, scope Scope, name string, sc ServerConfig) error {
+	if err := parsesOrMissing(scopeFile(root, scope)); err != nil {
+		return err
+	}
 	switch scope {
 	case ScopeProject:
 		cfg := readProject(root)
@@ -190,6 +194,9 @@ func AddServer(root string, scope Scope, name string, sc ServerConfig) error {
 
 // RemoveServer deletes a named server from a scope, reporting whether it existed.
 func RemoveServer(root string, scope Scope, name string) (bool, error) {
+	if err := parsesOrMissing(scopeFile(root, scope)); err != nil {
+		return false, err
+	}
 	switch scope {
 	case ScopeProject:
 		cfg := readProject(root)
@@ -220,6 +227,32 @@ func RemoveServer(root string, scope Scope, name string) (bool, error) {
 		return true, writeUserStore(us)
 	}
 	return false, fmt.Errorf("unknown scope %q", scope)
+}
+
+// scopeFile is the file a scope's servers are stored in.
+func scopeFile(root string, scope Scope) string {
+	if scope == ScopeProject {
+		return ProjectFile(root)
+	}
+	return UserStoreFile()
+}
+
+// parsesOrMissing refuses to rewrite a store that exists but doesn't parse:
+// readers treat it as empty, so a write would replace every server in it with
+// just the one being added.
+func parsesOrMissing(path string) error {
+	if path == "" {
+		return nil
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	var v map[string]any
+	if err := json.Unmarshal(b, &v); err != nil {
+		return fmt.Errorf("%s isn't valid JSON (%v) — fix it first; nothing was changed", path, err)
+	}
+	return nil
 }
 
 func readProject(root string) config {
@@ -273,7 +306,7 @@ func writeJSON(path string, v any) error {
 		return err
 	}
 	// 0600: these stores can carry tokens (static headers, env) — owner-only.
-	return os.WriteFile(path, append(b, '\n'), 0o600)
+	return atomicfile.WriteFile(path, append(b, '\n'), 0o600)
 }
 
 // ExpandServer expands ${VAR} / ${VAR:-default} in every string the config carries — so a
